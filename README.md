@@ -1,6 +1,8 @@
 <div align="center">
 
-# ⚡ FindableAI
+<img src="assets/logo.svg" alt="FindableAI Logo" width="150" height="150" />
+
+# FindableAI
 
 ### Evidence-Grounded Autonomous Machine-Discoverability Optimization (MDO) Platform
 
