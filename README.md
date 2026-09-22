@@ -21,8 +21,6 @@
 [Execution Playbook](docs/03_EXECUTION_PLAYBOOK.md) •
 [Team Task Allocation](docs/04_TEAM_TASK_ALLOCATION.md)
 
----
-
 </div>
 
 ## 📌 The Problem: SEO is Dying. GEO & MDO is Born.
@@ -39,8 +37,6 @@ Search is fundamentally mutating. Millions of users no longer click ten blue lin
 **If an AI engine cannot reliably extract, verify, and cite your product facts, your business is effectively invisible to modern searchers.**
 
 FindableAI is the first autonomous engine designed to diagnose, score, and remediate machine invisibility.
-
----
 
 ## 🚀 Key Innovations & Core Features
 
@@ -92,8 +88,6 @@ FindableAI is the first autonomous engine designed to diagnose, score, and remed
 6. **Autonomous Code Remediations (Direct GitHub PRs)**
    - Instead of generic marketing advice, FindableAI generates actionable unified diffs (DOM additions, content clarifications, Schema.org JSON-LD) and opens ready-to-merge GitHub Pull Requests.
 
----
-
 ## 🏗️ Repository Architecture & Engineering Documentation
 
 The project includes an elite-tier engineering specification suite:
@@ -118,8 +112,6 @@ FindableAI/
 | **[03. Execution Playbook](docs/03_EXECUTION_PLAYBOOK.md)** | • 7 phases from foundation to production<br/>• Concrete code snippets and database migrations<br/>• Quality gates and unit/integration test specifications<br/>• Security, sandboxing & API rate limiting rules |
 | **[04. Team Task Allocation](docs/04_TEAM_TASK_ALLOCATION.md)** | • Tailored for a **3-person engineering team** with no fixed time restrictions<br/>• **Person 1:** Core Systems, Crawling & Database Architect<br/>• **Person 2:** AI/ML, Synthetic Queries, NLI & Patch Generator Lead<br/>• **Person 3:** Frontend UI/UX, SSE Streaming & GitHub PR Integration Lead<br/>• Strict interface contracts (Pydantic models, OpenAPI, TypeScript types) |
 
----
-
 ## 💻 Tech Stack Summary
 
 | Layer | Primary Technology | Purpose |
@@ -132,8 +124,6 @@ FindableAI/
 | **Job Queue & Cache** | Redis 7 + Celery / ARQ | Task scheduling, scan orchestration, rate limiting |
 | **AI / LLM Orchestration** | LiteLLM, OpenAI / Anthropic / Gemini, HuggingFace DeBERTa | Synthetic intent generation, NLI classification, patch creation |
 | **VCS Automation** | PyGithub / GitHub REST API | Automated branch creation, patch application, and Pull Request opening |
-
----
 
 ## 👥 Team Roles & Ownership
 
@@ -155,7 +145,6 @@ This project is architected for seamless execution across three dedicated roles:
 ```
 *For complete task matrices, contract definitions, and milestone checklists, see [docs/04_TEAM_TASK_ALLOCATION.md](docs/04_TEAM_TASK_ALLOCATION.md).*
 
----
 
 ## 🛠️ Quickstart & Local Setup
 
@@ -209,8 +198,6 @@ npm run dev
 
 Visit `http://localhost:3000` to access the FindableAI Scan Console.
 
----
-
 ## 📈 Findability F-Score Breakdown
 
 FindableAI evaluates content across four mathematically rigorous sub-scores:
@@ -222,8 +209,6 @@ $$\text{F-Score} = 100 \times \left( 0.40 \cdot S_{\text{coverage}} + 0.35 \cdot
 3. **Contradiction Penalty ($S_{\text{contradiction}}$)**: Direct penalty for conflicting facts across DOM chunks.
 4. **Structure ($S_{\text{structure}}$)**: Presence of valid Schema.org JSON-LD microdata, semantic tables, and heading hierarchies.
 
----
-
 ## 🤝 Contributing
 
 We welcome contributions from the community. Please review our [Execution Playbook](docs/03_EXECUTION_PLAYBOOK.md) and [Architecture Specifications](docs/01_ARCHITECTURE_AND_SYSTEM_DESIGN.md) before submitting pull requests.
@@ -234,13 +219,9 @@ We welcome contributions from the community. Please review our [Execution Playbo
 4. Push to the Branch (`git push origin feature/InnovativeFeature`)
 5. Open a Pull Request
 
----
-
 ## 📄 License
 
 Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for complete legal terms.
-
----
 
 <div align="center">
   <sub>Built with precision for the next generation of AI search and discoverability.</sub>
