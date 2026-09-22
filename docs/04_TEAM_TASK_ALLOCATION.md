@@ -220,7 +220,7 @@ FindableAI/
 
 | Task ID | Task | Priority | Details |
 | :--- | :--- | :--- | :--- |
-| P2-0.1 | LLM Client Setup | Critical | `llm.py`: Create Instructor-patched AsyncOpenAI client. Implement budget tracker (counts calls, raises `BudgetExhausted` at limit) |
+| P2-0.1 | LLM Client Setup | Critical | `llm.py`: Create Instructor-patched AsyncGroq / LiteLLM client with Qwen 2.5 default (`qwen-2.5-72b-instruct`). Implement budget tracker (counts calls, raises `BudgetExhausted` at limit) |
 | P2-0.2 | Pydantic Schemas | Critical | `schemas.py`: Define all Pydantic models — `IntentQuery`, `IntentBatch`, `EntailmentStatus`, `IntentEvaluation`, `Contradiction`, `Patch`, `ScanResult` |
 
 #### Phase 2: Intelligence Pipeline

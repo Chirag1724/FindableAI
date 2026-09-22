@@ -267,9 +267,9 @@ def get_css_selector(element) -> str:
 
 **Purpose:** Generate 30 realistic customer queries across 10 distinct intent taxonomy classes, simulating the exact types of questions an AI agent would need to answer.
 
-**Technology:** OpenAI `gpt-4o-mini` with **Instructor** for Pydantic schema enforcement.
+**Technology:** **Groq** (`qwen-2.5-72b-instruct` / `qwen-2.5-coder-32b`) with **Instructor** for rigid Pydantic schema enforcement (optional fallback: OpenAI `gpt-4o-mini`).
 
-**Why Instructor?** The Instructor library wraps OpenAI's function-calling API to guarantee 100% rigid Pydantic JSON output. If the LLM returns invalid data, Instructor automatically re-prompts with the validation error. This eliminates manual JSON parsing, error handling, and retry loops.
+**Why Groq + Qwen 2.5?** Groq's LPU hardware delivers ultra-low latency inference (~500+ tokens/sec), ensuring the entire multi-stage discovery audit runs within the 10-second target window while keeping cost under <$0.01 per scan. The Instructor library wraps the API to guarantee 100% rigid Pydantic JSON output with automatic retries on validation errors.
 
 > **Research Note:** Instructor provides a clean, type-safe interface that handles complex nested schemas gracefully. It supports custom validators (`BeforeValidator`, `AfterValidator`) and even LLM-based validators via `instructor.llm_validator`. It is provider-agnostic — switching to Anthropic, Gemini, or Ollama requires only changing the `from_provider` method.
 

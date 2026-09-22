@@ -175,25 +175,27 @@ async def crawl_with_playwright(url: str) -> CrawlResult:
     return CrawlResult(url=url, html=html, status=200)
 ```
 
-### 2.5 OpenAI gpt-4o-mini + Instructor
+### 2.5 Groq (Qwen 2.5) + Instructor (Primary LLM Engine)
 
-**Why gpt-4o-mini?**
-- **Speed**: ~300ms per call (vs ~1-2s for gpt-4o).
-- **Cost**: $0.15/1M input tokens, $0.60/1M output tokens. A full 35-call scan costs < $0.01.
-- **Quality**: Sufficient for NLI classification and intent generation. Does not require the reasoning depth of gpt-4o.
+**Why Groq with Qwen 2.5 (`qwen-2.5-72b-instruct`)?**
+- **Speed**: ~500+ tokens/sec on Groq LPUs (sub-second completions for full JSON schemas).
+- **Cost**: Exceptional cost-to-performance ratio (< $0.005 per scan).
+- **Quality**: Qwen 2.5 achieves industry-leading benchmark results in structured reasoning, extraction, and code diff synthesis.
+- **Flexibility**: Fallback support for OpenAI (`gpt-4o-mini`), Anthropic, and Gemini via LiteLLM.
 
-**Why Instructor over raw OpenAI SDK?**
-- Guarantees 100% Pydantic schema compliance.
-- Automatic retry with validation error feedback.
-- Single source of truth: define structure once in Python, Instructor generates the JSON schema.
-- Provider-agnostic: swap to Anthropic/Gemini/Ollama without changing Pydantic models.
+**Why Instructor?**
+- Guarantees 100% Pydantic schema compliance with auto-retry loops on validation errors.
+- Single source of truth: define structure once in Python, Instructor handles structured output.
+- Provider-agnostic: seamless switching between Groq, OpenAI, or local models.
 
 ```python
 import instructor
-from openai import AsyncOpenAI
+from groq import AsyncGroq
 from pydantic import BaseModel
+from app.core.config import settings
 
-client = instructor.from_openai(AsyncOpenAI())
+# Initialize Instructor with Groq client
+client = instructor.from_groq(AsyncGroq(api_key=settings.GROQ_API_KEY))
 
 class IntentEvaluation(BaseModel):
     intent_id: str
@@ -203,7 +205,7 @@ class IntentEvaluation(BaseModel):
     confidence: float
 
 result = await client.chat.completions.create(
-    model="gpt-4o-mini",
+    model=settings.DEFAULT_LLM_MODEL,
     response_model=IntentEvaluation,
     messages=[
         {"role": "system", "content": NLI_SYSTEM_PROMPT},
