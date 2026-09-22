@@ -96,12 +96,34 @@ The project includes an elite-tier engineering specification suite:
 
 ```
 FindableAI/
-├── docs/
+├── assets/                                    # Official branding & vector assets
+│   ├── logo.png                               # Transparent RGBA high-res logo
+│   └── logo.svg                               # Scalable vector logo mark
+├── backend/                                   # FastAPI asynchronous core API
+│   ├── app/
+│   │   ├── api/v1/                            # Route controllers (health, scans, SSE stream, patches)
+│   │   ├── core/                              # Config (Pydantic Settings), lifespan management
+│   │   ├── schemas/                           # Shared Pydantic data contracts (scan, fscore, patch)
+│   │   └── main.py                            # Application entrypoint with CORS & router mounting
+│   ├── pyproject.toml                         # Ruff linter, formatter & Mypy type-checking config
+│   └── requirements.txt                       # Python dependencies (Groq, LiteLLM, Playwright, pgvector)
+├── docs/                                      # Comprehensive engineering specification suite
 │   ├── 01_ARCHITECTURE_AND_SYSTEM_DESIGN.md   # Complete system blueprints & component math
 │   ├── 02_TECH_STACK_AND_IMPLEMENTATION.md    # Tech choices, trade-offs & library configs
 │   ├── 03_EXECUTION_PLAYBOOK.md               # 7-phase step-by-step engineering roadmap
 │   └── 04_TEAM_TASK_ALLOCATION.md             # 3-person role breakdown, contracts & deliverables
-├── LICENSE                                    # Open source MIT license
+├── frontend/                                  # Next.js 14 App Router real-time dashboard
+│   ├── public/                                # Web assets (favicons, SVGs)
+│   ├── src/
+│   │   ├── app/                               # Pages (page.tsx, layout.tsx, not-found.tsx, globals.css)
+│   │   └── types/                             # TypeScript interface contracts mirroring backend
+│   ├── .eslintrc.json                         # ESLint configuration for Next.js Core Web Vitals
+│   ├── package.json                           # Frontend scripts and dependencies
+│   └── tailwind.config.ts                     # Cybernetic design tokens & glassmorphism utilities
+├── .env.example                               # Unified environment configuration template
+├── .gitignore                                 # Git hygiene covering Python, Node, Docker, and IDEs
+├── docker-compose.yml                         # Local PostgreSQL 16 (pgvector) + Redis 7 services
+├── LICENSE                                    # Open source MIT license (Findable AI)
 └── README.md                                  # Repository overview and onboarding
 ```
 
@@ -124,7 +146,7 @@ FindableAI/
 | **Crawler & Extraction** | Playwright (Python async), BeautifulSoup4 | JavaScript-rendered DOM harvesting with CSS path derivation |
 | **Database & Vector Store** | PostgreSQL 16 + pgvector, SQLAlchemy 2.0 (async), Alembic | Relational audit storage + hybrid BM25 / vector embeddings |
 | **Job Queue & Cache** | Redis 7 + Celery / ARQ | Task scheduling, scan orchestration, rate limiting |
-| **AI / LLM Orchestration** | LiteLLM, OpenAI / Anthropic / Gemini, HuggingFace DeBERTa | Synthetic intent generation, NLI classification, patch creation |
+| **AI / LLM Orchestration** | Groq (Qwen 2.5 72B) via LiteLLM & Instructor | Ultra-fast (~500 tps) synthetic intent generation, NLI classification, patch creation |
 | **VCS Automation** | PyGithub / GitHub REST API | Automated branch creation, patch application, and Pull Request opening |
 
 ## 👥 Team Roles & Ownership
@@ -155,7 +177,7 @@ This project is architected for seamless execution across three dedicated roles:
 - **Python:** 3.11+
 - **Node.js:** 20+ & `npm` / `pnpm`
 - **Docker & Docker Compose** (for PostgreSQL + pgvector + Redis)
-- **API Keys:** OpenAI / Gemini / Anthropic API Key
+- **API Keys:** Groq API Key (`GROQ_API_KEY`) (optional fallbacks: OpenAI / Gemini / Anthropic)
 
 ### 1. Clone & Environment Configuration
 

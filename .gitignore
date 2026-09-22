@@ -1,0 +1,96 @@
+# ==============================================================================
+# FindableAI .gitignore
+# ==============================================================================
+
+# Python Bytecode & Environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Python Tooling & Testing Caches (Ruff, Mypy, Pytest)
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# Node & Next.js
+node_modules/
+.next/
+out/
+.turbo/
+.vercel/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
+
+# Environment & Secrets (All Subdirectories)
+**/.env
+**/.env.*
+**/.env*.local
+!**/.env.example
+
+# Local Database & Cache Persistent Volumes
+pgdata/
+redisdata/
+*.sqlite
+*.sqlite3
+*.db
+
+# Playwright & Browser Artifacts
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+.playwright/
+
+# General Logs
+logs/
+*.log
+
+# IDE & Editor Configurations
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# OS-Specific Artifacts
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,35 @@
+# Web Framework & Server
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+
+# Database & Vector Store
+sqlalchemy>=2.0.30
+asyncpg>=0.29.0
+alembic>=1.13.0
+pgvector>=0.2.5
+
+# Cache & Background Tasks
+redis>=5.0.4
+
+# HTTP & Web Crawling
+httpx>=0.27.0
+playwright>=1.44.0
+beautifulsoup4>=4.12.3
+
+# AI & LLM Pipelines (Groq + Qwen)
+groq>=0.9.0
+litellm>=1.40.0
+instructor>=1.3.0
+
+# VCS Automation
+PyGithub>=2.3.0
+
+# Utilities
+python-multipart>=0.0.9
+sse-starlette>=2.1.0
+
+# Linting, Formatting & Type Checking
+ruff>=0.4.0
+mypy>=1.10.0
