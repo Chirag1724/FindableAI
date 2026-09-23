@@ -196,17 +196,17 @@ FindableAI/
 
 #### Deliverables Checklist
 
-- [ ] `backend/app/core/security.py` — SSRF validator with unit tests
-- [ ] `backend/app/crawler/crawler.py` — Async BFS crawler
-- [ ] `backend/app/crawler/dom_chunker.py` — DOM chunker with CSS path generator
+- [x] `backend/app/core/security.py` — SSRF validator with unit tests
+- [x] `backend/app/crawler/crawler.py` — Async BFS crawler
+- [x] `backend/app/crawler/dom_chunker.py` — DOM chunker with CSS path generator
 - [ ] `backend/app/core/embeddings.py` — Embedding pipeline
-- [ ] `backend/app/db.py` — Database engine and session management
-- [ ] `backend/app/models/database.py` — All SQLAlchemy models
+- [x] `backend/app/db.py` — Database engine and session management
+- [x] `backend/app/models/database.py` — All SQLAlchemy models
 - [ ] `backend/app/api/scans.py` — All scan endpoints including SSE
-- [ ] `backend/docker-compose.yml` — Working Docker setup
-- [ ] `backend/alembic/` — Database migrations
-- [ ] `demo-site/` — Bistro 2026 with intentional flaws
-- [ ] Unit tests for: SSRF validator, DOM chunker, CSS path generator
+- [x] `docker-compose.yml` — Working Docker setup
+- [x] `backend/alembic/` — Database migrations
+- [x] `demo-site/` — Bistro 2026 with intentional flaws
+- [x] Unit tests for: SSRF validator, DOM chunker, CSS path generator
 
 ---
 
