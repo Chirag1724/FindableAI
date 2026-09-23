@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About & Reservations — Bistro 2026</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Missing Schema.org LocalBusiness JSON-LD -->
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="container header-content">
+      <div class="logo">
+        <h1><a href="index.html">Bistro 2026</a></h1>
+        <p class="tagline">Farm-to-Table French & Mediterranean Fusion</p>
+      </div>
+      <nav class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="menu.html">Menu</a>
+        <a href="about.html" class="active">About & Contact</a>
+      </nav>
+      <!-- Notice: Navigation header does not list hours here, leaving footer as contradictory source -->
+    </div>
+  </header>
+
+  <main class="container py-4">
+    <section class="about-story">
+      <h2>Our Story</h2>
+      <p>Founded in early 2026, Bistro 2026 was conceived as an intimate sanctuary where modern culinary technique honors age-old agrarian traditions. Every ingredient is ethically harvested and prepared with obsessive attention to purity and flavor.</p>
+      <p>Executive Chef Hélène Laurent brings two decades of Michelin-starred expertise to curate a living menu that responds directly to regional micro-seasons.</p>
+    </section>
+
+    <section id="reservations" class="reservation-section mt-4">
+      <h2>Reservations & Private Events</h2>
+      <p>We accommodate parties of all sizes. For dining room buyouts or private patio dining, please submit your request at least 72 hours in advance.</p>
+      <div class="contact-card">
+        <h3>Direct Contact</h3>
+        <p><strong>Address:</strong> 104 Innovation Way, Tech Park District, CA 94105</p>
+        <p><strong>Telephone:</strong> (415) 555-0199</p>
+        <p><strong>Email:</strong> reservations@bistro2026.com</p>
+      </div>
+    </section>
+
+    <!-- FLAW: Contradictory operating hours in about page info box -->
+    <section class="hours-section mt-4">
+      <div class="alert-box">
+        <h3>Visitor Information & Hours</h3>
+        <p>Our dining room and heated garden patio operate under seasonal hours:</p>
+        <!-- CONTRADICTION: 9:00 PM close vs 10:00 PM on homepage header -->
+        <p class="highlighted-hours"><strong>Monday – Sunday: 11:00 AM – 9:00 PM</strong></p>
+        <p class="note">Kitchen closes 45 minutes prior to dining room closing.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-content">
+      <div class="footer-col">
+        <h4>Bistro 2026</h4>
+        <p>104 Innovation Way, Tech Park District, CA 94105</p>
+        <p>Phone: (415) 555-0199</p>
+      </div>
+      <div class="footer-col">
+        <h4>Operating Hours</h4>
+        <!-- CONTRADICTION: 9:00 PM listed here -->
+        <p>Monday – Sunday, 11:00 AM – 9:00 PM</p>
+      </div>
+      <div class="footer-col">
+        <h4>Hospitality</h4>
+        <p>Dedicated to sustainable gastronomy.</p>
+      </div>
+    </div>
+    <div class="footer-bottom text-center">
+      <p>&copy; 2026 Bistro 2026. All rights reserved.</p>
+    </div>
+  </footer>
+
+</body>
+</html>

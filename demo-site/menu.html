@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dinner & Drinks Menu — Bistro 2026</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Missing Schema.org Menu / MenuItem JSON-LD -->
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="container header-content">
+      <div class="logo">
+        <h1><a href="index.html">Bistro 2026</a></h1>
+        <p class="tagline">Farm-to-Table French & Mediterranean Fusion</p>
+      </div>
+      <nav class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="menu.html" class="active">Menu</a>
+        <a href="about.html">About & Contact</a>
+      </nav>
+      <div class="header-hours">
+        <span class="badge">Open Daily</span>
+        <span class="hours-text">Mon–Sun: 11:00 AM – 10:00 PM</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="container py-4">
+    <h2>Dinner Menu</h2>
+    <p class="subtitle">All ingredients sourced directly from certified organic farms within 100 miles.</p>
+
+    <!-- FLAW: Main menu image instead of extractable structured text for specials -->
+    <div class="menu-image-container my-3">
+      <div class="menu-image-card">
+        <h3>Seasonal Chef Specialties (Handwritten Board)</h3>
+        <img src="menu-photo.png" alt="menu">
+        <p class="caption">Specialty chalkboard captures changing weekly items (Scallops Crudo, Braised Lamb Shank, Duck Confit).</p>
+      </div>
+    </div>
+
+    <!-- Structured beverages table (semantic HTML for crawler contrast) -->
+    <section class="menu-section mt-4">
+      <h3>Artisanal Beverages & Cocktails</h3>
+      <table class="menu-table">
+        <thead>
+          <tr>
+            <th>Beverage</th>
+            <th>Description</th>
+            <th>Price</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Lavender Smoke Old Fashioned</td>
+            <td>Rye whiskey, smoked lavender bitters, demerara, orange peel</td>
+            <td>$18</td>
+          </tr>
+          <tr>
+            <td>Rosemary Paloma Spritz</td>
+            <td>Blanco tequila, fresh ruby grapefruit, rosemary syrup, prosecco</td>
+            <td>$16</td>
+          </tr>
+          <tr>
+            <td>Yuzu Hibiscus Botanical Mocktail</td>
+            <td>House-distilled non-alcoholic botanicals, yuzu, sparkling water</td>
+            <td>$12</td>
+          </tr>
+          <tr>
+            <td>Single Origin Cold Brew</td>
+            <td>Ethiopian Yirgacheffe, nitrogen-infused</td>
+            <td>$7</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Dietary Options section -->
+    <section class="menu-section mt-4">
+      <h3>Dietary & Allergy Accommodations</h3>
+      <dl class="dietary-list">
+        <dt>Vegan Options</dt>
+        <dd>Wild Mushroom Risotto can be prepared with cold-pressed olive oil upon request. Gluten-free pasta available.</dd>
+        <dt>Nut Allergies</dt>
+        <dd>Our kitchen operates with tree nuts and peanuts; please alert your server prior to ordering.</dd>
+      </dl>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-content">
+      <div class="footer-col">
+        <h4>Bistro 2026</h4>
+        <p>104 Innovation Way, Tech Park District, CA 94105</p>
+        <p>Phone: (415) 555-0199</p>
+      </div>
+      <div class="footer-col">
+        <h4>Operating Hours</h4>
+        <p>Monday – Sunday: 11:00 AM – 10:00 PM</p>
+      </div>
+    </div>
+    <div class="footer-bottom text-center">
+      <p>&copy; 2026 Bistro 2026. All rights reserved.</p>
+    </div>
+  </footer>
+
+</body>
+</html>

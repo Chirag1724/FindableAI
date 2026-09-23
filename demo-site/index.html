@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bistro 2026 — Modern Artisanal Dining</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- FLAW: Missing Schema.org JSON-LD (LocalBusiness, Restaurant, Menu, OpeningHoursSpecification) -->
+</head>
+<body>
+
+  <!-- Top Announcement Bar -->
+  <header class="site-header">
+    <div class="container header-content">
+      <div class="logo">
+        <h1>Bistro 2026</h1>
+        <p class="tagline">Farm-to-Table French & Mediterranean Fusion</p>
+      </div>
+      <nav class="nav-links">
+        <a href="index.html" class="active">Home</a>
+        <a href="menu.html">Menu</a>
+        <a href="about.html">About & Contact</a>
+      </nav>
+      <!-- FLAW 1: Hours listed as 11:00 AM - 10:00 PM (Contradicts about.html which says 9:00 PM) -->
+      <div class="header-hours">
+        <span class="badge">Open Daily</span>
+        <span class="hours-text">Mon–Sun: 11:00 AM – 10:00 PM</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <main>
+    <section class="hero-section">
+      <div class="container hero-container">
+        <div class="hero-text">
+          <h2>Elevated Dining in the Heart of the Innovation District</h2>
+          <p>Hand-crafted organic ingredients, biodynamic regional wines, and seasonally inspired small plates designed for sharing.</p>
+          <div class="cta-group">
+            <a href="menu.html" class="btn btn-primary">Explore Menu</a>
+            <a href="about.html#reservations" class="btn btn-secondary">Reserve a Table</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Daily Highlights -->
+    <section class="highlights-section">
+      <div class="container">
+        <h2>Chef's Seasonal Selections</h2>
+        <div class="grid cards-grid">
+          <article class="card">
+            <h3>Truffle Wild Mushroom Risotto</h3>
+            <p>Carnaroli rice slow-cooked with foraged morels, black truffle butter, and aged Parmigiano-Reggiano.</p>
+            <span class="price">$28</span>
+          </article>
+          <article class="card">
+            <h3>Pan-Roasted Mediterranean Seabass</h3>
+            <p>Crispy skin branzino over saffron fennel emulsion and blistered heirloom cherry tomatoes.</p>
+            <span class="price">$34</span>
+          </article>
+          <article class="card">
+            <h3>Prime Wagyu Flat Iron</h3>
+            <p>Charcoal-grilled wagyu steak with chimichurri verde, shallot confit, and rosemary pomme purée.</p>
+            <span class="price">$42</span>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- FLAW 2 & 3: Visual Image-Only Menu Teaser without textual pricing -->
+    <section class="menu-teaser-section">
+      <div class="container text-center">
+        <h2>Special Tasting Menu</h2>
+        <p class="subtitle">Experience our 7-course seasonal chef tasting journey</p>
+        <div class="image-menu-wrapper">
+          <!-- Image lacks detailed alt text or text transcript -->
+          <div class="promo-box">
+            <h3>Weekend Degustation Special</h3>
+            <p>Full 7-course menu available Friday through Sunday evening. Wine pairing available upon request.</p>
+            <p class="notice">See our physical menu board at the entrance or ask your server for daily dietary adjustments.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="container footer-content">
+      <div class="footer-col">
+        <h4>Bistro 2026</h4>
+        <p>104 Innovation Way, Tech Park District, CA 94105</p>
+        <p>Phone: (415) 555-0199</p>
+      </div>
+      <div class="footer-col">
+        <h4>Operating Hours</h4>
+        <p>Monday – Sunday: 11:00 AM – 10:00 PM</p>
+      </div>
+      <div class="footer-col">
+        <h4>Reservations</h4>
+        <p>Walk-ins welcome. Parties of 6 or more require advance booking.</p>
+      </div>
+    </div>
+    <div class="footer-bottom text-center">
+      <p>&copy; 2026 Bistro 2026. All rights reserved.</p>
+    </div>
+  </footer>
+
+</body>
+</html>
