@@ -12,9 +12,9 @@
 1. [Team Structure & Roles](#1-team-structure--roles)
 2. [Ownership Map](#2-ownership-map)
 3. [Detailed Task Breakdown by Person](#3-detailed-task-breakdown-by-person)
-   - [Person 1: Backend & Data Engine Lead](#person-1-backend--data-engine-lead)
-   - [Person 2: AI/ML & Intelligence Pipeline Lead](#person-2-aiml--intelligence-pipeline-lead)
-   - [Person 3: Frontend & Integration Lead](#person-3-frontend--integration-lead)
+   - [Himanshu Raj: Backend & Data Engine Lead](#himanshu-raj-backend--data-engine-lead)
+   - [Shiv Raj Singh: AI/ML & Intelligence Pipeline Lead](#shiv-raj-singh-aiml--intelligence-pipeline-lead)
+   - [Chirag Dwivedi: Frontend & Integration Lead](#chirag-dwivedi-frontend--integration-lead)
 4. [Shared Responsibilities](#4-shared-responsibilities)
 5. [Collaboration Touchpoints](#5-collaboration-touchpoints)
 6. [Interface Contracts](#6-interface-contracts)
@@ -28,9 +28,9 @@
 
 | Role | Alias | Primary Domain | Secondary Domain |
 | :--- | :--- | :--- | :--- |
-| **Person 1** | Backend & Data Engine Lead | Crawler, DOM Chunker, Database, API | Security, DevOps |
-| **Person 2** | AI/ML & Intelligence Pipeline Lead | Intent Generator, NLI Engine, Scorer, Patch Generator | LLM Prompt Engineering, GitHub PR Engine |
-| **Person 3** | Frontend & Integration Lead | Next.js Dashboard, UI Components, SSE | End-to-End Integration, Demo Polish |
+| **Himanshu Raj** | Backend & Data Engine Lead | Crawler, DOM Chunker, Database, API | Security, DevOps |
+| **Shiv Raj Singh** | AI/ML & Intelligence Pipeline Lead | Intent Generator, NLI Engine, Scorer, Patch Generator | LLM Prompt Engineering, GitHub PR Engine |
+| **Chirag Dwivedi** | Frontend & Integration Lead | Next.js Dashboard, UI Components, SSE | End-to-End Integration, Demo Polish |
 
 ### Role Selection Guidance
 
@@ -38,9 +38,9 @@
 
 | If your strength is... | You should be... |
 | :--- | :--- |
-| Python, async programming, databases, web scraping | **Person 1** |
-| AI/ML, prompt engineering, NLI/NLP, data pipelines | **Person 2** |
-| React/Next.js, TypeScript, CSS, UI/UX design | **Person 3** |
+| Python, async programming, databases, web scraping | **Himanshu Raj** |
+| AI/ML, prompt engineering, NLI/NLP, data pipelines | **Shiv Raj Singh** |
+| React/Next.js, TypeScript, CSS, UI/UX design | **Chirag Dwivedi** |
 
 ---
 
@@ -52,65 +52,65 @@
 FindableAI/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                  ← Person 1 (owns), Person 2 (contributes routes)
-│   │   ├── config.py                ← Person 1
+│   │   ├── main.py                  ← Himanshu Raj (owns), Shiv Raj Singh (contributes routes)
+│   │   ├── config.py                ← Himanshu Raj
 │   │   │
 │   │   ├── api/
-│   │   │   ├── scans.py             ← Person 1 (owns endpoints + SSE stream)
-│   │   │   ├── evidence.py          ← Person 2
-│   │   │   └── patches.py           ← Person 2
+│   │   │   ├── scans.py             ← Himanshu Raj (owns endpoints + SSE stream)
+│   │   │   ├── evidence.py          ← Shiv Raj Singh
+│   │   │   └── patches.py           ← Shiv Raj Singh
 │   │   │
 │   │   ├── core/
-│   │   │   ├── security.py          ← Person 1 (SSRF validator)
-│   │   │   ├── llm.py               ← Person 2 (Instructor client + budget)
-│   │   │   └── embeddings.py        ← Person 1
+│   │   │   ├── security.py          ← Himanshu Raj (SSRF validator)
+│   │   │   ├── llm.py               ← Shiv Raj Singh (Instructor client + budget)
+│   │   │   └── embeddings.py        ← Himanshu Raj
 │   │   │
 │   │   ├── crawler/
-│   │   │   ├── crawler.py           ← Person 1
-│   │   │   └── dom_chunker.py       ← Person 1
+│   │   │   ├── crawler.py           ← Himanshu Raj
+│   │   │   └── dom_chunker.py       ← Himanshu Raj
 │   │   │
 │   │   ├── engines/
-│   │   │   ├── intent_generator.py  ← Person 2
-│   │   │   ├── entailment_engine.py ← Person 2
-│   │   │   ├── contradiction.py     ← Person 2
-│   │   │   ├── scorer.py            ← Person 2
-│   │   │   └── patch_generator.py   ← Person 2
+│   │   │   ├── intent_generator.py  ← Shiv Raj Singh
+│   │   │   ├── entailment_engine.py ← Shiv Raj Singh
+│   │   │   ├── contradiction.py     ← Shiv Raj Singh
+│   │   │   ├── scorer.py            ← Shiv Raj Singh
+│   │   │   └── patch_generator.py   ← Shiv Raj Singh
 │   │   │
 │   │   ├── github/
-│   │   │   └── pr_engine.py         ← Person 2
+│   │   │   └── pr_engine.py         ← Shiv Raj Singh
 │   │   │
 │   │   ├── models/
-│   │   │   ├── database.py          ← Person 1 (schema), Person 2 (reviews)
-│   │   │   └── schemas.py           ← Person 1 + Person 2 (shared contract)
+│   │   │   ├── database.py          ← Himanshu Raj (schema), Shiv Raj Singh (reviews)
+│   │   │   └── schemas.py           ← Himanshu Raj + Shiv Raj Singh (shared contract)
 │   │   │
-│   │   └── db.py                    ← Person 1
+│   │   └── db.py                    ← Himanshu Raj
 │   │
-│   ├── alembic/                     ← Person 1
-│   ├── requirements.txt             ← Person 1 (maintains), All (contribute)
-│   └── Dockerfile                   ← Person 1
+│   ├── alembic/                     ← Himanshu Raj
+│   ├── requirements.txt             ← Himanshu Raj (maintains), All (contribute)
+│   └── Dockerfile                   ← Himanshu Raj
 │
-├── frontend/                        ← Person 3 (owns entire directory)
+├── frontend/                        ← Chirag Dwivedi (owns entire directory)
 │   ├── src/
 │   │   ├── app/
-│   │   │   ├── layout.tsx           ← Person 3
-│   │   │   ├── page.tsx             ← Person 3
-│   │   │   └── scans/[id]/page.tsx  ← Person 3
-│   │   ├── components/              ← Person 3
-│   │   ├── hooks/                   ← Person 3
-│   │   └── lib/                     ← Person 3
+│   │   │   ├── layout.tsx           ← Chirag Dwivedi
+│   │   │   ├── page.tsx             ← Chirag Dwivedi
+│   │   │   └── scans/[id]/page.tsx  ← Chirag Dwivedi
+│   │   ├── components/              ← Chirag Dwivedi
+│   │   ├── hooks/                   ← Chirag Dwivedi
+│   │   └── lib/                     ← Chirag Dwivedi
 │   └── ...
 │
-├── demo-site/                       ← Person 1 (creates), Person 2 (validates flaws)
-├── docker-compose.yml               ← Person 1
+├── demo-site/                       ← Himanshu Raj (creates), Shiv Raj Singh (validates flaws)
+├── docker-compose.yml               ← Himanshu Raj
 ├── docs/                            ← All (shared)
-└── README.md                        ← Person 3 (maintains)
+└── README.md                        ← Chirag Dwivedi (maintains)
 ```
 
 ### By System Component
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    PERSON 3 (Frontend)                       │
+│                  CHIRAG DWIVEDI (Frontend)                  │
 │  ┌──────────┐ ┌──────────┐ ┌───────────┐ ┌──────────────┐  │
 │  │ Landing  │ │ Score    │ │ Intent   │ │ Patch Modal │  │
 │  │ Page     │ │ Gauge   │ │ Matrix   │ │ + Diff View │  │
@@ -119,7 +119,7 @@ FindableAI/
 │       └─────────────┴─────────────┴───────────────┘          │
 │                          SSE / REST                          │
 ├─────────────────────────────────────────────────────────────┤
-│                    PERSON 1 (Backend Core)                    │
+│                 HIMANSHU RAJ (Backend Core)                 │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐   │
 │  │ SSRF Shield  │  │ BFS Crawler  │  │ DOM Chunker +    │   │
 │  │ (security.py)│  │ (crawler.py) │  │ CSS Path Gen     │   │
@@ -130,7 +130,7 @@ FindableAI/
 │  │  API Routes + SSE Streaming + Docker                │     │
 │  └─────────────────────────────────────────────────────┘     │
 ├─────────────────────────────────────────────────────────────┤
-│                    PERSON 2 (Intelligence)                    │
+│                SHIV RAJ SINGH (Intelligence)                │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐   │
 │  │ Intent Gen   │  │ NLI Engine   │  │ Contradiction    │   │
 │  │ (30 queries) │  │ (Entailment) │  │ Detector         │   │
@@ -148,7 +148,7 @@ FindableAI/
 
 ---
 
-### Person 1: Backend & Data Engine Lead
+### Himanshu Raj: Backend & Data Engine Lead
 
 **Primary Responsibility:** Everything from URL input to stored, indexed DOM chunks. The API surface. Infrastructure.
 
@@ -210,7 +210,7 @@ FindableAI/
 
 ---
 
-### Person 2: AI/ML & Intelligence Pipeline Lead
+### Shiv Raj Singh: AI/ML & Intelligence Pipeline Lead
 
 **Primary Responsibility:** Everything from raw chunks to intelligence outputs — intent generation, entailment verification, contradiction detection, scoring, patch generation, and GitHub PR creation.
 
@@ -228,7 +228,7 @@ FindableAI/
 | Task ID | Task | Priority | Details |
 | :--- | :--- | :--- | :--- |
 | P2-2.1 | Intent Generator | Critical | `intent_generator.py`: Single LLM call generates 30 queries across 10 taxonomy categories. Uses Instructor with `IntentBatch` response model |
-| P2-2.2 | Hybrid Retrieval | Critical | In `entailment_engine.py`: For each query, call Person 1's hybrid search function, get top-5 chunks |
+| P2-2.2 | Hybrid Retrieval | Critical | In `entailment_engine.py`: For each query, call Himanshu Raj's hybrid search function, get top-5 chunks |
 | P2-2.3 | NLI Entailment Engine | Critical | `entailment_engine.py`: Design the NLI system prompt. For each (query, chunks) pair, classify as SUPPORTED/PARTIALLY_SUPPORTED/CONTRADICTED/UNKNOWN. 30 parallel async calls |
 | P2-2.4 | Anti-Hallucination Guardrails | Critical | Ensure LLM prompt strictly constrains output: must cite chunk_ids, must return UNKNOWN if evidence is missing, must never fabricate |
 | P2-2.5 | Contradiction Detector | High | `contradiction.py`: Extract entity-value pairs (hours, phone, address, prices) from all chunks. Cross-page diff for conflicts. Classify as HARD_CONTRADICTION or SOFT_INCONSISTENCY |
@@ -256,7 +256,7 @@ FindableAI/
 #### Deliverables Checklist
 
 - [ ] `backend/app/core/llm.py` — Instructor client + budget tracker
-- [ ] `backend/app/models/schemas.py` — All Pydantic schemas (co-owned with Person 1)
+- [ ] `backend/app/models/schemas.py` — All Pydantic schemas (co-owned with Himanshu Raj)
 - [ ] `backend/app/engines/intent_generator.py` — 30-query generator
 - [ ] `backend/app/engines/entailment_engine.py` — Hybrid retrieval + NLI classifier
 - [ ] `backend/app/engines/contradiction.py` — Cross-page entity diffing
@@ -268,7 +268,7 @@ FindableAI/
 
 ---
 
-### Person 3: Frontend & Integration Lead
+### Chirag Dwivedi: Frontend & Integration Lead
 
 **Primary Responsibility:** The entire Next.js frontend, all UI components, SSE integration, and the final demo experience.
 
@@ -334,8 +334,8 @@ These tasks are **jointly owned** by all three team members:
 
 | Task | Description | All Contribute |
 | :--- | :--- | :--- |
-| **Pydantic schemas** (`schemas.py`) | The API contract between backend and frontend. Any schema change must be communicated. | Person 1 creates, Person 2 adds AI schemas, Person 3 validates frontend compatibility |
-| **Documentation** (`docs/`) | All 4 docs files. Each person documents their own components. | All review, Person 3 maintains README |
+| **Pydantic schemas** (`schemas.py`) | The API contract between backend and frontend. Any schema change must be communicated. | Himanshu Raj creates, Shiv Raj Singh adds AI schemas, Chirag Dwivedi validates frontend compatibility |
+| **Documentation** (`docs/`) | All 4 docs files. Each person documents their own components. | All review, Chirag Dwivedi maintains README |
 | **Code reviews** | Every PR must be reviewed by at least one other team member. | Round-robin assignment |
 | **Demo rehearsal** | Full end-to-end demo run-through before presentation. | All participate |
 | **Bug fixes** | Cross-cutting bugs (e.g., CORS, data format mismatches). | Whoever is closest to the issue |
@@ -350,10 +350,10 @@ These are moments where two or more team members MUST coordinate before proceedi
 
 | Touchpoint | Who | When | Purpose |
 | :--- | :--- | :--- | :--- |
-| **TP-1: Schema Contract** | Person 1 + Person 2 | After Phase 0 | Agree on Pydantic schemas for all DB models and API responses |
-| **TP-2: Chunk Output Verified** | Person 1 → Person 2 | After Phase 1 | Person 2 cannot build retrieval/entailment without verified chunk data in DB |
-| **TP-3: API Endpoints Ready** | Person 1 → Person 3 | After P1-2.1, P1-2.2 | Person 3 needs working API endpoints (even with mock data) to build frontend |
-| **TP-4: Intelligence Pipeline Done** | Person 2 → Person 3 | After Phase 2 | Person 3 can finalize data-driven components (IntentMatrix, ScoreGauge) |
+| **TP-1: Schema Contract** | Himanshu Raj + Shiv Raj Singh | After Phase 0 | Agree on Pydantic schemas for all DB models and API responses |
+| **TP-2: Chunk Output Verified** | Himanshu Raj → Shiv Raj Singh | After Phase 1 | Shiv Raj Singh cannot build retrieval/entailment without verified chunk data in DB |
+| **TP-3: API Endpoints Ready** | Himanshu Raj → Chirag Dwivedi | After P1-2.1, P1-2.2 | Chirag Dwivedi needs working API endpoints (even with mock data) to build frontend |
+| **TP-4: Intelligence Pipeline Done** | Shiv Raj Singh → Chirag Dwivedi | After Phase 2 | Chirag Dwivedi can finalize data-driven components (IntentMatrix, ScoreGauge) |
 | **TP-5: Full Integration** | All | After Phase 4 | End-to-end test: URL input → backend scan → SSE stream → dashboard renders |
 | **TP-6: Demo Rehearsal** | All | Before presentation | Full run-through with Bistro 2026. Identify and fix any issues |
 
@@ -371,11 +371,11 @@ When a dependency is ready, the producing person must:
 
 ### Contract 1: Crawler Output → Intelligence Pipeline
 
-**Producer:** Person 1  
-**Consumer:** Person 2
+**Producer:** Himanshu Raj  
+**Consumer:** Shiv Raj Singh
 
 ```python
-# Person 1 produces this in the database:
+# Himanshu Raj produces this in the database:
 class DOMChunkDB(SQLModel):
     id: UUID
     scan_id: UUID
@@ -387,7 +387,7 @@ class DOMChunkDB(SQLModel):
     embedding: Vector(1536)      # Pre-computed embedding
     content_tsv: str             # Auto-generated tsvector
 
-# Person 1 provides this function for Person 2:
+# Himanshu Raj provides this function for Shiv Raj Singh:
 async def hybrid_search(query: str, scan_id: UUID, k: int = 5) -> list[DOMChunkDB]:
     """Returns top-k chunks by RRF-fused vector + BM25 search."""
     ...
@@ -395,12 +395,12 @@ async def hybrid_search(query: str, scan_id: UUID, k: int = 5) -> list[DOMChunkD
 
 ### Contract 2: Intelligence Pipeline → API → Frontend
 
-**Producer:** Person 2  
-**Router:** Person 1  
-**Consumer:** Person 3
+**Producer:** Shiv Raj Singh  
+**Router:** Himanshu Raj  
+**Consumer:** Chirag Dwivedi
 
 ```python
-# Person 2 produces these Pydantic models:
+# Shiv Raj Singh produces these Pydantic models:
 class ScanResult(BaseModel):
     scan_id: str
     status: str                  # "completed" | "in_progress" | "failed"
@@ -413,11 +413,11 @@ class ScanResult(BaseModel):
     contradictions: list[Contradiction]
     patches: list[Patch]
     
-# Person 1 exposes these via API:
+# Himanshu Raj exposes these via API:
 # GET /api/scans/{id}         → ScanResult
 # GET /api/scans/{id}/stream  → SSE events with phase data
 
-# Person 3 consumes via:
+# Chirag Dwivedi consumes via:
 # TypeScript types mirroring the Pydantic models
 interface ScanResult {
     scan_id: string;
@@ -435,8 +435,8 @@ interface ScanResult {
 
 ### Contract 3: SSE Event Format
 
-**Producer:** Person 1 (endpoint) + Person 2 (orchestrator)  
-**Consumer:** Person 3
+**Producer:** Himanshu Raj (endpoint) + Shiv Raj Singh (orchestrator)  
+**Consumer:** Chirag Dwivedi
 
 ```typescript
 // Each SSE message has this format:
@@ -483,7 +483,7 @@ interface SSEEvent {
 If you are **blocked** by another person's incomplete work:
 
 1. **Immediately** communicate in team chat with specifics (what you need, what's missing).
-2. **Use mock data** to unblock yourself if possible (e.g., Person 3 can use hardcoded JSON while APIs are being built).
+2. **Use mock data** to unblock yourself if possible (e.g., Chirag Dwivedi can use hardcoded JSON while APIs are being built).
 3. **Pair program** if the blocker is a shared interface issue.
 
 ---
@@ -502,9 +502,10 @@ If you are **blocked** by another person's incomplete work:
                     │             │              │
                     ▼             │              ▼
     ┌───────────────────┐        │  ┌───────────────────────┐
-    │ Person 1: Phase 1 │        │  │ Person 3: Phase 0 UI  │
+    │ Himanshu Raj:     │        │  │ Chirag Dwivedi:       │
+    │ Phase 1           │        │  │ Phase 0 UI            │
     │ Crawler + Chunker │        │  │ Next.js scaffold +    │
-    │                   │        │  │ Design system + Shell  │
+    │                   │        │  │ Design system + Shell │
     └────────┬──────────┘        │  └───────────┬───────────┘
              │                   │              │
              │ TP-2: Chunks      │              │
@@ -512,7 +513,8 @@ If you are **blocked** by another person's incomplete work:
              │                   │              │
              ▼                   ▼              │
     ┌───────────────────┐  ┌──────────────┐     │
-    │ Person 1: Phase 2 │  │ Person 2:    │     │
+    │ Himanshu Raj:     │  │ Shiv Raj     │     │
+    │ Phase 2           │  │ Singh:       │     │
     │ API + SSE + DB    │  │ Phase 2:     │     │
     │ helpers           │  │ Intelligence │     │
     │                   │  │ Pipeline     │     │
@@ -522,7 +524,8 @@ If you are **blocked** by another person's incomplete work:
              │                    │              │
              │                    │              ▼
              │                    │  ┌───────────────────────┐
-             │                    │  │ Person 3: Phase 4     │
+             │                    │  │ Chirag Dwivedi:       │
+             │                    │  │ Phase 4               │
              │                    │  │ Dashboard UI (uses    │
              │                    │  │ mock data initially)  │
              │                    │  └───────────┬───────────┘
@@ -531,7 +534,8 @@ If you are **blocked** by another person's incomplete work:
              │ done               │              │
              │                    ▼              │
              │           ┌──────────────┐        │
-             │           │ Person 2:    │        │
+             │           │ Shiv Raj     │        │
+             │           │ Singh:       │        │
              │           │ Phase 3:     │        │
              │           │ Patches + PR │        │
              │           └──────┬───────┘        │
@@ -549,9 +553,9 @@ If you are **blocked** by another person's incomplete work:
                     └──────────────────────────┘
 ```
 
-### Key Insight: Person 3 Can Start Early
+### Key Insight: Chirag Dwivedi Can Start Early
 
-Person 3 should **not wait** for the backend to be complete. Instead:
+Chirag Dwivedi should **not wait** for the backend to be complete. Instead:
 
 1. **Phase 0:** Scaffold the entire Next.js app with design system, layout, and all component shells.
 2. **Phase 4 (early):** Build all UI components using **hardcoded mock data** that matches the Pydantic schema contract. This means the Score Gauge, Intent Matrix, Contradiction Cards, and Patch Modal can all be built and visually polished before the backend is ready.
@@ -563,9 +567,9 @@ Person 3 should **not wait** for the backend to be complete. Instead:
 
 | Person | Phase 0 | Phase 1 | Phase 2 | Phase 3 | Phase 4 | Phase 5 | Phase 6 | Total Tasks |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Person 1** | 5 | 6 | 5 | — | — | 4 | — | **20** |
-| **Person 2** | 2 | — | 9 | 6 | — | — | — | **17** |
-| **Person 3** | 4 | — | — | — | 10 | 6 | — | **20** |
+| **Himanshu Raj** | 5 | 6 | 5 | — | — | 4 | — | **20** |
+| **Shiv Raj Singh** | 2 | — | 9 | 6 | — | — | — | **17** |
+| **Chirag Dwivedi** | 4 | — | — | — | 10 | 6 | — | **20** |
 | **Shared** | — | — | — | — | — | — | 6 | **6** |
 
 ---

@@ -134,7 +134,7 @@ FindableAI/
 | **[01. Architecture & System Design](docs/01_ARCHITECTURE_AND_SYSTEM_DESIGN.md)** | • End-to-end dataflow pipeline<br/>• 9 component deep-dives (Crawler, DOM chunker, NLI engine, PR engine)<br/>• F-Score formal mathematical formulation<br/>• Cost & latency model (<$0.01 per scan, ~10s runtime) |
 | **[02. Tech Stack & Implementation](docs/02_TECH_STACK_AND_IMPLEMENTATION.md)** | • Python 3.11 + FastAPI async core<br/>• Next.js 14 App Router + TailwindCSS dashboard<br/>• PostgreSQL 16 + pgvector with HNSW indexing<br/>• Instructor + Pydantic validation<br/>• Server-Sent Events (SSE) realtime streaming protocol |
 | **[03. Execution Playbook](docs/03_EXECUTION_PLAYBOOK.md)** | • 7 phases from foundation to production<br/>• Concrete code snippets and database migrations<br/>• Quality gates and unit/integration test specifications<br/>• Security, sandboxing & API rate limiting rules |
-| **[04. Team Task Allocation](docs/04_TEAM_TASK_ALLOCATION.md)** | • Tailored for a **3-person engineering team** with no fixed time restrictions<br/>• **Person 1:** Core Systems, Crawling & Database Architect<br/>• **Person 2:** AI/ML, Synthetic Queries, NLI & Patch Generator Lead<br/>• **Person 3:** Frontend UI/UX, SSE Streaming & GitHub PR Integration Lead<br/>• Strict interface contracts (Pydantic models, OpenAPI, TypeScript types) |
+| **[04. Team Task Allocation](docs/04_TEAM_TASK_ALLOCATION.md)** | • Tailored for a **3-person engineering team** with no fixed time restrictions<br/>• **Himanshu Raj:** Core Systems, Crawling & Database Architect<br/>• **Shiv Raj Singh:** AI/ML, Synthetic Queries, NLI & Patch Generator Lead<br/>• **Chirag Dwivedi:** Frontend UI/UX, SSE Streaming & GitHub PR Integration Lead<br/>• Strict interface contracts (Pydantic models, OpenAPI, TypeScript types) |
 
 ## 💻 Tech Stack Summary
 
@@ -157,7 +157,7 @@ This project is architected for seamless execution across three dedicated roles:
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                               TEAM RESPONSIBILITIES                             │
 ├──────────────────────┬───────────────────────────────┬──────────────────────────┤
-│ Person 1             │ Person 2                      │ Person 3                 │
+│ Himanshu Raj         │ Shiv Raj Singh                │ Chirag Dwivedi           │
 │ Systems & Data Lead  │ AI/ML & Pipeline Lead         │ Frontend & PR Lead       │
 ├──────────────────────┼───────────────────────────────┼──────────────────────────┤
 │ • FastAPI Backend    │ • Synthetic Query Generator   │ • Next.js 14 App         │
