@@ -199,14 +199,14 @@ FindableAI/
 - [x] `backend/app/core/security.py` — SSRF validator with unit tests
 - [x] `backend/app/crawler/crawler.py` — Async BFS crawler
 - [x] `backend/app/crawler/dom_chunker.py` — DOM chunker with CSS path generator
-- [ ] `backend/app/core/embeddings.py` — Embedding pipeline
+- [x] `backend/app/core/embeddings.py` — Embedding pipeline
 - [x] `backend/app/db.py` — Database engine and session management
 - [x] `backend/app/models/database.py` — All SQLAlchemy models
-- [ ] `backend/app/api/scans.py` — All scan endpoints including SSE
+- [x] `backend/app/api/scans.py` — All scan endpoints including SSE
 - [x] `docker-compose.yml` — Working Docker setup
 - [x] `backend/alembic/` — Database migrations
 - [x] `demo-site/` — Bistro 2026 with intentional flaws
-- [x] Unit tests for: SSRF validator, DOM chunker, CSS path generator
+- [x] Unit tests for: SSRF validator, DOM chunker, CSS path generator, embeddings pipeline, scans API
 
 ---
 

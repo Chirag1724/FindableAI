@@ -25,6 +25,11 @@ async def store_dom_chunks(
         return []
 
     async def _insert(s: AsyncSession) -> list[DOMChunk]:
+        from app.core.embeddings import get_embeddings_batch
+
+        texts = [chunk.content for chunk in chunks]
+        embeddings = await get_embeddings_batch(texts)
+
         db_records = [
             DOMChunk(
                 scan_id=scan_id,
@@ -33,8 +38,9 @@ async def store_dom_chunks(
                 content=chunk.content,
                 tag=chunk.tag,
                 word_count=chunk.word_count,
+                embedding=embeddings[i] if i < len(embeddings) else None,
             )
-            for chunk in chunks
+            for i, chunk in enumerate(chunks)
         ]
         s.add_all(db_records)
         await s.flush()

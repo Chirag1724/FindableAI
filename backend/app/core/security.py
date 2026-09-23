@@ -92,6 +92,9 @@ def validate_target_url(url: str, allow_private: bool = False) -> str:
     hostname_lower = hostname.lower()
 
     # 2. Check forbidden hostnames
+    if hostname_lower in {"metadata.google.internal", "instance-data"}:
+        raise SSRFSecurityException(f"Prohibited cloud metadata hostname: '{hostname}'.")
+
     if hostname_lower in FORBIDDEN_HOSTNAMES or hostname_lower.endswith(".localhost"):
         if not allow_private:
             raise SSRFSecurityException(f"Prohibited hostname: '{hostname}'.")
@@ -99,6 +102,10 @@ def validate_target_url(url: str, allow_private: bool = False) -> str:
     # 3. Check if hostname is directly an IP literal
     try:
         ip = ipaddress.ip_address(hostname_lower)
+        if ip in ipaddress.ip_network("169.254.0.0/16"):
+            raise SSRFSecurityException(
+                f"Prohibited cloud metadata IP address: '{ip}'. Access is blocked."
+            )
         if not allow_private and is_ip_blocked(ip):
             raise SSRFSecurityException(
                 f"Prohibited target IP address: '{ip}'. Private/internal destinations are blocked."

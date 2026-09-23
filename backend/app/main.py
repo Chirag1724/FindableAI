@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api.v1 import api_v1_router
+from .api.v1.scans import router as scans_router
 from .core.config import settings
 
 
@@ -36,6 +37,9 @@ app.add_middleware(
 
 # Mount API routes
 app.include_router(api_v1_router)
+
+# Mount alias for Contract 2 compatibility (/api/scans alongside /api/v1/scans)
+app.include_router(scans_router, prefix="/api/scans", tags=["Scans (Contract 2)"])
 
 
 @app.get("/")
