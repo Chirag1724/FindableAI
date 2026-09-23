@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     MAX_SCAN_PAGES: int = 15
     SCAN_TIMEOUT_SECONDS: int = 60
     LLM_BUDGET_CAP_USD: float = 0.01
+    MAX_LLM_CALLS_PER_SCAN: int = 35
 
 
 settings = Settings()
