@@ -565,12 +565,13 @@ Chirag Dwivedi should **not wait** for the backend to be complete. Instead:
 
 ## Summary: One-Page Task Count
 
-| Person | Phase 0 | Phase 1 | Phase 2 | Phase 3 | Phase 4 | Phase 5 | Phase 6 | Total Tasks |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Himanshu Raj** | 5 | 6 | 5 | — | — | 4 | — | **20** |
-| **Shiv Raj Singh** | 2 | — | 9 | 6 | — | — | — | **17** |
-| **Chirag Dwivedi** | 4 | — | — | — | 10 | 6 | — | **20** |
-| **Shared** | — | — | — | — | — | — | 6 | **6** |
+| Person | Phase 0 | Phase 1 | Phase 2 | Phase 3 | Phase 4 | Phase 5 | Phase 6 | Total Tasks | Completed |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Himanshu Raj** | 5 | 6 | 5 | — | — | 4 | — | **20** | **16** |
+| **Shiv Raj Singh** | 2 | — | 9 | 6 | — | — | — | **17** | **0** |
+| **Chirag Dwivedi** | 4 | — | — | — | 10 | 6 | — | **20** | **4** |
+| **Shared** | — | — | — | — | — | — | 6 | **6** | **0** |
+| **Total** | **11** | **6** | **14** | **6** | **10** | **10** | **6** | **63** | **20** |
 
 ---
 
