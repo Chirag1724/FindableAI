@@ -228,9 +228,9 @@ FindableAI/
 | Task ID | Task | Priority | Details |
 | :--- | :--- | :--- | :--- |
 | P2-2.1 | Intent Generator | Critical | ✅ **DONE** — `intent_generator.py`: **ONE LLM call** → exactly 30 `IntentQuery` across 10 categories (3 each), structured `IntentBatch`, deterministic validation (duplicates, distribution, answer-like rejection). Architecture: `business_context → IntentGenerator → LLMClient → IntentBatch → validation` |
-| P2-2.2 | Hybrid Retrieval | Critical | In `entailment_engine.py`: For each query, call Himanshu Raj's hybrid search function, get top-5 chunks |
-| P2-2.3 | NLI Entailment Engine | Critical | `entailment_engine.py`: Design the NLI system prompt. For each (query, chunks) pair, classify as SUPPORTED/PARTIALLY_SUPPORTED/CONTRADICTED/UNKNOWN. 30 parallel async calls |
-| P2-2.4 | Anti-Hallucination Guardrails | Critical | Ensure LLM prompt strictly constrains output: must cite chunk_ids, must return UNKNOWN if evidence is missing, must never fabricate |
+| P2-2.2 | Hybrid Retrieval | Critical | ✅ **DONE (consumer)** — `entailment_engine.py` calls Contract-1 `hybrid_search(query, scan_id, k=5)` from `app.crawler.search`. Does **not** re-implement vector/BM25/RRF (still owned by crawler/search). |
+| P2-2.3 | NLI Entailment Engine | Critical | ✅ **DONE** — `backend/app/engines/entailment_engine.py`. Flow: `Intent → hybrid_search(..., k=5) → top-5 chunks → LLMClient NLI → IntentEvaluation`. Concurrent `evaluate_intents` via `asyncio.gather`; shared `LLMClient` budget preserved. |
+| P2-2.4 | Anti-Hallucination Guardrails | Critical | ✅ **DONE** — evidence-only `NLI_SYSTEM_PROMPT`; zero-chunk → deterministic UNKNOWN (0 LLM calls); non-UNKNOWN must cite retrieved IDs; fabricated IDs rejected; no LLM repair/retry (`max_retries=0`) |
 | P2-2.5 | Contradiction Detector | High | `contradiction.py`: Extract entity-value pairs (hours, phone, address, prices) from all chunks. Cross-page diff for conflicts. Classify as HARD_CONTRADICTION or SOFT_INCONSISTENCY |
 | P2-2.6 | F-Score Calculator | Critical | `scorer.py`: Implement `F = 0.40*S_ans + 0.30*S_con + 0.20*S_str + 0.10*S_acc`. Each sub-score is a 0-100 float |
 | P2-2.7 | Schema.org Checker | High | In `scorer.py`: Check for presence of `LocalBusiness`, `PostalAddress`, `OpeningHoursSpecification`, `GeoCoordinates`, `Menu`, `FAQPage` in `<script type="application/ld+json">` |
@@ -258,12 +258,12 @@ FindableAI/
 - [x] `backend/app/core/llm.py` — Instructor client + budget tracker
 - [x] `backend/app/schemas/intelligence.py` — AI Pydantic schemas (`IntentQuery`, `IntentBatch`, …); API schemas remain in `schemas/scan.py` / `fscore.py` / `patch.py`
 - [x] `backend/app/engines/intent_generator.py` — 30-query generator (**ONE LLM call per generation**; 10 taxonomy categories × 3; deterministic validation + unit tests in `tests/test_intent_generator.py`)
-- [ ] `backend/app/engines/entailment_engine.py` — Hybrid retrieval + NLI classifier *(not started)*
+- [x] `backend/app/engines/entailment_engine.py` — NLI classifier consuming `hybrid_search` (k=5); statuses SUPPORTED / PARTIALLY_SUPPORTED / CONTRADICTED / UNKNOWN; citation validation; tests in `tests/test_entailment_engine.py`
 - [ ] `backend/app/engines/contradiction.py` — Cross-page entity diffing *(not started)*
 - [ ] `backend/app/engines/scorer.py` — F-Score formula + Schema.org checker *(not started)*
 - [ ] `backend/app/engines/patch_generator.py` — JSON-LD generator + formatter *(not started)*
 - [ ] `backend/app/github/pr_engine.py` — Full PR automation *(not started)*
-- [ ] NLI system prompt (documented and version-controlled) *(not started)*
+- [x] NLI system prompt (version-controlled in `entailment_engine.py` as `NLI_SYSTEM_PROMPT`)
 - [ ] Unit tests for: F-Score calculation, contradiction detection, JSON-LD validation *(not started)*
 
 ##### Intent Generator — implemented notes
@@ -275,7 +275,19 @@ FindableAI/
 | Structured `IntentBatch` output | ✅ |
 | Deterministic validation (count, distribution, duplicates, empty, answer-like) | ✅ |
 | Test coverage (`tests/test_intent_generator.py`) | ✅ |
-| Retrieval / NLI / contradiction / scoring / patches / GitHub PR / DAG | ❌ intentionally unimplemented |
+
+##### Entailment / NLI Engine — implemented notes
+
+| Item | Status |
+| :--- | :--- |
+| `Intent → hybrid_search(..., k=5) → top-5 DOM chunks → structured NLI → IntentEvaluation` | ✅ |
+| Outcomes: SUPPORTED / PARTIALLY_SUPPORTED / CONTRADICTED / UNKNOWN | ✅ |
+| Evidence-only reasoning; UNKNOWN when insufficient; non-UNKNOWN must cite retrieved chunk IDs | ✅ |
+| Fabricated chunk IDs rejected; no LLM repair call | ✅ |
+| Zero retrieved chunks → deterministic UNKNOWN (no LLM call) | ✅ |
+| Concurrent batch via `asyncio.gather`; shared Phase A `LLMClient` budget (default 35) | ✅ |
+| Retrieval algorithm ownership remains `app.crawler.search` | ✅ |
+| Contradiction / scoring / patches / GitHub PR / DAG | ❌ intentionally unimplemented |
 
 ---
 
@@ -579,10 +591,10 @@ Chirag Dwivedi should **not wait** for the backend to be complete. Instead:
 | Person | Phase 0 | Phase 1 | Phase 2 | Phase 3 | Phase 4 | Phase 5 | Phase 6 | Total Tasks | Completed |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Himanshu Raj** | 5 | 6 | 5 | — | — | 4 | — | **20** | **16** |
-| **Shiv Raj Singh** | 2 | — | 9 | 6 | — | — | — | **17** | **3** (P2-0.1, P2-0.2, P2-2.1) |
+| **Shiv Raj Singh** | 2 | — | 9 | 6 | — | — | — | **17** | **6** (P2-0.1, P2-0.2, P2-2.1, P2-2.2, P2-2.3, P2-2.4) |
 | **Chirag Dwivedi** | 4 | — | — | — | 10 | 6 | — | **20** | **4** |
 | **Shared** | — | — | — | — | — | — | 6 | **6** | **0** |
-| **Total** | **11** | **6** | **14** | **6** | **10** | **10** | **6** | **63** | **23** |
+| **Total** | **11** | **6** | **14** | **6** | **10** | **10** | **6** | **63** | **26** |
 
 ---
 
