@@ -232,8 +232,8 @@ FindableAI/
 | P2-2.3 | NLI Entailment Engine | Critical | ✅ **DONE** — `backend/app/engines/entailment_engine.py`. Flow: `Intent → hybrid_search(..., k=5) → top-5 chunks → LLMClient NLI → IntentEvaluation`. Concurrent `evaluate_intents` via `asyncio.gather`; shared `LLMClient` budget preserved. |
 | P2-2.4 | Anti-Hallucination Guardrails | Critical | ✅ **DONE** — evidence-only `NLI_SYSTEM_PROMPT`; zero-chunk → deterministic UNKNOWN (0 LLM calls); non-UNKNOWN must cite retrieved IDs; fabricated IDs rejected; no LLM repair/retry (`max_retries=0`) |
 | P2-2.5 | Contradiction Detector | High | ✅ **DONE** — `backend/app/engines/contradiction.py`. Hybrid: deterministic structured facts first; LLM only for semantic ambiguity. Severities: HARD_CONTRADICTION / SOFT_INCONSISTENCY. Flow: chunks → extract → normalize → compare → optional semantic LLM → deduped `Contradiction`. |
-| P2-2.6 | F-Score Calculator | Critical | `scorer.py`: Implement `F = 0.40*S_ans + 0.30*S_con + 0.20*S_str + 0.10*S_acc`. Each sub-score is a 0-100 float |
-| P2-2.7 | Schema.org Checker | High | In `scorer.py`: Check for presence of `LocalBusiness`, `PostalAddress`, `OpeningHoursSpecification`, `GeoCoordinates`, `Menu`, `FAQPage` in `<script type="application/ld+json">` |
+| P2-2.6 | F-Score Calculator | Critical | ✅ **DONE** — `backend/app/engines/scorer.py`. Deterministic `S_ans` / `S_con` / `S_str` / `S_acc` + configurable `ScoreWeights` aggregation. **Production weights remain configuration-driven pending team confirmation** (docs Option A vs README Option B). Provisional defaults mirror docs `0.40/0.30/0.20/0.10`. |
+| P2-2.7 | Schema.org Checker | High | ✅ **DONE** — JSON-LD parse via BeautifulSoup + `json.loads`; checks LocalBusiness (subtypes), PostalAddress, OpeningHoursSpecification, GeoCoordinates, Menu/hasMenu, FAQPage; `@graph` / arrays / `@type` arrays; malformed blocks reported safely. |
 
 #### Phase 3: Patch Engine & GitHub
 
@@ -260,11 +260,23 @@ FindableAI/
 - [x] `backend/app/engines/intent_generator.py` — 30-query generator (**ONE LLM call per generation**; 10 taxonomy categories × 3; deterministic validation + unit tests in `tests/test_intent_generator.py`)
 - [x] `backend/app/engines/entailment_engine.py` — NLI classifier consuming `hybrid_search` (k=5); statuses SUPPORTED / PARTIALLY_SUPPORTED / CONTRADICTED / UNKNOWN; citation validation; tests in `tests/test_entailment_engine.py`
 - [x] `backend/app/engines/contradiction.py` — Cross-page entity diffing (deterministic + semantic); tests in `tests/test_contradiction.py`
-- [ ] `backend/app/engines/scorer.py` — F-Score formula + Schema.org checker *(not started)*
+- [x] `backend/app/engines/scorer.py` — F-Score calculator + Schema.org checker; tests in `tests/test_scorer.py`
 - [ ] `backend/app/engines/patch_generator.py` — JSON-LD generator + formatter *(not started)*
 - [ ] `backend/app/github/pr_engine.py` — Full PR automation *(not started)*
 - [x] NLI system prompt (version-controlled in `entailment_engine.py` as `NLI_SYSTEM_PROMPT`)
-- [ ] Unit tests for: F-Score calculation, contradiction detection, JSON-LD validation *(not started — contradiction tests live in `tests/test_contradiction.py`)*
+- [x] Unit tests for F-Score / Schema.org (`tests/test_scorer.py`); contradiction tests in `tests/test_contradiction.py`
+- [ ] Unit tests for: JSON-LD patch validation *(not started)*
+
+##### Scorer / Schema.org — implemented notes
+
+| Item | Status |
+| :--- | :--- |
+| Deterministic S_ans / S_con / S_str / S_acc + F aggregation | ✅ |
+| Configurable `ScoreWeights` (centralized); provisional docs weights | ✅ |
+| Canonical production formula **not** silently finalized (docs vs README) | ⚠️ team decision |
+| Schema.org JSON-LD offline checker (6 required types) | ✅ |
+| No LLM / network / DB in scorer | ✅ |
+| Patches / GitHub PR / DAG | ❌ intentionally unimplemented |
 
 ##### Intent Generator — implemented notes
 
@@ -606,10 +618,10 @@ Chirag Dwivedi should **not wait** for the backend to be complete. Instead:
 | Person | Phase 0 | Phase 1 | Phase 2 | Phase 3 | Phase 4 | Phase 5 | Phase 6 | Total Tasks | Completed |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Himanshu Raj** | 5 | 6 | 5 | — | — | 4 | — | **20** | **16** |
-| **Shiv Raj Singh** | 2 | — | 9 | 6 | — | — | — | **17** | **7** (… + P2-2.5) |
+| **Shiv Raj Singh** | 2 | — | 9 | 6 | — | — | — | **17** | **9** (… + P2-2.6, P2-2.7) |
 | **Chirag Dwivedi** | 4 | — | — | — | 10 | 6 | — | **20** | **4** |
 | **Shared** | — | — | — | — | — | — | 6 | **6** | **0** |
-| **Total** | **11** | **6** | **14** | **6** | **10** | **10** | **6** | **63** | **27** |
+| **Total** | **11** | **6** | **14** | **6** | **10** | **10** | **6** | **63** | **29** |
 
 ---
 
