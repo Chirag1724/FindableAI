@@ -208,8 +208,8 @@ Build the core AI reasoning pipeline: intent generation, hybrid retrieval, NLI e
 
 | # | Task | Details | Acceptance Criteria |
 | :--- | :--- | :--- | :--- |
-| 2.1 | **LLM Client Factory** | Implement `llm.py`: Instructor-patched AsyncOpenAI client with budget tracker (counts calls, enforces MAX_LLM_CALLS_PER_SCAN). | Budget tracker raises `BudgetExhausted` at call #36 |
-| 2.2 | **Intent Generator** | Implement `intent_generator.py`: Takes business category (inferred from crawl), generates 30 queries across 10 taxonomy classes via single LLM call. | Output has exactly 30 `IntentQuery` objects, 3 per category |
+| 2.1 | **LLM Client Factory** | ✅ **DONE** — `backend/app/core/llm.py`: Instructor + LiteLLM, `BudgetExhausted`, `MAX_LLM_CALLS_PER_SCAN` (default 35). | Budget tracker raises `BudgetExhausted` at call #36 |
+| 2.2 | **Intent Generator** | ✅ **DONE** — `backend/app/engines/intent_generator.py`. Flow: `business_context → IntentGenerator → LLMClient → IntentBatch → validation`. **ONE LLM call per generation** (`max_retries=0`). Exactly 30 queries, 10 categories × 3, deterministic validation (no repair LLM call). | Output has exactly 30 `IntentQuery` objects, 3 per category; unit tests in `tests/test_intent_generator.py` |
 | 2.3 | **Hybrid Search** | Implement retrieval in `entailment_engine.py`: For each query, run parallel vector search + BM25, fuse via RRF, return top 5 chunks. | For query "Are you open on Thanksgiving?", retrieves chunks containing hours info |
 | 2.4 | **NLI Entailment** | Implement entailment classification: For each (query, top-5 chunks) pair, LLM classifies as SUPPORTED / PARTIALLY_SUPPORTED / CONTRADICTED / UNKNOWN. | For Bistro 2026: "vegan burger" query → SUPPORTED; "wheelchair access" → UNKNOWN |
 | 2.5 | **Contradiction Detector** | Implement `contradiction.py`: Extract entity-value pairs, diff across pages. | Detects hours contradiction: 10 PM (index.html) vs 9 PM (about.html) |
