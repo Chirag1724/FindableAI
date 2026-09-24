@@ -231,7 +231,7 @@ FindableAI/
 | P2-2.2 | Hybrid Retrieval | Critical | ✅ **DONE (consumer)** — `entailment_engine.py` calls Contract-1 `hybrid_search(query, scan_id, k=5)` from `app.crawler.search`. Does **not** re-implement vector/BM25/RRF (still owned by crawler/search). |
 | P2-2.3 | NLI Entailment Engine | Critical | ✅ **DONE** — `backend/app/engines/entailment_engine.py`. Flow: `Intent → hybrid_search(..., k=5) → top-5 chunks → LLMClient NLI → IntentEvaluation`. Concurrent `evaluate_intents` via `asyncio.gather`; shared `LLMClient` budget preserved. |
 | P2-2.4 | Anti-Hallucination Guardrails | Critical | ✅ **DONE** — evidence-only `NLI_SYSTEM_PROMPT`; zero-chunk → deterministic UNKNOWN (0 LLM calls); non-UNKNOWN must cite retrieved IDs; fabricated IDs rejected; no LLM repair/retry (`max_retries=0`) |
-| P2-2.5 | Contradiction Detector | High | `contradiction.py`: Extract entity-value pairs (hours, phone, address, prices) from all chunks. Cross-page diff for conflicts. Classify as HARD_CONTRADICTION or SOFT_INCONSISTENCY |
+| P2-2.5 | Contradiction Detector | High | ✅ **DONE** — `backend/app/engines/contradiction.py`. Hybrid: deterministic structured facts first; LLM only for semantic ambiguity. Severities: HARD_CONTRADICTION / SOFT_INCONSISTENCY. Flow: chunks → extract → normalize → compare → optional semantic LLM → deduped `Contradiction`. |
 | P2-2.6 | F-Score Calculator | Critical | `scorer.py`: Implement `F = 0.40*S_ans + 0.30*S_con + 0.20*S_str + 0.10*S_acc`. Each sub-score is a 0-100 float |
 | P2-2.7 | Schema.org Checker | High | In `scorer.py`: Check for presence of `LocalBusiness`, `PostalAddress`, `OpeningHoursSpecification`, `GeoCoordinates`, `Menu`, `FAQPage` in `<script type="application/ld+json">` |
 
@@ -259,12 +259,12 @@ FindableAI/
 - [x] `backend/app/schemas/intelligence.py` — AI Pydantic schemas (`IntentQuery`, `IntentBatch`, …); API schemas remain in `schemas/scan.py` / `fscore.py` / `patch.py`
 - [x] `backend/app/engines/intent_generator.py` — 30-query generator (**ONE LLM call per generation**; 10 taxonomy categories × 3; deterministic validation + unit tests in `tests/test_intent_generator.py`)
 - [x] `backend/app/engines/entailment_engine.py` — NLI classifier consuming `hybrid_search` (k=5); statuses SUPPORTED / PARTIALLY_SUPPORTED / CONTRADICTED / UNKNOWN; citation validation; tests in `tests/test_entailment_engine.py`
-- [ ] `backend/app/engines/contradiction.py` — Cross-page entity diffing *(not started)*
+- [x] `backend/app/engines/contradiction.py` — Cross-page entity diffing (deterministic + semantic); tests in `tests/test_contradiction.py`
 - [ ] `backend/app/engines/scorer.py` — F-Score formula + Schema.org checker *(not started)*
 - [ ] `backend/app/engines/patch_generator.py` — JSON-LD generator + formatter *(not started)*
 - [ ] `backend/app/github/pr_engine.py` — Full PR automation *(not started)*
 - [x] NLI system prompt (version-controlled in `entailment_engine.py` as `NLI_SYSTEM_PROMPT`)
-- [ ] Unit tests for: F-Score calculation, contradiction detection, JSON-LD validation *(not started)*
+- [ ] Unit tests for: F-Score calculation, contradiction detection, JSON-LD validation *(not started — contradiction tests live in `tests/test_contradiction.py`)*
 
 ##### Intent Generator — implemented notes
 
@@ -287,7 +287,22 @@ FindableAI/
 | Zero retrieved chunks → deterministic UNKNOWN (no LLM call) | ✅ |
 | Concurrent batch via `asyncio.gather`; shared Phase A `LLMClient` budget (default 35) | ✅ |
 | Retrieval algorithm ownership remains `app.crawler.search` | ✅ |
-| Contradiction / scoring / patches / GitHub PR / DAG | ❌ intentionally unimplemented |
+
+##### Contradiction Detector — implemented notes
+
+| Item | Status |
+| :--- | :--- |
+| `DOM chunks → fact extraction → normalization → deterministic compare → semantic LLM (ambiguous only) → Contradiction` | ✅ |
+| HARD_CONTRADICTION / SOFT_INCONSISTENCY | ✅ |
+| Structured facts: phone, email, address, price, opening_hours, coordinates | ✅ |
+| Phone normalization: IN 10-digit / `91` / `+91` equivalents collapse | ✅ |
+| Email entity scoping: reservations / support / billing / primary | ✅ |
+| Address comparison: conservative (incomplete≠HARD; clear conflicts=HARD) | ✅ |
+| Conservative false-positive policy; same-entity grouping | ✅ |
+| Source provenance rebuilt from input chunks (LLM cannot fabricate metadata) | ✅ |
+| Shared `LLMClient`, `max_retries=0`, `BudgetExhausted` propagates | ✅ |
+| No duplicate retrieval implementation | ✅ |
+| Scoring / patches / GitHub PR / DAG | ❌ intentionally unimplemented |
 
 ---
 
@@ -591,10 +606,10 @@ Chirag Dwivedi should **not wait** for the backend to be complete. Instead:
 | Person | Phase 0 | Phase 1 | Phase 2 | Phase 3 | Phase 4 | Phase 5 | Phase 6 | Total Tasks | Completed |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Himanshu Raj** | 5 | 6 | 5 | — | — | 4 | — | **20** | **16** |
-| **Shiv Raj Singh** | 2 | — | 9 | 6 | — | — | — | **17** | **6** (P2-0.1, P2-0.2, P2-2.1, P2-2.2, P2-2.3, P2-2.4) |
+| **Shiv Raj Singh** | 2 | — | 9 | 6 | — | — | — | **17** | **7** (… + P2-2.5) |
 | **Chirag Dwivedi** | 4 | — | — | — | 10 | 6 | — | **20** | **4** |
 | **Shared** | — | — | — | — | — | — | 6 | **6** | **0** |
-| **Total** | **11** | **6** | **14** | **6** | **10** | **10** | **6** | **63** | **26** |
+| **Total** | **11** | **6** | **14** | **6** | **10** | **10** | **6** | **63** | **27** |
 
 ---
 
