@@ -220,14 +220,14 @@ FindableAI/
 
 | Task ID | Task | Priority | Details |
 | :--- | :--- | :--- | :--- |
-| P2-0.1 | LLM Client Setup | Critical | `llm.py`: Create Instructor-patched AsyncGroq / LiteLLM client with Qwen 2.5 default (`qwen-2.5-72b-instruct`). Implement budget tracker (counts calls, raises `BudgetExhausted` at limit) |
-| P2-0.2 | Pydantic Schemas | Critical | `schemas.py`: Define all Pydantic models — `IntentQuery`, `IntentBatch`, `EntailmentStatus`, `IntentEvaluation`, `Contradiction`, `Patch`, `ScanResult` |
+| P2-0.1 | LLM Client Setup | Critical | ✅ **DONE** — `backend/app/core/llm.py`: Instructor + LiteLLM client, `BudgetExhausted`, default max 35 calls (`MAX_LLM_CALLS_PER_SCAN`) |
+| P2-0.2 | Pydantic Schemas | Critical | ✅ **DONE** — AI contracts in `backend/app/schemas/intelligence.py` (`IntentQuery`, `IntentBatch`, `EntailmentStatus`, `IntentEvaluation`, `Contradiction`, `Patch`, `ScanResult`); coexist with API schemas |
 
 #### Phase 2: Intelligence Pipeline
 
 | Task ID | Task | Priority | Details |
 | :--- | :--- | :--- | :--- |
-| P2-2.1 | Intent Generator | Critical | `intent_generator.py`: Single LLM call generates 30 queries across 10 taxonomy categories. Uses Instructor with `IntentBatch` response model |
+| P2-2.1 | Intent Generator | Critical | ✅ **DONE** — `intent_generator.py`: **ONE LLM call** → exactly 30 `IntentQuery` across 10 categories (3 each), structured `IntentBatch`, deterministic validation (duplicates, distribution, answer-like rejection). Architecture: `business_context → IntentGenerator → LLMClient → IntentBatch → validation` |
 | P2-2.2 | Hybrid Retrieval | Critical | In `entailment_engine.py`: For each query, call Himanshu Raj's hybrid search function, get top-5 chunks |
 | P2-2.3 | NLI Entailment Engine | Critical | `entailment_engine.py`: Design the NLI system prompt. For each (query, chunks) pair, classify as SUPPORTED/PARTIALLY_SUPPORTED/CONTRADICTED/UNKNOWN. 30 parallel async calls |
 | P2-2.4 | Anti-Hallucination Guardrails | Critical | Ensure LLM prompt strictly constrains output: must cite chunk_ids, must return UNKNOWN if evidence is missing, must never fabricate |
@@ -255,16 +255,27 @@ FindableAI/
 
 #### Deliverables Checklist
 
-- [ ] `backend/app/core/llm.py` — Instructor client + budget tracker
-- [ ] `backend/app/models/schemas.py` — All Pydantic schemas (co-owned with Himanshu Raj)
-- [ ] `backend/app/engines/intent_generator.py` — 30-query generator
-- [ ] `backend/app/engines/entailment_engine.py` — Hybrid retrieval + NLI classifier
-- [ ] `backend/app/engines/contradiction.py` — Cross-page entity diffing
-- [ ] `backend/app/engines/scorer.py` — F-Score formula + Schema.org checker
-- [ ] `backend/app/engines/patch_generator.py` — JSON-LD generator + formatter
-- [ ] `backend/app/github/pr_engine.py` — Full PR automation
-- [ ] NLI system prompt (documented and version-controlled)
-- [ ] Unit tests for: F-Score calculation, contradiction detection, JSON-LD validation
+- [x] `backend/app/core/llm.py` — Instructor client + budget tracker
+- [x] `backend/app/schemas/intelligence.py` — AI Pydantic schemas (`IntentQuery`, `IntentBatch`, …); API schemas remain in `schemas/scan.py` / `fscore.py` / `patch.py`
+- [x] `backend/app/engines/intent_generator.py` — 30-query generator (**ONE LLM call per generation**; 10 taxonomy categories × 3; deterministic validation + unit tests in `tests/test_intent_generator.py`)
+- [ ] `backend/app/engines/entailment_engine.py` — Hybrid retrieval + NLI classifier *(not started)*
+- [ ] `backend/app/engines/contradiction.py` — Cross-page entity diffing *(not started)*
+- [ ] `backend/app/engines/scorer.py` — F-Score formula + Schema.org checker *(not started)*
+- [ ] `backend/app/engines/patch_generator.py` — JSON-LD generator + formatter *(not started)*
+- [ ] `backend/app/github/pr_engine.py` — Full PR automation *(not started)*
+- [ ] NLI system prompt (documented and version-controlled) *(not started)*
+- [ ] Unit tests for: F-Score calculation, contradiction detection, JSON-LD validation *(not started)*
+
+##### Intent Generator — implemented notes
+
+| Item | Status |
+| :--- | :--- |
+| Single LLM call via `LLMClient.create(..., response_model=IntentBatch, max_retries=0)` | ✅ |
+| Exactly 30 generated intents / 10 categories / 3 per category | ✅ |
+| Structured `IntentBatch` output | ✅ |
+| Deterministic validation (count, distribution, duplicates, empty, answer-like) | ✅ |
+| Test coverage (`tests/test_intent_generator.py`) | ✅ |
+| Retrieval / NLI / contradiction / scoring / patches / GitHub PR / DAG | ❌ intentionally unimplemented |
 
 ---
 
@@ -568,10 +579,10 @@ Chirag Dwivedi should **not wait** for the backend to be complete. Instead:
 | Person | Phase 0 | Phase 1 | Phase 2 | Phase 3 | Phase 4 | Phase 5 | Phase 6 | Total Tasks | Completed |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Himanshu Raj** | 5 | 6 | 5 | — | — | 4 | — | **20** | **16** |
-| **Shiv Raj Singh** | 2 | — | 9 | 6 | — | — | — | **17** | **0** |
+| **Shiv Raj Singh** | 2 | — | 9 | 6 | — | — | — | **17** | **3** (P2-0.1, P2-0.2, P2-2.1) |
 | **Chirag Dwivedi** | 4 | — | — | — | 10 | 6 | — | **20** | **4** |
 | **Shared** | — | — | — | — | — | — | 6 | **6** | **0** |
-| **Total** | **11** | **6** | **14** | **6** | **10** | **10** | **6** | **63** | **20** |
+| **Total** | **11** | **6** | **14** | **6** | **10** | **10** | **6** | **63** | **23** |
 
 ---
 
