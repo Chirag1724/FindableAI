@@ -12,6 +12,7 @@ from .entailment_engine import (
     evaluate_intents,
 )
 from .intent_generator import IntentGenerationError, IntentGenerator, generate_intents
+from .scorer import ScoreInputs, Scorer, ScorerError, score
 
 __all__ = [
     "ContradictionDetectionError",
@@ -20,8 +21,12 @@ __all__ = [
     "EntailmentError",
     "IntentGenerationError",
     "IntentGenerator",
+    "ScoreInputs",
+    "Scorer",
+    "ScorerError",
     "detect_contradictions",
     "evaluate_intent",
     "evaluate_intents",
     "generate_intents",
+    "score",
 ]

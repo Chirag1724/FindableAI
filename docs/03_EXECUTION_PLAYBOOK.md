@@ -213,8 +213,22 @@ Build the core AI reasoning pipeline: intent generation, hybrid retrieval, NLI e
 | 2.3 | **Hybrid Search (consume Contract 1)** | ✅ **DONE (consumer)** — `EntailmentEngine` calls `hybrid_search(query, scan_id, k=5)` from `app.crawler.search`. Vector+BM25+RRF internals remain crawler/search-owned and may still be incomplete; engine depends on the **contract**, not algorithm completeness. | Entailment requests top-5 chunks per intent |
 | 2.4 | **NLI Entailment** | ✅ **DONE** — `backend/app/engines/entailment_engine.py`. Flow: Intent → hybrid_search(k=5) → NLI via `LLMClient` → `IntentEvaluation`. Statuses: SUPPORTED / PARTIALLY_SUPPORTED / CONTRADICTED / UNKNOWN. Anti-hallucination: evidence-only prompt; citations must match retrieved IDs; zero chunks → UNKNOWN with 0 LLM calls; no repair retries. Batch: `asyncio.gather` on shared client. | Unit tests in `tests/test_entailment_engine.py` |
 | 2.5 | **Contradiction Detector** | ✅ **DONE** — `backend/app/engines/contradiction.py`. Architecture: DOM chunks → structured fact extraction → normalization → deterministic comparison → semantic LLM only for ambiguous policy pairs → deduplicated `Contradiction` (HARD_CONTRADICTION / SOFT_INCONSISTENCY). Conservative false-positive policy; source metadata rebuilt from input chunks; shared `LLMClient` with `max_retries=0`. | Detects hours contradiction (10 PM vs 9 PM); unit tests in `tests/test_contradiction.py` |
-| 2.6 | **F-Score Calculator** | Implement `scorer.py`: Apply formula `F = 0.40*S_ans + 0.30*S_con + 0.20*S_str + 0.10*S_acc`. | Bistro 2026 scores approximately 30-50% (imperfect by design) |
+| 2.6 | **F-Score Calculator** | ✅ **DONE** — `backend/app/engines/scorer.py`. Computes `S_ans` (entailment contributions), `S_con` (normalized contradiction impact), `S_str` (Schema.org coverage), `S_acc` (chunk extractability). Weighted `F` via configurable `ScoreWeights`. **Production weighting remains configuration-driven pending team confirmation of the canonical F-score specification** (docs `0.40/0.30/0.20/0.10` vs README alternative). | Unit tests in `tests/test_scorer.py` |
 | 2.7 | **DAG Orchestrator** | Implement the OBSERVE → PLAN → ACT → VERIFY → REFLECT → STOP state machine with SSE event emission at each phase transition. | Full pipeline runs end-to-end on Bistro 2026 in <15 seconds |
+
+##### Schema.org checker (part of 2.6 / P2-2.7)
+
+- Parses `<script type="application/ld+json">` with BeautifulSoup + `json.loads` (offline, untrusted input).
+- Supports object / array / `@graph` / `@type` arrays.
+- Required types: LocalBusiness (+ subtypes), PostalAddress, OpeningHoursSpecification, GeoCoordinates, Menu/hasMenu, FAQPage.
+- Malformed JSON recorded in diagnostics; does not crash scoring.
+- Equal-weight `S_str` over structurally valid required types.
+
+**Test command:**
+```bash
+cd backend && PYTHONPATH=. pytest tests/test_scorer.py tests/test_contradiction.py \
+  tests/test_entailment_engine.py tests/test_intent_generator.py tests/test_llm.py
+```
 
 ### How to Build: The NLI Entailment Prompt
 

@@ -13,11 +13,19 @@ from .intelligence import (
 )
 from .patch import DOMSelectorAnchor, PatchProposal, PullRequestResult
 from .scan import AuditSummary, ScanRequest, ScanResponse, ScanStatus, ScanStatusEvent
+from .scoring import (
+    ContradictionSeverityWeights,
+    SchemaOrgReport,
+    SchemaTypeResult,
+    ScoreBreakdown,
+    ScoreWeights,
+)
 
 __all__ = [
     "AuditSummary",
     "Contradiction",
     "ContradictionSeverity",
+    "ContradictionSeverityWeights",
     "DOMSelectorAnchor",
     "EntailmentStatus",
     "EvidenceReference",
@@ -34,5 +42,9 @@ __all__ = [
     "ScanResult",
     "ScanStatus",
     "ScanStatusEvent",
+    "SchemaOrgReport",
+    "SchemaTypeResult",
+    "ScoreBreakdown",
+    "ScoreWeights",
     "SubScoreMetric",
 ]
