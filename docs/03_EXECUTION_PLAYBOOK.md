@@ -300,8 +300,8 @@ Build the autonomous code remediation system that generates Schema.org JSON-LD p
 | 3.2 | **JSON-LD Generator** | ✅ **DONE** — `jsonld_generator.py`. Evidence-backed Schema.org JSON-LD for FAQPage, LocalBusiness, PostalAddress, OpeningHoursSpecification, GeoCoordinates, Menu. Validated via Phase E `analyze_schema_org`. No LLM; insufficient evidence → skip. | Tests in `tests/test_jsonld_generator.py` |
 | 3.3 | **Patch Formatter** | ✅ **DONE** — `patch_formatter.py`. Deterministic unified diffs; insert before `</head>` else `</body>`; identical block → noop; conflicting block → refuse overwrite. | Tests in `tests/test_patch_formatter.py` |
 | 3.4 | **Score Projection** | ✅ **DONE** — `projected_score.py`. In-memory patch simulation; reuses Phase E `Scorer` (no formula duplication); per-opportunity current/projected/delta. | Tests in `tests/test_projected_score.py` + `test_patch_pipeline_integration.py` |
-| 3.5 | **GitHub PR Engine** | Implement `pr_engine.py`: Fork repo, create branch `findable-ai/geo-optimizations`, commit patches, create PR with markdown summary. *(P2-3.5 — not started)* | PR appears on target repo with correct diff |
-| 3.6 | **PR Markdown** | Generate PR body with score before/after, per-file changes, intent summary. *(P2-3.6 — not started)* | Markdown body complete |
+| 3.5 | **GitHub PR Engine** | ✅ **DONE** — `github/pr_engine.py`. Validate Phase 3 patch set → fork → branch `findableai/remediation/<scan_id>` → apply HTML updates via injectable GitHub client → commit → PR. Duplicate open PR reused. Tests use `FakeGitHubClient` (no real API). | `tests/test_pr_engine.py` |
+| 3.6 | **PR Markdown** | ✅ **DONE** — `github/pr_markdown.py`. Deterministic PR body from authoritative scores/gaps/intents/evidence/files. No GitHub/LLM. | `tests/test_pr_markdown.py` |
 
 ### How to Build: Schema.org JSON-LD Generation
 
