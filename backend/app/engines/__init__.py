@@ -12,11 +12,19 @@ from .entailment_engine import (
     evaluate_intents,
 )
 from .intent_generator import IntentGenerationError, IntentGenerator, generate_intents
+from .jsonld_generator import JsonLdGenerator, JsonLdGeneratorError, generate_jsonld
+from .patch_formatter import PatchFormatter, PatchFormatterError, format_patches
 from .patch_prioritizer import (
     PatchPrioritizer,
     PatchPrioritizerError,
     calculate_priority,
     prioritize,
+)
+from .projected_score import (
+    ProjectedScoreCalculator,
+    ProjectedScoreError,
+    project_score_for_generated,
+    project_scores,
 )
 from .scorer import ScoreInputs, Scorer, ScorerError, score
 
@@ -27,8 +35,14 @@ __all__ = [
     "EntailmentError",
     "IntentGenerationError",
     "IntentGenerator",
+    "JsonLdGenerator",
+    "JsonLdGeneratorError",
+    "PatchFormatter",
+    "PatchFormatterError",
     "PatchPrioritizer",
     "PatchPrioritizerError",
+    "ProjectedScoreCalculator",
+    "ProjectedScoreError",
     "ScoreInputs",
     "Scorer",
     "ScorerError",
@@ -36,7 +50,11 @@ __all__ = [
     "detect_contradictions",
     "evaluate_intent",
     "evaluate_intents",
+    "format_patches",
     "generate_intents",
+    "generate_jsonld",
     "prioritize",
+    "project_score_for_generated",
+    "project_scores",
     "score",
 ]

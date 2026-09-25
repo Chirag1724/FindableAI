@@ -8,6 +8,7 @@ Reuses ``EvidenceReference``, ``IntentEvaluation``, ``Contradiction``, and
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -114,3 +115,129 @@ class PatchPrioritizationResult(BaseModel):
         if self.selected_count > self.total_candidates:
             raise ValueError("selected_count cannot exceed total_candidates")
         return self
+
+
+# ---------------------------------------------------------------------------
+# P2-3.2 / P2-3.3 / P2-3.4 — generation, formatting, projected score
+# ---------------------------------------------------------------------------
+
+SCHEMA_ORG_CONTEXT = "https://schema.org"
+
+
+class FaqEntry(BaseModel):
+    """Evidence-backed FAQ pair (never invent answers)."""
+
+    question: str = Field(..., min_length=1)
+    answer: str = Field(..., min_length=1)
+    source_intent_id: str | None = None
+
+
+class OpeningHoursFact(BaseModel):
+    day_of_week: str = Field(..., min_length=1)
+    opens: str = Field(..., min_length=1)
+    closes: str = Field(..., min_length=1)
+
+
+class MenuItemFact(BaseModel):
+    name: str = Field(..., min_length=1)
+    price: str | None = None
+
+
+class BusinessFacts(BaseModel):
+    """Trusted, evidence-backed facts supplied to the JSON-LD generator.
+
+    The generator never invents values. Omit fields that lack evidence.
+    """
+
+    name: str | None = None
+    telephone: str | None = None
+    email: str | None = None
+    street_address: str | None = None
+    address_locality: str | None = None
+    address_region: str | None = None
+    postal_code: str | None = None
+    address_country: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    opening_hours: list[OpeningHoursFact] = Field(default_factory=list)
+    menu_name: str | None = None
+    menu_items: list[MenuItemFact] = Field(default_factory=list)
+    faq_entries: list[FaqEntry] = Field(default_factory=list)
+
+
+class GeneratedJsonLd(BaseModel):
+    """One controlled Schema.org JSON-LD document for a remediation opportunity."""
+
+    opportunity_id: str = Field(..., min_length=1)
+    schema_type: SchemaRemediationTarget
+    payload: dict[str, Any]
+    json_text: str = Field(..., min_length=1)
+    related_intent_ids: list[str] = Field(default_factory=list)
+    related_contradiction_ids: list[str] = Field(default_factory=list)
+    evidence_notes: list[str] = Field(default_factory=list)
+
+
+class JsonLdSkip(BaseModel):
+    """Deterministic skip when evidence is insufficient or kind is unsupported."""
+
+    opportunity_id: str = Field(..., min_length=1)
+    schema_type: SchemaRemediationTarget | None = None
+    reason: str = Field(..., min_length=1)
+
+
+class JsonLdGenerationResult(BaseModel):
+    generated: list[GeneratedJsonLd] = Field(default_factory=list)
+    skipped: list[JsonLdSkip] = Field(default_factory=list)
+
+
+class PatchFormatStatus(StrEnum):
+    APPLIED = "applied"
+    NOOP = "noop"
+    CONFLICT = "conflict"
+    ERROR = "error"
+
+
+class FormattedPatch(BaseModel):
+    opportunity_id: str = Field(..., min_length=1)
+    schema_type: SchemaRemediationTarget
+    file_path: str = Field(..., min_length=1)
+    patch_text: str = Field(default="")
+    changed_lines: int = Field(default=0, ge=0)
+    insertion_location: str = Field(default="")
+    is_noop: bool = False
+    status: PatchFormatStatus
+    message: str = Field(default="")
+    patched_html: str | None = None
+
+
+class PatchFormatResult(BaseModel):
+    patches: list[FormattedPatch] = Field(default_factory=list)
+
+
+class ProjectedScoreResult(BaseModel):
+    """Per-opportunity projection via the existing Phase E scorer."""
+
+    opportunity_id: str = Field(..., min_length=1)
+    schema_type: SchemaRemediationTarget | None = None
+    current_score: float = Field(..., ge=0.0, le=100.0)
+    projected_score: float = Field(..., ge=0.0, le=100.0)
+    delta: float
+    current_breakdown: ScoreBreakdown
+    projected_breakdown: ScoreBreakdown
+    patch_reference: str | None = None
+
+    @model_validator(mode="after")
+    def _delta_matches(self) -> ProjectedScoreResult:
+        expected = self.projected_score - self.current_score
+        if abs(self.delta - expected) > 1e-9:
+            raise ValueError(
+                f"delta must equal projected_score - current_score; "
+                f"got {self.delta}, expected {expected}"
+            )
+        return self
+
+
+class ProjectedScoreBatchResult(BaseModel):
+    """Independent projections for multiple opportunities (not cumulative)."""
+
+    projections: list[ProjectedScoreResult] = Field(default_factory=list)

@@ -297,10 +297,11 @@ Build the autonomous code remediation system that generates Schema.org JSON-LD p
 | # | Task | Details | Acceptance Criteria |
 | :--- | :--- | :--- | :--- |
 | 3.1 | **Patch Prioritizer** | ✅ **DONE** — `backend/app/engines/patch_prioritizer.py`. Sort gaps by `Priority = (Impact × Confidence) / Difficulty`. Impact 0–100, Confidence 0–1, Difficulty 1–5 (never 0). Deduplicate; preserve provenance; select top 3 with deterministic tie-break. Supported kinds: information gaps (UNKNOWN intents), missing/invalid required Schema.org types, contradictions. **Does not** generate JSON-LD, diffs, projected scores, or PRs (P2-3.2+). | Unit tests in `tests/test_patch_prioritizer.py`; formula `(80×0.9)/2 = 36` |
-| 3.2 | **JSON-LD Generator** | Generate valid `LocalBusiness`, `FAQPage`, `OpeningHoursSpecification` JSON-LD from entailment results. | Output passes Schema.org Validator |
-| 3.3 | **Patch Formatter** | Format patches as unified diffs applicable to the target HTML files. | `diff` output is syntactically valid |
-| 3.4 | **GitHub PR Engine** | Implement `pr_engine.py`: Fork repo, create branch `findable-ai/geo-optimizations`, commit patches, create PR with markdown summary. | PR appears on target repo with correct diff |
-| 3.5 | **Score Projection** | Calculate projected F-Score after patches are applied (re-run scorer on patched content). | PR body shows "F-Score: 42% → 95%" |
+| 3.2 | **JSON-LD Generator** | ✅ **DONE** — `jsonld_generator.py`. Evidence-backed Schema.org JSON-LD for FAQPage, LocalBusiness, PostalAddress, OpeningHoursSpecification, GeoCoordinates, Menu. Validated via Phase E `analyze_schema_org`. No LLM; insufficient evidence → skip. | Tests in `tests/test_jsonld_generator.py` |
+| 3.3 | **Patch Formatter** | ✅ **DONE** — `patch_formatter.py`. Deterministic unified diffs; insert before `</head>` else `</body>`; identical block → noop; conflicting block → refuse overwrite. | Tests in `tests/test_patch_formatter.py` |
+| 3.4 | **Score Projection** | ✅ **DONE** — `projected_score.py`. In-memory patch simulation; reuses Phase E `Scorer` (no formula duplication); per-opportunity current/projected/delta. | Tests in `tests/test_projected_score.py` + `test_patch_pipeline_integration.py` |
+| 3.5 | **GitHub PR Engine** | Implement `pr_engine.py`: Fork repo, create branch `findable-ai/geo-optimizations`, commit patches, create PR with markdown summary. *(P2-3.5 — not started)* | PR appears on target repo with correct diff |
+| 3.6 | **PR Markdown** | Generate PR body with score before/after, per-file changes, intent summary. *(P2-3.6 — not started)* | Markdown body complete |
 
 ### How to Build: Schema.org JSON-LD Generation
 
