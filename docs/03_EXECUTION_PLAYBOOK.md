@@ -214,7 +214,21 @@ Build the core AI reasoning pipeline: intent generation, hybrid retrieval, NLI e
 | 2.4 | **NLI Entailment** | ✅ **DONE** — `backend/app/engines/entailment_engine.py`. Flow: Intent → hybrid_search(k=5) → NLI via `LLMClient` → `IntentEvaluation`. Statuses: SUPPORTED / PARTIALLY_SUPPORTED / CONTRADICTED / UNKNOWN. Anti-hallucination: evidence-only prompt; citations must match retrieved IDs; zero chunks → UNKNOWN with 0 LLM calls; no repair retries. Batch: `asyncio.gather` on shared client. | Unit tests in `tests/test_entailment_engine.py` |
 | 2.5 | **Contradiction Detector** | ✅ **DONE** — `backend/app/engines/contradiction.py`. Architecture: DOM chunks → structured fact extraction → normalization → deterministic comparison → semantic LLM only for ambiguous policy pairs → deduplicated `Contradiction` (HARD_CONTRADICTION / SOFT_INCONSISTENCY). Conservative false-positive policy; source metadata rebuilt from input chunks; shared `LLMClient` with `max_retries=0`. | Detects hours contradiction (10 PM vs 9 PM); unit tests in `tests/test_contradiction.py` |
 | 2.6 | **F-Score Calculator** | ✅ **DONE** — `backend/app/engines/scorer.py`. Computes `S_ans` (entailment contributions), `S_con` (normalized contradiction impact), `S_str` (Schema.org coverage), `S_acc` (chunk extractability). Weighted `F` via configurable `ScoreWeights`. **Production weighting remains configuration-driven pending team confirmation of the canonical F-score specification** (docs `0.40/0.30/0.20/0.10` vs README alternative). | Unit tests in `tests/test_scorer.py` |
-| 2.7 | **DAG Orchestrator** | Implement the OBSERVE → PLAN → ACT → VERIFY → REFLECT → STOP state machine with SSE event emission at each phase transition. | Full pipeline runs end-to-end on Bistro 2026 in <15 seconds |
+| 2.7 | **DAG Orchestrator** | ✅ **DONE (P2-4.1)** — `backend/app/orchestration/`: `ScanPhase` + legal transitions, `ScanContext`, `FindableAIDAG` (`OBSERVE→PLAN→ACT→VERIFY→REFLECT→STOP`). Reuses existing engines via constructor injection; one shared `LLMClient` budget per scan; `create_pr=False` skips GitHub. SSE emission is out of scope for P2-4.1 (Person 1 streaming). | State machine + runner + e2e tests with fakes; no real LLM/GitHub. See `tests/test_dag_*.py`, `test_end_to_end_orchestration.py` |
+
+##### P2-4.1 DAG state machine (orchestration)
+
+- **States:** `OBSERVE → PLAN → ACT → VERIFY → REFLECT → STOP` (`ScanPhase`). Illegal transitions raise `InvalidStateTransitionError`.
+- **Mapping:** OBSERVE accepts crawler/HTML evidence (`ObservationInput`); PLAN → `IntentGenerator`; ACT → `EntailmentEngine` (observe-chunk adapter or injected retriever); VERIFY → `ContradictionDetector` + `analyze_schema_org` + `Scorer`; REFLECT → `PatchPrioritizer` → `JsonLdGenerator` → `PatchFormatter` → `ProjectedScoreCalculator` → PR markdown → optional `GitHubPRService`.
+- **No-action remediation:** zero opportunities → successful STOP without JSON-LD/PR.
+- **Budget:** single scan-scoped `LLMClient` shared by intent/NLI/contradiction (ready for P2-4.2 Budget Guard; do not create per-engine budgets).
+- **DI:** inject fakes for all engines; never call PyGithub/LLM providers from the DAG itself.
+
+**Test command:**
+```bash
+cd backend && PYTHONPATH=. pytest tests/test_dag_state.py tests/test_dag_runner.py \
+  tests/test_end_to_end_orchestration.py
+```
 
 ##### Schema.org checker (part of 2.6 / P2-2.7)
 
