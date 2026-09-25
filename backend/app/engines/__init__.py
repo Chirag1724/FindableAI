@@ -12,6 +12,12 @@ from .entailment_engine import (
     evaluate_intents,
 )
 from .intent_generator import IntentGenerationError, IntentGenerator, generate_intents
+from .patch_prioritizer import (
+    PatchPrioritizer,
+    PatchPrioritizerError,
+    calculate_priority,
+    prioritize,
+)
 from .scorer import ScoreInputs, Scorer, ScorerError, score
 
 __all__ = [
@@ -21,12 +27,16 @@ __all__ = [
     "EntailmentError",
     "IntentGenerationError",
     "IntentGenerator",
+    "PatchPrioritizer",
+    "PatchPrioritizerError",
     "ScoreInputs",
     "Scorer",
     "ScorerError",
+    "calculate_priority",
     "detect_contradictions",
     "evaluate_intent",
     "evaluate_intents",
     "generate_intents",
+    "prioritize",
     "score",
 ]

@@ -239,7 +239,7 @@ FindableAI/
 
 | Task ID | Task | Priority | Details |
 | :--- | :--- | :--- | :--- |
-| P2-3.1 | Patch Prioritizer | High | Rank gaps by `Priority = (Impact * Confidence) / Difficulty`. Select top 3 for remediation |
+| P2-3.1 | Patch Prioritizer | High | ✅ **DONE** — `patch_prioritizer.py` + `schemas/patching.py`. Deterministic `Priority = (Impact × Confidence) / Difficulty`; Impact 0–100, Confidence 0–1, Difficulty 1–5 (never 0); dedupe; provenance preserved; top 3 with tie-break `priority↓ impact↓ confidence↓ difficulty↑ id↑`. Kinds: `INFORMATION_GAP`, `MISSING_SCHEMA`, `CONTRADICTION`. No LLM/JSON-LD/diffs/GitHub. Tests: `tests/test_patch_prioritizer.py` |
 | P2-3.2 | JSON-LD Generator | Critical | `patch_generator.py`: Generate valid Schema.org JSON-LD for `FAQPage`, `LocalBusiness`, `OpeningHoursSpecification`. Validate against Schema.org spec |
 | P2-3.3 | Patch Formatter | High | Format generated code as unified diffs applicable to target HTML files |
 | P2-3.4 | Projected Score Calculator | High | Re-run F-Score calculation assuming patches are applied. Output delta (e.g., 42% → 95%) |
@@ -261,10 +261,13 @@ FindableAI/
 - [x] `backend/app/engines/entailment_engine.py` — NLI classifier consuming `hybrid_search` (k=5); statuses SUPPORTED / PARTIALLY_SUPPORTED / CONTRADICTED / UNKNOWN; citation validation; tests in `tests/test_entailment_engine.py`
 - [x] `backend/app/engines/contradiction.py` — Cross-page entity diffing (deterministic + semantic); tests in `tests/test_contradiction.py`
 - [x] `backend/app/engines/scorer.py` — F-Score calculator + Schema.org checker; tests in `tests/test_scorer.py`
-- [ ] `backend/app/engines/patch_generator.py` — JSON-LD generator + formatter *(not started)*
+- [x] `backend/app/engines/patch_prioritizer.py` — P2-3.1 prioritization only (`Priority = (Impact × Confidence) / Difficulty`, top 3)
+- [x] `backend/app/schemas/patching.py` — `RemediationOpportunity`, `PatchPrioritizerInput`, `PatchPrioritizationResult`
+- [ ] `backend/app/engines/patch_generator.py` — JSON-LD generator + formatter *(not started; P2-3.2+)*
 - [ ] `backend/app/github/pr_engine.py` — Full PR automation *(not started)*
 - [x] NLI system prompt (version-controlled in `entailment_engine.py` as `NLI_SYSTEM_PROMPT`)
 - [x] Unit tests for F-Score / Schema.org (`tests/test_scorer.py`); contradiction tests in `tests/test_contradiction.py`
+- [x] Unit tests for patch prioritizer (`tests/test_patch_prioritizer.py`)
 - [ ] Unit tests for: JSON-LD patch validation *(not started)*
 
 ##### Scorer / Schema.org — implemented notes

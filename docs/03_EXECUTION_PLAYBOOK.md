@@ -296,7 +296,7 @@ Build the autonomous code remediation system that generates Schema.org JSON-LD p
 
 | # | Task | Details | Acceptance Criteria |
 | :--- | :--- | :--- | :--- |
-| 3.1 | **Patch Prioritizer** | Sort gaps by `Priority = (Impact * Confidence) / Difficulty`. Select top 3 for remediation. | Top gaps for Bistro 2026: (1) Missing FAQ schema, (2) Hours contradiction, (3) Missing LocalBusiness schema |
+| 3.1 | **Patch Prioritizer** | ✅ **DONE** — `backend/app/engines/patch_prioritizer.py`. Sort gaps by `Priority = (Impact × Confidence) / Difficulty`. Impact 0–100, Confidence 0–1, Difficulty 1–5 (never 0). Deduplicate; preserve provenance; select top 3 with deterministic tie-break. Supported kinds: information gaps (UNKNOWN intents), missing/invalid required Schema.org types, contradictions. **Does not** generate JSON-LD, diffs, projected scores, or PRs (P2-3.2+). | Unit tests in `tests/test_patch_prioritizer.py`; formula `(80×0.9)/2 = 36` |
 | 3.2 | **JSON-LD Generator** | Generate valid `LocalBusiness`, `FAQPage`, `OpeningHoursSpecification` JSON-LD from entailment results. | Output passes Schema.org Validator |
 | 3.3 | **Patch Formatter** | Format patches as unified diffs applicable to the target HTML files. | `diff` output is syntactically valid |
 | 3.4 | **GitHub PR Engine** | Implement `pr_engine.py`: Fork repo, create branch `findable-ai/geo-optimizations`, commit patches, create PR with markdown summary. | PR appears on target repo with correct diff |
