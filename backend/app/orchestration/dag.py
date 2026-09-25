@@ -1,7 +1,7 @@
-"""FindableAI DAG orchestrator (P2-4.1).
+"""FindableAI DAG orchestrator (P2-4.1 / P2-4.2).
 
 Coordinates existing Phase 0-3 engines. Does not duplicate intelligence logic.
-Uses one shared LLMClient budget for the scan (ready for P2-4.2).
+Uses one scan-scoped ``BudgetGuard`` shared by every LLM consumer.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.budget import BudgetGuard, LLMBudgetExceededError, default_scan_budget
 from app.core.llm import LLMClient
 from app.engines.contradiction import ContradictionDetector, EvidenceChunk, extract_facts
 from app.engines.entailment_engine import DEFAULT_TOP_K, EntailmentEngine, Retriever
@@ -117,6 +118,7 @@ class FindableAIDAG:
         self,
         *,
         llm_client: LLMClient | None = None,
+        budget_guard: BudgetGuard | None = None,
         intent_generator: IntentGenerator | None = None,
         entailment_engine: EntailmentEngine | None = None,
         contradiction_detector: ContradictionDetector | None = None,
@@ -129,8 +131,19 @@ class FindableAIDAG:
         retriever: Retriever | None = None,
         markdown_generator: Callable[[PRReportData], str] | None = None,
     ) -> None:
-        # One shared LLMClient for the scan (Intent + NLI + contradiction semantic).
-        self._llm = llm_client or LLMClient()
+        # One scan-scoped BudgetGuard shared by every LLM consumer in this DAG.
+        if llm_client is not None and budget_guard is not None:
+            if llm_client.budget_guard is not budget_guard:
+                raise ValueError("llm_client.budget_guard must be the same object as budget_guard")
+            self._budget = budget_guard
+            self._llm = llm_client
+        elif llm_client is not None:
+            self._llm = llm_client
+            self._budget = llm_client.budget_guard
+        else:
+            self._budget = budget_guard or default_scan_budget()
+            self._llm = LLMClient(budget_guard=self._budget)
+
         self._intent = intent_generator or IntentGenerator(llm_client=self._llm)
         self._entailment_injected = entailment_engine
         self._retriever_injected = retriever
@@ -149,6 +162,10 @@ class FindableAIDAG:
     def llm_client(self) -> LLMClient:
         return self._llm
 
+    @property
+    def budget_guard(self) -> BudgetGuard:
+        return self._budget
+
     async def run(self, observation: ObservationInput) -> OrchestrationResult:
         ctx = ScanContext(
             scan_id=str(observation.scan_id).strip(),
@@ -158,6 +175,7 @@ class FindableAIDAG:
             target_branch=observation.target_branch or "main",
             html_file_path=observation.html_file_path or "index.html",
             business_facts=observation.business_facts or BusinessFacts(),
+            budget_guard=self._budget,
         )
         if not ctx.scan_id:
             raise MissingStageInputError("scan_id is required", stage=ScanPhase.OBSERVE.value)
@@ -193,6 +211,20 @@ class FindableAIDAG:
                 success=False,
                 error=str(exc),
                 error_reason=exc.reason,
+            )
+        except LLMBudgetExceededError as exc:
+            logger.error(
+                "Orchestration budget exhausted scan_id=%s state=%s used=%s limit=%s",
+                ctx.scan_id,
+                ctx.state.value,
+                exc.used,
+                exc.limit,
+            )
+            return self._build_result(
+                ctx,
+                success=False,
+                error=str(exc),
+                error_reason="budget_exhausted",
             )
         except Exception as exc:
             logger.error(
@@ -244,6 +276,12 @@ class FindableAIDAG:
         ctx.stage_trace.append("plan")
         try:
             batch = await self._intent.generate_intents(business_context=ctx.business_context)
+        except LLMBudgetExceededError as exc:
+            raise StageExecutionError(
+                f"PLAN budget exhausted: {exc}",
+                stage="plan",
+                reason="budget_exhausted",
+            ) from exc
         except Exception as exc:
             raise StageExecutionError(
                 f"PLAN intent generation failed: {exc}",
@@ -290,6 +328,12 @@ class FindableAIDAG:
                 intents=ctx.intents.queries,
                 scan_id=scan_uuid,
             )
+        except LLMBudgetExceededError as exc:
+            raise StageExecutionError(
+                f"ACT budget exhausted: {exc}",
+                stage="act",
+                reason="budget_exhausted",
+            ) from exc
         except Exception as exc:
             raise StageExecutionError(
                 f"ACT entailment failed: {exc}",
@@ -310,6 +354,12 @@ class FindableAIDAG:
         chunks: Sequence[EvidenceChunk] = ctx.chunks  # type: ignore[assignment]
         try:
             contradictions = await self._contradiction.detect_contradictions(chunks=chunks)
+        except LLMBudgetExceededError as exc:
+            raise StageExecutionError(
+                f"VERIFY budget exhausted: {exc}",
+                stage="verify",
+                reason="budget_exhausted",
+            ) from exc
         except Exception as exc:
             raise StageExecutionError(
                 f"VERIFY contradiction detection failed: {exc}",

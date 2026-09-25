@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.orchestration.errors import InvalidStateTransitionError
 from app.schemas.github_pr import PREngineResult
@@ -19,6 +19,9 @@ from app.schemas.patching import (
     RemediationOpportunity,
 )
 from app.schemas.scoring import SchemaOrgReport, ScoreBreakdown
+
+if TYPE_CHECKING:
+    from app.core.budget import BudgetGuard
 
 
 class ScanPhase(StrEnum):
@@ -98,6 +101,8 @@ class ScanContext:
     remediation_available: bool = False
     stage_trace: list[str] = field(default_factory=list)
     extras: dict[str, Any] = field(default_factory=dict)
+    # Scan-scoped BudgetGuard reference (no secrets). Optional for observability.
+    budget_guard: BudgetGuard | None = None
 
     def advance(self, nxt: ScanPhase) -> None:
         self.state = transition(self.state, nxt)

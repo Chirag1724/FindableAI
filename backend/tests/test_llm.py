@@ -167,7 +167,8 @@ async def test_api_key_never_exposed_in_errors_or_repr():
     assert secret not in str(client.budget_state())
     state = client.budget_state()
     assert "api_key" not in state
-    assert state["calls_made"] == 1
+    # Default max_retries=2 → 3 provider attempts; each consumes one budget unit.
+    assert state["calls_made"] == 3
 
 
 @pytest.mark.asyncio
@@ -198,3 +199,52 @@ async def test_budget_reservation_is_async_safe():
             _TinyResponse,
             messages=[{"role": "user", "content": "overflow"}],
         )
+
+
+@pytest.mark.asyncio
+async def test_shared_budget_guard_across_two_clients():
+    from app.core.budget import BudgetGuard
+
+    guard = BudgetGuard(limit=3)
+    handler = AsyncMock(return_value=_TinyResponse(answer="ok", confidence=0.5))
+    a = LLMClient(
+        api_key="k",
+        model="groq/test",
+        budget_guard=guard,
+        instructor_client=_FakeInstructorClient(handler),
+    )
+    b = LLMClient(
+        api_key="k",
+        model="groq/test",
+        budget_guard=guard,
+        instructor_client=_FakeInstructorClient(handler),
+    )
+    await a.create(_TinyResponse, messages=[{"role": "user", "content": "1"}], max_retries=0)
+    await b.create(_TinyResponse, messages=[{"role": "user", "content": "2"}], max_retries=0)
+    await a.create(_TinyResponse, messages=[{"role": "user", "content": "3"}], max_retries=0)
+    with pytest.raises(BudgetExhausted):
+        await b.create(_TinyResponse, messages=[{"role": "user", "content": "4"}], max_retries=0)
+    assert guard.used == 3
+    assert handler.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_retries_consume_budget_per_provider_attempt():
+    calls = {"n": 0}
+
+    async def flaky(**kwargs: Any) -> _TinyResponse:
+        calls["n"] += 1
+        if calls["n"] < 2:
+            raise RuntimeError("transient")
+        return _TinyResponse(answer="ok", confidence=0.5)
+
+    handler = AsyncMock(side_effect=flaky)
+    client = _client_with_mock(handler, max_calls=35)
+    result = await client.create(
+        _TinyResponse,
+        messages=[{"role": "user", "content": "retry"}],
+        max_retries=2,
+    )
+    assert result.answer == "ok"
+    assert client.calls_made == 2
+    assert handler.await_count == 2
