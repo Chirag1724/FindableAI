@@ -1,4 +1,11 @@
 from .fscore import FScoreBreakdown, SubScoreMetric
+from .github_pr import (
+    PREngineRequest,
+    PREngineResult,
+    PRFileChange,
+    PRReportData,
+    ValidatedRepoFileUpdate,
+)
 from .intelligence import (
     Contradiction,
     ContradictionSeverity,
@@ -62,6 +69,10 @@ __all__ = [
     "JsonLdSkip",
     "MenuItemFact",
     "OpeningHoursFact",
+    "PREngineRequest",
+    "PREngineResult",
+    "PRFileChange",
+    "PRReportData",
     "Patch",
     "PatchFormatResult",
     "PatchFormatStatus",
@@ -85,4 +96,5 @@ __all__ = [
     "ScoreBreakdown",
     "ScoreWeights",
     "SubScoreMetric",
+    "ValidatedRepoFileUpdate",
 ]

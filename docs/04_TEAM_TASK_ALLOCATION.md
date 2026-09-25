@@ -243,8 +243,8 @@ FindableAI/
 | P2-3.2 | JSON-LD Generator | Critical | ✅ **DONE** — `jsonld_generator.py`: evidence-backed Schema.org JSON-LD (`FAQPage`, `LocalBusiness`, `PostalAddress`, `OpeningHoursSpecification`, `GeoCoordinates`, `Menu`); validated via Phase E `analyze_schema_org`; no LLM/invention |
 | P2-3.3 | Patch Formatter | High | ✅ **DONE** — `patch_formatter.py`: deterministic unified diffs; insert before `</head>` else `</body>`; identical=noop; conflict refuses overwrite |
 | P2-3.4 | Projected Score Calculator | High | ✅ **DONE** — `projected_score.py`: in-memory HTML simulation; reuses Phase E `Scorer`; per-opportunity `current`/`projected`/`delta` (non-cumulative) |
-| P2-3.5 | GitHub PR Engine | High | `pr_engine.py`: Fork repo via PyGithub, create branch, commit patches, create PR with detailed markdown body |
-| P2-3.6 | PR Markdown Generator | Medium | Generate PR body with: score before/after, per-file changes, intent evaluation summary, links to evidence |
+| P2-3.5 | GitHub PR Engine | High | ✅ **DONE** — `github/pr_engine.py` + injectable `FakeGitHubClient`/`PyGithubClient`. Flow: validate patch set → fork → branch `findableai/remediation/<scan>` → apply validated HTML updates → commit → PR. Path traversal rejected; duplicate open PR reused; no real API in tests |
+| P2-3.6 | PR Markdown Generator | Medium | ✅ **DONE** — `github/pr_markdown.py` pure deterministic renderer (scores/delta/gaps/intents/evidence/files). No GitHub/network/LLM |
 
 #### Phase 2 (Parallel): DAG Orchestrator
 
@@ -266,12 +266,10 @@ FindableAI/
 - [x] `backend/app/engines/jsonld_generator.py` — P2-3.2 controlled evidence-backed JSON-LD
 - [x] `backend/app/engines/patch_formatter.py` — P2-3.3 unified diff formatter
 - [x] `backend/app/engines/projected_score.py` — P2-3.4 in-memory projection via Phase E scorer
-- [ ] `backend/app/github/pr_engine.py` — Full PR automation *(not started; P2-3.5)*
-- [x] NLI system prompt (version-controlled in `entailment_engine.py` as `NLI_SYSTEM_PROMPT`)
-- [x] Unit tests for F-Score / Schema.org (`tests/test_scorer.py`); contradiction tests in `tests/test_contradiction.py`
-- [x] Unit tests for patch prioritizer (`tests/test_patch_prioritizer.py`)
-- [x] Unit tests for JSON-LD / formatter / projected score + integration (`tests/test_jsonld_generator.py`, `test_patch_formatter.py`, `test_projected_score.py`, `test_patch_pipeline_integration.py`)
-- [ ] Unit tests for: GitHub PR flow *(not started)*
+- [x] `backend/app/github/pr_engine.py` — P2-3.5 GitHub PR automation (mocked in tests)
+- [x] `backend/app/github/pr_markdown.py` — P2-3.6 deterministic PR body
+- [x] Unit tests for GitHub PR flow (`tests/test_pr_engine.py`, `test_pr_markdown.py`, `test_pr_engine_integration.py`)
+- [ ] Unit tests for: DAG orchestrator *(not started)*
 
 ##### Scorer / Schema.org — implemented notes
 
@@ -282,7 +280,8 @@ FindableAI/
 | Canonical production formula **not** silently finalized (docs vs README) | ⚠️ team decision |
 | Schema.org JSON-LD offline checker (6 required types) | ✅ |
 | No LLM / network / DB in scorer | ✅ |
-| Patches / GitHub PR / DAG | ❌ intentionally unimplemented |
+| Patches / GitHub PR | ✅ P2-3.1–3.6 |
+| DAG | ❌ intentionally unimplemented |
 
 ##### Intent Generator — implemented notes
 
