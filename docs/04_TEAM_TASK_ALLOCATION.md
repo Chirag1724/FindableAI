@@ -250,8 +250,8 @@ FindableAI/
 
 | Task ID | Task | Priority | Details |
 | :--- | :--- | :--- | :--- |
-| P2-4.1 | DAG State Machine | Critical | Implement OBSERVE → PLAN → ACT → VERIFY → REFLECT → STOP. Each phase emits SSE events. Budget guard enforces 35-call max |
-| P2-4.2 | Budget Guard | Critical | Decorator/middleware that wraps every LLM call, increments counter, raises on exceed |
+| P2-4.1 | DAG State Machine | Critical | ✅ **DONE** — `app/orchestration/`: `ScanPhase` transitions, `ScanContext`, `FindableAIDAG` orchestrates existing engines (no logic duplication). Shared `LLMClient` per scan; `create_pr` isolates GitHub. SSE deferred to P1 streaming. Tests: `test_dag_state.py`, `test_dag_runner.py`, `test_end_to_end_orchestration.py` |
+| P2-4.2 | Budget Guard | Critical | Decorator/middleware that wraps every LLM call, increments counter, raises on exceed — attach to the **same** scan-scoped `LLMClient` used by the DAG (do not invent a second counter) |
 
 #### Deliverables Checklist
 
@@ -268,8 +268,9 @@ FindableAI/
 - [x] `backend/app/engines/projected_score.py` — P2-3.4 in-memory projection via Phase E scorer
 - [x] `backend/app/github/pr_engine.py` — P2-3.5 GitHub PR automation (mocked in tests)
 - [x] `backend/app/github/pr_markdown.py` — P2-3.6 deterministic PR body
+- [x] `backend/app/orchestration/` — P2-4.1 DAG state machine (`state.py`, `dag.py`, `errors.py`, `result.py`)
+- [x] Unit tests for DAG orchestrator (`tests/test_dag_state.py`, `test_dag_runner.py`, `test_end_to_end_orchestration.py`)
 - [x] Unit tests for GitHub PR flow (`tests/test_pr_engine.py`, `test_pr_markdown.py`, `test_pr_engine_integration.py`)
-- [ ] Unit tests for: DAG orchestrator *(not started)*
 
 ##### Scorer / Schema.org — implemented notes
 
@@ -281,7 +282,7 @@ FindableAI/
 | Schema.org JSON-LD offline checker (6 required types) | ✅ |
 | No LLM / network / DB in scorer | ✅ |
 | Patches / GitHub PR | ✅ P2-3.1–3.6 |
-| DAG | ❌ intentionally unimplemented |
+| DAG | ✅ P2-4.1 (`app/orchestration/`) |
 
 ##### Intent Generator — implemented notes
 
@@ -319,7 +320,8 @@ FindableAI/
 | Source provenance rebuilt from input chunks (LLM cannot fabricate metadata) | ✅ |
 | Shared `LLMClient`, `max_retries=0`, `BudgetExhausted` propagates | ✅ |
 | No duplicate retrieval implementation | ✅ |
-| Scoring / patches / GitHub PR / DAG | ❌ intentionally unimplemented |
+| Scoring / patches / GitHub PR | ✅ |
+| DAG | ✅ P2-4.1 |
 
 ---
 
