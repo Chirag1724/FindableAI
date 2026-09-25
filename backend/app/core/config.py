@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -41,7 +42,15 @@ class Settings(BaseSettings):
     MAX_SCAN_PAGES: int = 15
     SCAN_TIMEOUT_SECONDS: int = 60
     LLM_BUDGET_CAP_USD: float = 0.01
+    # Hard global LLM provider-call cap per scan (P2-4.2). Not per-engine.
     MAX_LLM_CALLS_PER_SCAN: int = 35
+
+    @field_validator("MAX_LLM_CALLS_PER_SCAN")
+    @classmethod
+    def _max_llm_calls_non_negative(cls, value: int) -> int:
+        if value is None or value < 0:
+            raise ValueError("MAX_LLM_CALLS_PER_SCAN must be an int >= 0")
+        return value
 
 
 settings = Settings()

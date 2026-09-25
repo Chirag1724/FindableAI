@@ -8,7 +8,7 @@ import time
 from collections import Counter
 from collections.abc import Mapping
 
-from app.core.llm import LLMClient
+from app.core.llm import BudgetExhausted, LLMClient
 from app.schemas.intelligence import IntentBatch, IntentCategory, IntentQuery
 
 logger = logging.getLogger(__name__)
@@ -302,6 +302,8 @@ class IntentGenerator:
                 max_retries=0,
             )
         except IntentGenerationError:
+            raise
+        except BudgetExhausted:
             raise
         except Exception as exc:
             logger.error(

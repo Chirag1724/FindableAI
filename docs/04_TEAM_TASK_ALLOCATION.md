@@ -220,7 +220,7 @@ FindableAI/
 
 | Task ID | Task | Priority | Details |
 | :--- | :--- | :--- | :--- |
-| P2-0.1 | LLM Client Setup | Critical | ✅ **DONE** — `backend/app/core/llm.py`: Instructor + LiteLLM client, `BudgetExhausted`, default max 35 calls (`MAX_LLM_CALLS_PER_SCAN`) |
+| P2-0.1 | LLM Client Setup | Critical | ✅ **DONE** — `backend/app/core/llm.py` + `budget.py`: Instructor + LiteLLM; shared `BudgetGuard`; `BudgetExhausted` / `LLMBudgetExceededError`; default max 35 (`MAX_LLM_CALLS_PER_SCAN`) |
 | P2-0.2 | Pydantic Schemas | Critical | ✅ **DONE** — AI contracts in `backend/app/schemas/intelligence.py` (`IntentQuery`, `IntentBatch`, `EntailmentStatus`, `IntentEvaluation`, `Contradiction`, `Patch`, `ScanResult`); coexist with API schemas |
 
 #### Phase 2: Intelligence Pipeline
@@ -251,11 +251,13 @@ FindableAI/
 | Task ID | Task | Priority | Details |
 | :--- | :--- | :--- | :--- |
 | P2-4.1 | DAG State Machine | Critical | ✅ **DONE** — `app/orchestration/`: `ScanPhase` transitions, `ScanContext`, `FindableAIDAG` orchestrates existing engines (no logic duplication). Shared `LLMClient` per scan; `create_pr` isolates GitHub. SSE deferred to P1 streaming. Tests: `test_dag_state.py`, `test_dag_runner.py`, `test_end_to_end_orchestration.py` |
-| P2-4.2 | Budget Guard | Critical | Decorator/middleware that wraps every LLM call, increments counter, raises on exceed — attach to the **same** scan-scoped `LLMClient` used by the DAG (do not invent a second counter) |
+| P2-4.2 | Budget Guard | Critical | ✅ **DONE** — `app/core/budget.py` + `LLMClient(budget_guard=...)`. One scan-scoped `BudgetGuard(limit=35)`; atomic `reserve()` before every provider attempt; retries consume individually; asyncio-safe under NLI `gather`; DAG injects shared guard. Tests: `tests/test_budget_guard.py` |
 
 #### Deliverables Checklist
 
 - [x] `backend/app/core/llm.py` — Instructor client + budget tracker
+- [x] `backend/app/core/budget.py` — P2-4.2 scan-scoped `BudgetGuard` (hard 35-call cap)
+- [x] Unit tests for budget guard (`tests/test_budget_guard.py`)
 - [x] `backend/app/schemas/intelligence.py` — AI Pydantic schemas (`IntentQuery`, `IntentBatch`, …); API schemas remain in `schemas/scan.py` / `fscore.py` / `patch.py`
 - [x] `backend/app/engines/intent_generator.py` — 30-query generator (**ONE LLM call per generation**; 10 taxonomy categories × 3; deterministic validation + unit tests in `tests/test_intent_generator.py`)
 - [x] `backend/app/engines/entailment_engine.py` — NLI classifier consuming `hybrid_search` (k=5); statuses SUPPORTED / PARTIALLY_SUPPORTED / CONTRADICTED / UNKNOWN; citation validation; tests in `tests/test_entailment_engine.py`

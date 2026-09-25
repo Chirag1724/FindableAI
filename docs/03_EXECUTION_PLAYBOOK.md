@@ -208,7 +208,7 @@ Build the core AI reasoning pipeline: intent generation, hybrid retrieval, NLI e
 
 | # | Task | Details | Acceptance Criteria |
 | :--- | :--- | :--- | :--- |
-| 2.1 | **LLM Client Factory** | ✅ **DONE** — `backend/app/core/llm.py`: Instructor + LiteLLM, `BudgetExhausted`, `MAX_LLM_CALLS_PER_SCAN` (default 35). | Budget tracker raises `BudgetExhausted` at call #36 |
+| 2.1 | **LLM Client Factory** | ✅ **DONE** — `backend/app/core/llm.py` + `budget.py` (P2-4.2): Instructor + LiteLLM; scan-scoped `BudgetGuard`; reserve-before-provider; retries consume one unit each; default `MAX_LLM_CALLS_PER_SCAN=35`. | 36th provider attempt raises `LLMBudgetExceededError` / `BudgetExhausted` before provider call |
 | 2.2 | **Intent Generator** | ✅ **DONE** — `backend/app/engines/intent_generator.py`. Flow: `business_context → IntentGenerator → LLMClient → IntentBatch → validation`. **ONE LLM call per generation** (`max_retries=0`). Exactly 30 queries, 10 categories × 3, deterministic validation (no repair LLM call). | Output has exactly 30 `IntentQuery` objects, 3 per category; unit tests in `tests/test_intent_generator.py` |
 | 2.3 | **Hybrid Search (consume Contract 1)** | ✅ **DONE (consumer)** — `EntailmentEngine` calls `hybrid_search(query, scan_id, k=5)` from `app.crawler.search`. Vector+BM25+RRF internals remain crawler/search-owned and may still be incomplete; engine depends on the **contract**, not algorithm completeness. | Entailment requests top-5 chunks per intent |
 | 2.4 | **NLI Entailment** | ✅ **DONE** — `backend/app/engines/entailment_engine.py`. Flow: Intent → hybrid_search(k=5) → NLI via `LLMClient` → `IntentEvaluation`. Statuses: SUPPORTED / PARTIALLY_SUPPORTED / CONTRADICTED / UNKNOWN. Anti-hallucination: evidence-only prompt; citations must match retrieved IDs; zero chunks → UNKNOWN with 0 LLM calls; no repair retries. Batch: `asyncio.gather` on shared client. | Unit tests in `tests/test_entailment_engine.py` |
@@ -221,13 +221,26 @@ Build the core AI reasoning pipeline: intent generation, hybrid retrieval, NLI e
 - **States:** `OBSERVE → PLAN → ACT → VERIFY → REFLECT → STOP` (`ScanPhase`). Illegal transitions raise `InvalidStateTransitionError`.
 - **Mapping:** OBSERVE accepts crawler/HTML evidence (`ObservationInput`); PLAN → `IntentGenerator`; ACT → `EntailmentEngine` (observe-chunk adapter or injected retriever); VERIFY → `ContradictionDetector` + `analyze_schema_org` + `Scorer`; REFLECT → `PatchPrioritizer` → `JsonLdGenerator` → `PatchFormatter` → `ProjectedScoreCalculator` → PR markdown → optional `GitHubPRService`.
 - **No-action remediation:** zero opportunities → successful STOP without JSON-LD/PR.
-- **Budget:** single scan-scoped `LLMClient` shared by intent/NLI/contradiction (ready for P2-4.2 Budget Guard; do not create per-engine budgets).
+- **Budget:** single scan-scoped `BudgetGuard` (P2-4.2) injected into shared `LLMClient`; Intent + NLI + contradiction + future LLM consumers share one hard cap of 35. Reservation is atomic and occurs before every provider attempt (including retries). Budget exhaustion → fatal stage failure (`budget_exhausted`), not a false successful STOP.
 - **DI:** inject fakes for all engines; never call PyGithub/LLM providers from the DAG itself.
 
 **Test command:**
 ```bash
 cd backend && PYTHONPATH=. pytest tests/test_dag_state.py tests/test_dag_runner.py \
-  tests/test_end_to_end_orchestration.py
+  tests/test_end_to_end_orchestration.py tests/test_budget_guard.py
+```
+
+##### P2-4.2 Global LLM Budget Guard
+
+- **Module:** `backend/app/core/budget.py` (`BudgetGuard`, `LLMBudgetExceededError` / `BudgetExhausted`).
+- **Cap:** `settings.MAX_LLM_CALLS_PER_SCAN` (default 35, must be `>= 0`).
+- **Lifetime:** one guard per scan (never a process-global counter). Multiple `LLMClient` instances may share the same guard.
+- **Semantics:** `await budget.reserve()` before provider I/O; lock not held during network await; provider failures still count; no refunds after successful reservation.
+- **DAG:** `FindableAIDAG(budget_guard=...)` wires one guard into the scan `LLMClient` / engines.
+
+**Test command:**
+```bash
+cd backend && PYTHONPATH=. pytest tests/test_budget_guard.py tests/test_llm.py
 ```
 
 ##### Schema.org checker (part of 2.6 / P2-2.7)
