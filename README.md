@@ -133,8 +133,8 @@ FindableAI/
 | :--- | :--- |
 | **[01. Architecture & System Design](docs/01_ARCHITECTURE_AND_SYSTEM_DESIGN.md)** | • End-to-end dataflow pipeline<br/>• 9 component deep-dives (Crawler, DOM chunker, NLI engine, PR engine)<br/>• F-Score formal mathematical formulation<br/>• Cost & latency model (<$0.01 per scan, ~10s runtime) |
 | **[02. Tech Stack & Implementation](docs/02_TECH_STACK_AND_IMPLEMENTATION.md)** | • Python 3.11 + FastAPI async core<br/>• Next.js 14 App Router + TailwindCSS dashboard<br/>• PostgreSQL 16 + pgvector with HNSW indexing<br/>• Instructor + Pydantic validation<br/>• Server-Sent Events (SSE) realtime streaming protocol |
-| **[03. Execution Playbook](docs/03_EXECUTION_PLAYBOOK.md)** | • 7 phases from foundation to production<br/>• Concrete code snippets and database migrations<br/>• Quality gates and unit/integration test specifications<br/>• Security, sandboxing & API rate limiting rules |
-| **[04. Team Task Allocation](docs/04_TEAM_TASK_ALLOCATION.md)** | • Tailored for a **3-person engineering team** with no fixed time restrictions<br/>• **Himanshu Raj:** Core Systems, Crawling & Database Architect<br/>• **Shiv Raj Singh:** AI/ML, Synthetic Queries, NLI & Patch Generator Lead<br/>• **Chirag Dwivedi:** Frontend UI/UX, SSE Streaming & GitHub PR Integration Lead<br/>• Strict interface contracts (Pydantic models, OpenAPI, TypeScript types) |
+| **[03. Execution Playbook](docs/03_EXECUTION_PLAYBOOK.md)** | • Phases from foundation through production release gates<br/>• Concrete code snippets and database migrations<br/>• Quality gates and unit/integration test specifications<br/>• Points to the canonical production roadmap in doc 04 |
+| **[04. Team Task Allocation](docs/04_TEAM_TASK_ALLOCATION.md)** | • 3-person ownership map<br/>• Shiv intelligence/orchestration **17/17 complete**<br/>• **§10 Production Readiness Roadmap** (`PROD-5.*`–`PROD-8.*`) — integration, security, deploy, release |
 
 ## 💻 Tech Stack Summary
 
@@ -145,7 +145,7 @@ FindableAI/
 | **Backend API** | FastAPI (Python 3.11), Pydantic v2, Instructor | Async API, schema enforcement, structured LLM outputs |
 | **Crawler & Extraction** | Playwright (Python async), BeautifulSoup4 | JavaScript-rendered DOM harvesting with CSS path derivation |
 | **Database & Vector Store** | PostgreSQL 16 + pgvector, SQLAlchemy 2.0 (async), Alembic | Relational audit storage + hybrid BM25 / vector embeddings |
-| **Job Queue & Cache** | Redis 7 + Celery / ARQ | Task scheduling, scan orchestration, rate limiting |
+| **Job Queue & Cache** | Redis 7 in `docker-compose` (optional local service) | Reserved for cache/rate-limit; **scans currently use FastAPI `BackgroundTasks`** (no Celery/ARQ worker in-repo yet) |
 | **AI / LLM Orchestration** | Groq (Qwen 2.5 72B) via LiteLLM & Instructor | Ultra-fast (~500 tps) synthetic intent generation, NLI classification, patch creation |
 | **VCS Automation** | PyGithub / GitHub REST API | Automated branch creation, patch application, and Pull Request opening |
 

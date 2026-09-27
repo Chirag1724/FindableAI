@@ -15,8 +15,8 @@
 4. [Phase 2: Intelligence Pipeline](#4-phase-2-intelligence-pipeline)
 5. [Phase 3: Patch Engine & GitHub Integration](#5-phase-3-patch-engine--github-integration)
 6. [Phase 4: Frontend Dashboard](#6-phase-4-frontend-dashboard)
-7. [Phase 5: Integration, Testing & Demo Polish](#7-phase-5-integration-testing--demo-polish)
-8. [Phase 6: Deployment & Launch](#8-phase-6-deployment--launch)
+7. [Phase 5: Integration & Validation](#7-phase-5-integration--validation)
+8. [Phase 6–8: Hardening, Deployment & Release Gate](#8-phase-68-hardening-deployment--release-gate)
 9. [Definition of Done (DoD)](#9-definition-of-done-dod)
 10. [Risk Register & Mitigations](#10-risk-register--mitigations)
 11. [Quality Checklist](#11-quality-checklist)
@@ -48,11 +48,11 @@ Phase 3: Patch Engine & GitHub
 Phase 4: Frontend Dashboard
     │   Next.js app, SSE streaming, all UI components
     ▼
-Phase 5: Integration & Demo Polish
-    │   End-to-end testing, demo pre-caching, rehearsal
+Phase 5: Integration & Validation
+    │   Wire DAG into API, F-score spec, contracts, live UI
     ▼
-Phase 6: Deployment & Launch
-        Production deployment, monitoring, documentation
+Phase 6–8: Hardening → Deploy → Release Gate
+        Security, CI/Docker/deploy, clean-env Bistro E2E (docs/04 §10)
 ```
 
 ### Dependency Graph
@@ -64,7 +64,7 @@ Phase 2 ────────────────────────
 Phase 2 ─────────────────────────────────────────────────────▶ Phase 4 (can start UI shell in parallel)
 Phase 3 ─────────────────────────────────────────────────────▶ Phase 5
 Phase 4 ─────────────────────────────────────────────────────▶ Phase 5
-Phase 5 ─────────────────────────────────────────────────────▶ Phase 6
+Phase 5 ─────────────────────────────────────────────────────▶ Phase 6–8 (hardening → deploy → release)
 ```
 
 ---
@@ -576,66 +576,63 @@ export function ScoreGauge({ fScore, sAns, sCon, sStr, sAcc }: ScoreGaugeProps) 
 
 ---
 
-## 7. Phase 5: Integration, Testing & Demo Polish
+## 7. Phase 5: Integration & Validation
 
 ### Objective
-Ensure the full system works end-to-end, with a polished demo experience.
+Connect **real** components end-to-end. Engines and DAG already exist; the scan API must stop using mock F-score/patches.
 
-### Tasks
+> **Canonical task list:** [docs/04_TEAM_TASK_ALLOCATION.md §10 Production Readiness Roadmap](04_TEAM_TASK_ALLOCATION.md#10-production-readiness-roadmap) (`PROD-5.*`). Do not invent parallel checklists here.
 
-| # | Task | Details | Acceptance Criteria |
+### P0 tasks (summary)
+
+| # | Task | Owner | Acceptance |
 | :--- | :--- | :--- | :--- |
-| 5.1 | **End-to-end test** | Run full scan on Bistro 2026: URL input → crawl → chunk → evaluate → score → patch → PR. | Complete pipeline runs without errors; PR is created on GitHub |
-| 5.2 | **Demo pre-caching** | Cache the Bistro 2026 scan results so the demo can run instantly even if the network or OpenAI API is slow/down. | Dashboard loads pre-cached results in <2 seconds |
-| 5.3 | **Error handling** | Add graceful error states: invalid URL, unreachable site, LLM timeout, GitHub auth failure. | Each error shows a user-friendly message, not a stack trace |
-| 5.4 | **Performance audit** | Ensure full scan completes in <15 seconds for a 5-page site. | Measure and log timing for each DAG phase |
-| 5.5 | **Visual polish** | Review all UI components for consistency: colors, spacing, typography, animations. Add micro-animations (fade-in for cards, counter animation for score). | No visual glitches on Chrome, Firefox, Safari |
-| 5.6 | **README update** | Comprehensive README.md with: project description, screenshots, tech stack, setup instructions, API docs link. | README renders correctly on GitHub |
+| 5.1 / **PROD-5.1** | Wire `FindableAIDAG` into `run_scan_pipeline` | Himanshu + Shiv | Real crawl → chunks → DAG → persisted intelligence; mocks removed from happy path |
+| 5.2 / **PROD-5.2** | Canonical F-score spec | Shared (Shiv drafts) | One formula across code, tests, README, docs, API, UI |
+| 5.3 / **PROD-5.3** | Intelligence regression fixtures | Shiv | SUPPORTED/PARTIAL/UNKNOWN/contradiction/schema/malformed/insufficient-evidence cases in CI |
+| 5.4 / **PROD-5.4** | API ↔ frontend contract | All | Live DTOs match OpenAPI + TS types |
+| 5.5 / **PROD-5.5** | Failure isolation | Himanshu + Shiv | Budget/LLM/retrieval/GitHub failures typed; PR fail ≠ wipe scan results |
+| 5.6 / **PROD-5.6** | Frontend against live API | Chirag | Dashboard components show real results + SSE |
 
-### Demo Pre-Caching Strategy
+### Explicitly out of scope for “new engines”
+Shiv's P2-0 / P2-2 / P2-3 / P2-4 work is **done**. Phase 5 is integration and validation only.
 
-To ensure the live demo never fails:
+### Demo cache (optional P1)
 
-```python
-# backend/app/core/demo_cache.py
-import json
-from pathlib import Path
-
-DEMO_CACHE_DIR = Path(__file__).parent.parent / "demo_cache"
-
-async def get_or_run_scan(url: str, scan_id: str):
-    cache_file = DEMO_CACHE_DIR / f"{scan_id}.json"
-    
-    if cache_file.exists():
-        # Return pre-computed results instantly
-        return json.loads(cache_file.read_text())
-    
-    # Run live scan
-    result = await orchestrator.run_scan_full(url)
-    
-    # Cache for future use
-    cache_file.write_text(json.dumps(result, indent=2))
-    
-    return result
-```
+Pre-caching Bistro results remains useful for demos (`P3-5.4`) but is **not** a substitute for PROD-5.1.
 
 ---
 
-## 8. Phase 6: Deployment & Launch
+## 8. Phase 6–8: Hardening, Deployment & Release Gate
 
-### Objective
-Deploy to production with monitoring and documentation.
+> **Canonical task list:** `PROD-6.*`, `PROD-7.*`, `PROD-8.*` in docs/04 §10. Existing IDs **P1-5.1–P1-5.4** map to Docker/CI/deploy/CORS work — do not duplicate them under new names.
 
-### Tasks
+### Phase 6 — Security & Hardening (`PROD-6.*`)
 
-| # | Task | Details | Acceptance Criteria |
-| :--- | :--- | :--- | :--- |
-| 6.1 | **Database migration** | Run Alembic migrations on Supabase production database. | All tables exist; pgvector extension enabled |
-| 6.2 | **Backend deploy** | Deploy FastAPI to Railway with environment variables. | `/health` endpoint responds on production URL |
-| 6.3 | **Frontend deploy** | Deploy Next.js to Vercel. Set `NEXT_PUBLIC_API_URL` to backend production URL. | Landing page loads at production domain |
-| 6.4 | **CORS configuration** | Ensure backend allows requests from frontend production domain. | No CORS errors in browser console |
-| 6.5 | **Monitoring** | Add structured logging (structlog) and basic error tracking. | Errors are logged with scan_id context |
-| 6.6 | **Documentation** | Finalize all 4 docs files. Update README with production URLs and demo GIF. | All docs render correctly |
+| Focus | Notes |
+| :--- | :--- |
+| SSRF / crawler audit | Re-verify existing `security.py` + crawler limits (do not rebuild) |
+| Rate limit + security headers | Practical API abuse controls; extend partial CORS |
+| Prompt-injection fixtures | Untrusted crawled HTML vs NLI/JSON-LD gates |
+| Secrets / GitHub path safety | No token logging; keep PR engine path tests green |
+
+### Phase 7 — Deployment & Operations (`PROD-7.*` = P1-5.1–5.3+)
+
+| Focus | Status in repo today |
+| :--- | :--- |
+| Backend Dockerfile | ❌ Missing |
+| GitHub Actions CI | ❌ Missing (`.github/workflows` absent) |
+| Deploy + Alembic + health/CORS | ❌ Missing |
+| Structured scan metrics | Partial logging only — add scan-scoped fields (no heavy APM) |
+
+**Do not require:** Kubernetes, Celery rewrite, multi-region, service mesh.
+
+### Phase 8 — Release Validation (`PROD-8.*`)
+
+| Gate | Acceptance |
+| :--- | :--- |
+| Clean-env Bistro E2E | Fresh deploy → health → scan demo-site → SSE → real intelligence → optional GitHub PR |
+| Docs accuracy | README stack claims match code (esp. Redis/queue); link production roadmap |
 
 ---
 
@@ -656,13 +653,15 @@ A task is considered **done** when ALL of the following are true:
 
 | # | Risk | Probability | Impact | Mitigation |
 | :--- | :--- | :--- | :--- | :--- |
-| R1 | OpenAI API rate limiting or downtime | Medium | High | Pre-cache demo results; implement exponential backoff with tenacity |
+| R1 | LLM provider rate limiting or downtime | Medium | High | Shared `BudgetGuard` (35); demo cache optional; backoff at client boundary |
 | R2 | SPA sites fail to render with HTTPX | Medium | Medium | Playwright fallback is automated; test with 3 known SPAs |
-| R3 | pgvector HNSW index build is slow | Low | Medium | For dev, use exact search (no index); for prod, use Supabase's managed index builds |
-| R4 | GitHub API rate limits (60 req/hour unauthenticated) | Low | Medium | Always use authenticated requests (PAT); implement caching |
-| R5 | LLM generates invalid JSON-LD | Medium | Low | Instructor guarantees schema; additionally validate against Schema.org Validator API |
-| R6 | CSS selector paths are non-unique | Low | Medium | Prefer IDs over classes; add `:nth-of-type` for disambiguation; add uniqueness assertions |
-| R7 | Cross-origin issues between frontend and backend | Medium | Low | Configure CORS in FastAPI; use Next.js API routes as proxy in dev |
+| R3 | pgvector HNSW index build is slow | Low | Medium | For dev, use exact search (no index); for prod, use managed index builds |
+| R4 | GitHub API rate limits | Low | Medium | Authenticated PAT/App only; reuse open remediation PRs |
+| R5 | LLM generates invalid JSON-LD | Medium | Low | Generator validates via Schema.org checker; skip on insufficient evidence |
+| R6 | CSS selector paths are non-unique | Low | Medium | Prefer IDs; `:nth-of-type`; uniqueness assertions in chunker tests |
+| R7 | Cross-origin issues between frontend and backend | Medium | Low | CORS via `CORS_ORIGINS`; lock down for production (**PROD-6.2 / 7.3**) |
+| R8 | Scan API still returns mock intelligence | High | High | **PROD-5.1** — wire `FindableAIDAG` before claiming production readiness |
+| R9 | F-score docs disagree with README | Medium | Medium | **PROD-5.2** — one canonical specification |
 
 ---
 

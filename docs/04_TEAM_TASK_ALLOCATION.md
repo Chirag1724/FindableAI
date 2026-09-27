@@ -21,6 +21,8 @@
 7. [Code Review Policy](#7-code-review-policy)
 8. [Communication Protocol](#8-communication-protocol)
 9. [Dependency Chain & Parallel Tracks](#9-dependency-chain--parallel-tracks)
+10. [Production Readiness Roadmap](#10-production-readiness-roadmap)
+11. [Summary: One-Page Task Count](#summary-one-page-task-count)
 
 ---
 
@@ -187,12 +189,12 @@ FindableAI/
 
 #### Phase 5-6: DevOps & Deployment
 
-| Task ID | Task | Priority | Details |
-| :--- | :--- | :--- | :--- |
-| P1-5.1 | Backend Dockerfile | Medium | Multi-stage build, production Uvicorn config |
-| P1-5.2 | CI/CD pipeline | Medium | GitHub Actions: pytest on push, Docker build on merge to main |
-| P1-5.3 | Production deployment | Medium | Deploy to Railway/Render. Setup Supabase for production DB |
-| P1-5.4 | CORS & security headers | Medium | Configure allowed origins for production frontend domain |
+| Task ID | Task | Priority | Status | Details |
+| :--- | :--- | :--- | :--- | :--- |
+| P1-5.1 | Backend Dockerfile | P0 | ❌ Not started | No `Dockerfile` in repo. Required for production image. See **PROD-7.1**. |
+| P1-5.2 | CI/CD pipeline | P0 | ❌ Not started | No `.github/workflows/`. Required: pytest + ruff + mypy + frontend `tsc`/build. See **PROD-7.2**. |
+| P1-5.3 | Production deployment | P0 | ❌ Not started | No production deploy config. Provider TBD (Railway/Render/etc.). See **PROD-7.3**. |
+| P1-5.4 | CORS & security headers | P1 | ⚠️ Partial | CORS middleware exists in `main.py` via `CORS_ORIGINS`. Security headers and prod origin lockdown remaining. See **PROD-6.2**. |
 
 #### Deliverables Checklist
 
@@ -202,11 +204,14 @@ FindableAI/
 - [x] `backend/app/core/embeddings.py` — Embedding pipeline
 - [x] `backend/app/db.py` — Database engine and session management
 - [x] `backend/app/models/database.py` — All SQLAlchemy models
-- [x] `backend/app/api/scans.py` — All scan endpoints including SSE
-- [x] `docker-compose.yml` — Working Docker setup
+- [x] `backend/app/api/v1/scans.py` — Scan create/get/stream + patches routes **(crawl/chunk real; intelligence still mocked — see PROD-5.1)**
+- [x] `docker-compose.yml` — Local Postgres + Redis only (no app Dockerfile)
 - [x] `backend/alembic/` — Database migrations
 - [x] `demo-site/` — Bistro 2026 with intentional flaws
 - [x] Unit tests for: SSRF validator, DOM chunker, CSS path generator, embeddings pipeline, scans API
+- [ ] Backend `Dockerfile` / production image
+- [ ] GitHub Actions CI
+- [ ] Wire `FindableAIDAG` into `run_scan_pipeline` (replace mock F-score/patches)
 
 ---
 
@@ -330,6 +335,8 @@ FindableAI/
 ---
 
 > **Shiv status (implementation-verified on `main`):** all **17** assigned intelligence/orchestration tasks are complete (Phase 0: 2, Phase 2: 7, Phase 3: 6, Phase 4: 2). This is **Shiv's assigned roadmap only** — it does **not** mean FindableAI is production-ready. Remaining project work includes other owners' tasks (frontend Phase 4–5, backend deployment Phase 5, shared Phase 6), end-to-end product integration, and team decisions such as canonical F-score weights.
+>
+> **Shiv's highest-value next work (do not build another engine):** see **PROD-5.1**, **PROD-5.2**, **PROD-5.3**, **PROD-5.4**, **PROD-6.3** in [§10 Production Readiness Roadmap](#10-production-readiness-roadmap) — wire DAG into the scan API, canonicalize F-score, add a small intelligence regression suite, and harden prompt-injection / failure isolation.
 
 ---
 
@@ -365,31 +372,26 @@ FindableAI/
 
 #### Phase 5: Integration & Polish
 
-| Task ID | Task | Priority | Details |
-| :--- | :--- | :--- | :--- |
-| P3-5.1 | End-to-end integration | Critical | Connect all frontend components to live backend API. Test full flow: URL input → scan → results |
-| P3-5.2 | Error handling UI | High | User-friendly error states for: invalid URL, scan failed, API timeout, GitHub auth required |
-| P3-5.3 | Micro-animations | Medium | Fade-in for cards, counter animation for score, pulse for active scan phase, slide-in for Evidence Viewer |
-| P3-5.4 | Demo pre-cache fallback | Medium | If SSE stream fails, fall back to `GET /api/scans/{id}` polling with cached results |
-| P3-5.5 | README & screenshots | Medium | Take screenshots of: landing page, scan progress, score gauge, intent matrix, patch modal. Update README.md |
-| P3-5.6 | Browser testing | Medium | Test on Chrome, Firefox, Safari. Fix any rendering inconsistencies |
+| Task ID | Task | Priority | Status | Details |
+| :--- | :--- | :--- | :--- | :--- |
+| P3-5.1 | End-to-end integration | P0 | ❌ Blocked on PROD-5.1 | Connect UI to **real** intelligence results (not mock F-score/patches). Extends playbook 5.1. |
+| P3-5.2 | Error handling UI | P1 | ❌ Not started | Invalid URL, scan failed, timeout, GitHub auth. See **PROD-5.5**. |
+| P3-5.3 | Micro-animations | P2 | ❌ Not started | Polish only — not production-blocking. |
+| P3-5.4 | Demo pre-cache fallback | P1 | ❌ Not started | Useful for demos; optional if live E2E is reliable. Aligns with playbook 5.2. |
+| P3-5.5 | README & screenshots | P1 | ⚠️ Partial | README exists; production URLs/screenshots pending **PROD-8.2**. |
+| P3-5.6 | Browser testing | P2 | ❌ Not started | Chrome/Firefox/Safari smoke after UI components exist. |
 
 #### Deliverables Checklist
 
-- [ ] `frontend/src/app/page.tsx` — Landing page with URL input
-- [ ] `frontend/src/app/scans/[id]/page.tsx` — Scan dashboard
-- [ ] `frontend/src/app/layout.tsx` — Root layout with ThemeProvider
-- [ ] `frontend/src/app/globals.css` — Design system CSS variables
-- [ ] `frontend/src/components/ScoreGauge.tsx` — Radial score indicator
-- [ ] `frontend/src/components/IntentMatrix.tsx` — 30-query grid
-- [ ] `frontend/src/components/ContradictionCard.tsx` — Inconsistency viewer
-- [ ] `frontend/src/components/EvidenceViewer.tsx` — DOM path inspector
-- [ ] `frontend/src/components/PatchModal.tsx` — Diff viewer + PR button
-- [ ] `frontend/src/components/ScanProgress.tsx` — SSE progress stepper
-- [ ] `frontend/src/hooks/useScanStream.ts` — SSE EventSource hook
-- [ ] `frontend/src/lib/api.ts` — Typed API client
-- [ ] Dark mode working correctly
-- [ ] All components responsive at 768px+
+- [x] `frontend/` Next.js scaffold (`package.json`, Tailwind, `src/app/`)
+- [x] `frontend/src/types/scan.ts` — initial TS scan types
+- [x] `frontend/src/app/page.tsx` — landing + basic SSE client **(shell only)**
+- [ ] `frontend/src/hooks/useScanStream.ts` — dedicated SSE hook
+- [ ] `frontend/src/lib/api.ts` — typed API client
+- [ ] `frontend/src/components/ScoreGauge.tsx`, `IntentMatrix.tsx`, `ContradictionCard.tsx`, `EvidenceViewer.tsx`, `PatchModal.tsx`, `ScanProgress.tsx`
+- [ ] `frontend/src/app/scans/[id]/page.tsx` — full dashboard
+- [ ] Dark mode / responsive polish
+- [ ] Live E2E against non-mock backend intelligence
 
 ---
 
@@ -628,6 +630,79 @@ Chirag Dwivedi should **not wait** for the backend to be complete. Instead:
 
 ---
 
+## 10. Production Readiness Roadmap
+
+> **Audit basis (`main`, Sep 2026):** Shiv's intelligence/orchestration engines are **17/17 complete**. The system is **not** production-ready because the scan API still uses **mock F-score/patches**, the frontend is largely a **shell**, and **CI/Docker/deploy** are missing. This section is the single production roadmap. It **does not** recreate P2-0.* / P2-2.* / P2-3.* / P2-4.*.
+
+### Current state (evidence-based)
+
+| Area | State | Evidence |
+| :--- | :--- | :--- |
+| LLM + BudgetGuard + engines + DAG | ✅ Implemented | `app/core/llm.py`, `budget.py`, `engines/*`, `orchestration/*`, extensive unit tests |
+| Crawler / chunker / SSRF / embeddings / hybrid_search | ✅ Largely implemented | `crawler/*`, `security.py`, `embeddings.py`, `search.py`, `demo-site/` |
+| Scan API + SSE | ⚠️ Partial | Real crawl→chunk→store; then **sleep + `generate_mock_fscore` / `generate_mock_patches`** — **does not call `FindableAIDAG`** (`api/v1/scans.py`) |
+| Frontend dashboard | ⚠️ Shell | `page.tsx` + types only; no ScoreGauge/IntentMatrix/PatchModal components |
+| Redis/Celery workers | ❌ Not used in app | `docker-compose` has Redis; no Celery/ARQ code path (BackgroundTasks only) |
+| CI/CD | ❌ Missing | No `.github/workflows/` |
+| App Dockerfile | ❌ Missing | Compose = Postgres+Redis only |
+| Canonical F-score | ⚠️ Spec conflict | Implementation defaults `0.40/0.30/0.20/0.10`; README still documents a different formula |
+
+### Priorities
+
+- **P0** — required before calling FindableAI production-ready  
+- **P1** — important hardening  
+- **P2** — useful, not blocking  
+
+### Phase 5 — Integration & Validation
+
+| ID | Task | Owner | Pri | Acceptance criteria | Merges / replaces |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **PROD-5.1** | Wire `FindableAIDAG` into scan pipeline | Himanshu + **Shiv** | P0 | `run_scan_pipeline` calls real OBSERVE→…→STOP (or `ObservationInput` after crawl). Persist real score/intents/contradictions/patches. Remove mock F-score/patch generators from the happy path. SSE still emits progress. | Unblocks P3-5.1 / playbook 5.1 |
+| **PROD-5.2** | Canonical F-score specification | Shared (Shiv drafts) | P0 | One formula + weights chosen by team; `ScoreWeights`, tests, README, docs/01, API response, frontend types all match. No silent dual formulas. | Resolves known docs↔README conflict |
+| **PROD-5.3** | Intelligence regression fixtures | **Shiv** | P0 | Small fixture suite (not a research bench): SUPPORTED / PARTIAL / UNKNOWN / HARD+SOFT contradiction / missing schema / malformed JSON-LD / insufficient evidence → skip patch / no false PR. Runs in CI without live providers (fakes OK). | Extends existing engine tests |
+| **PROD-5.4** | API ↔ intelligence contract alignment | Himanshu + **Shiv** + Chirag | P0 | OpenAPI/`ScanResponse` exposes fields needed by UI from real `OrchestrationResult` (or mapped DTO). Frontend types updated. No second competing score schema in the live path. | TP-1 / Contract 2 |
+| **PROD-5.5** | Failure isolation | Himanshu + **Shiv** | P0 | Documented + tested: budget exhaustion, LLM failure, retrieval failure, GitHub PR failure. **PR failure must not wipe already-computed scan intelligence.** Frontend shows typed errors (P3-5.2). | Extends playbook 5.3 |
+| **PROD-5.6** | Frontend dashboard against live API | Chirag | P0 | ScoreGauge, IntentMatrix, contradictions, patches, ScanProgress consume **real** scan payloads; SSE phases coherent. | P3-4.* + P3-5.1 |
+
+### Phase 6 — Security & Hardening
+
+| ID | Task | Owner | Pri | Acceptance criteria | Merges / replaces |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **PROD-6.1** | SSRF / crawler security audit | Himanshu | P0 | Re-verify redirects, DNS, private IP, timeouts, `MAX_SCAN_PAGES`. Tests remain green; document residual risks. | Extends P1-1.1 (already implemented — audit, don't rebuild) |
+| **PROD-6.2** | API abuse controls + security headers | Himanshu | P1 | Basic per-IP scan rate limit; production CORS allowlist; standard security headers. | Extends P1-5.4; architecture “5 scans/hour” note |
+| **PROD-6.3** | Prompt-injection / untrusted HTML regression | **Shiv** | P1 | Fixtures with adversarial page text cannot force fabricated citations or invented JSON-LD; existing anti-hallucination + evidence gates still hold. | Extends P2-2.4 / JSON-LD rules |
+| **PROD-6.4** | Secrets & GitHub safety review | Himanshu + **Shiv** | P1 | No tokens in logs; PR path traversal tests still pass; env template documents required secrets. | Extends P2-3.5 + `.env.example` |
+
+### Phase 7 — Deployment & Operations
+
+| ID | Task | Owner | Pri | Acceptance criteria | Merges / replaces |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **PROD-7.1** | Production container image | Himanshu | P0 | Multi-stage backend Dockerfile; uvicorn prod settings; builds cleanly. | **Is** P1-5.1 |
+| **PROD-7.2** | CI pipeline | Himanshu (+ Chirag frontend job) | P0 | GitHub Actions: backend `pytest` + `ruff` + `mypy`; frontend `tsc`/build. | **Is** P1-5.2; playbook 0.6 |
+| **PROD-7.3** | Deploy + migrations | Himanshu + Chirag | P0 | Backend + frontend deployed; Alembic on prod DB; `/health` OK; CORS allows frontend origin. Provider TBD. | **Is** P1-5.3 + playbook 6.1–6.4 |
+| **PROD-7.4** | Structured scan observability | Shared | P1 | Logs/metrics per scan: `scan_id`, stage, duration, pages/chunks, LLM used/remaining, contradictions, opportunities, patches, PR status, failure reason. No secrets. | Replaces vague “add structlog/monitoring”; no new APM platform |
+
+> **Rejected for this project (do not add):** Kubernetes, service mesh, multi-region, Celery rewrite solely for prestige (BackgroundTasks OK until proven insufficient), new vector DB, enterprise IAM, large ML eval platforms.
+
+### Phase 8 — Release Validation Gate
+
+| ID | Task | Owner | Pri | Acceptance criteria | Merges / replaces |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **PROD-8.1** | Clean-env Bistro E2E | All | P0 | Fresh env → health → scan `demo-site` → SSE → real intelligence → ≥1 remediation opportunity → optional GitHub PR with token. | Playbook 5.1 + TP-5/TP-6 |
+| **PROD-8.2** | Docs & demo checklist | Chirag (+ all) | P1 | README setup/URLs accurate; Redis/Celery wording matches reality; production roadmap links; screenshots optional. | P3-5.5 + playbook 6.6 |
+
+### Shiv's recommended next contributions (priority order)
+
+1. **PROD-5.1** — co-own DAG↔API wiring (highest leverage)  
+2. **PROD-5.2** — draft canonical F-score decision + align code/docs  
+3. **PROD-5.3** — intelligence regression fixtures  
+4. **PROD-5.5** — budget/LLM/GitHub failure semantics with API  
+5. **PROD-6.3** — prompt-injection fixtures  
+
+Do **not** start a new independent intelligence engine.
+
+---
+
 ## Summary: One-Page Task Count
 
 | Person | Phase 0 | Phase 1 | Phase 2 | Phase 3 | Phase 4 | Phase 5 | Phase 6 | Total Tasks | Completed |
@@ -640,7 +715,7 @@ Chirag Dwivedi should **not wait** for the backend to be complete. Instead:
 
 > **Count note:** Shiv Phase 2 = seven tasks (`P2-2.1`–`P2-2.7`). Shiv Phase 4 = two tasks (`P2-4.1`, `P2-4.2`). The prior summary that showed Phase 2 = 9 and Phase 4 = — double-counted the DAG/budget work under Phase 2 and understated completion (9/17).
 >
-> **Production readiness:** Shiv's **17/17** completed tasks mean the assigned AI/ML + patch + orchestration roadmap is done in-repo. They do **not** imply the full product is production-ready — frontend (Chirag), remaining backend/ops (Himanshu), shared Phase 6, and live E2E integration remain separate.
+> **Production readiness:** Shiv's **17/17** completed tasks mean the assigned AI/ML + patch + orchestration roadmap is done in-repo. They do **not** imply the full product is production-ready. See **[§10 Production Readiness Roadmap](#10-production-readiness-roadmap)** (`PROD-5.*`–`PROD-8.*`). Critical gap today: scan API still returns **mock** F-score/patches until **PROD-5.1**.
 
 ---
 
