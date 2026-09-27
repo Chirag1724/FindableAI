@@ -246,7 +246,7 @@ FindableAI/
 | P2-3.5 | GitHub PR Engine | High | ✅ **DONE** — `github/pr_engine.py` + injectable `FakeGitHubClient`/`PyGithubClient`. Flow: validate patch set → fork → branch `findableai/remediation/<scan>` → apply validated HTML updates → commit → PR. Path traversal rejected; duplicate open PR reused; no real API in tests |
 | P2-3.6 | PR Markdown Generator | Medium | ✅ **DONE** — `github/pr_markdown.py` pure deterministic renderer (scores/delta/gaps/intents/evidence/files). No GitHub/network/LLM |
 
-#### Phase 2 (Parallel): DAG Orchestrator
+#### Phase 4: DAG Orchestrator & Budget Guard
 
 | Task ID | Task | Priority | Details |
 | :--- | :--- | :--- | :--- |
@@ -285,6 +285,7 @@ FindableAI/
 | No LLM / network / DB in scorer | ✅ |
 | Patches / GitHub PR | ✅ P2-3.1–3.6 |
 | DAG | ✅ P2-4.1 (`app/orchestration/`) |
+| Global LLM Budget Guard | ✅ P2-4.2 (`app/core/budget.py`) |
 
 ##### Intent Generator — implemented notes
 
@@ -324,6 +325,11 @@ FindableAI/
 | No duplicate retrieval implementation | ✅ |
 | Scoring / patches / GitHub PR | ✅ |
 | DAG | ✅ P2-4.1 |
+| Global LLM Budget Guard | ✅ P2-4.2 |
+
+---
+
+> **Shiv status (implementation-verified on `main`):** all **17** assigned intelligence/orchestration tasks are complete (Phase 0: 2, Phase 2: 7, Phase 3: 6, Phase 4: 2). This is **Shiv's assigned roadmap only** — it does **not** mean FindableAI is production-ready. Remaining project work includes other owners' tasks (frontend Phase 4–5, backend deployment Phase 5, shared Phase 6), end-to-end product integration, and team decisions such as canonical F-score weights.
 
 ---
 
@@ -627,10 +633,14 @@ Chirag Dwivedi should **not wait** for the backend to be complete. Instead:
 | Person | Phase 0 | Phase 1 | Phase 2 | Phase 3 | Phase 4 | Phase 5 | Phase 6 | Total Tasks | Completed |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Himanshu Raj** | 5 | 6 | 5 | — | — | 4 | — | **20** | **16** |
-| **Shiv Raj Singh** | 2 | — | 9 | 6 | — | — | — | **17** | **9** (… + P2-2.6, P2-2.7) |
+| **Shiv Raj Singh** | 2 | — | 7 | 6 | 2 | — | — | **17** | **17** (P2-0.1–0.2, P2-2.1–2.7, P2-3.1–3.6, P2-4.1–4.2) |
 | **Chirag Dwivedi** | 4 | — | — | — | 10 | 6 | — | **20** | **4** |
 | **Shared** | — | — | — | — | — | — | 6 | **6** | **0** |
-| **Total** | **11** | **6** | **14** | **6** | **10** | **10** | **6** | **63** | **29** |
+| **Total** | **11** | **6** | **12** | **6** | **12** | **10** | **6** | **63** | **37** |
+
+> **Count note:** Shiv Phase 2 = seven tasks (`P2-2.1`–`P2-2.7`). Shiv Phase 4 = two tasks (`P2-4.1`, `P2-4.2`). The prior summary that showed Phase 2 = 9 and Phase 4 = — double-counted the DAG/budget work under Phase 2 and understated completion (9/17).
+>
+> **Production readiness:** Shiv's **17/17** completed tasks mean the assigned AI/ML + patch + orchestration roadmap is done in-repo. They do **not** imply the full product is production-ready — frontend (Chirag), remaining backend/ops (Himanshu), shared Phase 6, and live E2E integration remain separate.
 
 ---
 
