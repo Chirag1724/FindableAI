@@ -1,3 +1,5 @@
+// Scan type definitions mirroring backend Pydantic schemas exactly
+
 export type ScanStatus =
   | "pending"
   | "crawling"
@@ -79,4 +81,71 @@ export interface ScanResponse {
   summary?: AuditSummary;
   patches: PatchProposal[];
   error?: string;
+}
+
+// Intelligence layer types (mirrors backend schemas/intelligence.py)
+
+export type IntentCategory =
+  | "eligibility"
+  | "policy"
+  | "availability"
+  | "pricing"
+  | "accessibility"
+  | "commercial"
+  | "local"
+  | "transactional"
+  | "trust"
+  | "edge_cases"
+  | "uncategorized";
+
+export type EntailmentStatus =
+  | "SUPPORTED"
+  | "PARTIALLY_SUPPORTED"
+  | "CONTRADICTED"
+  | "UNKNOWN";
+
+export interface EvidenceReference {
+  chunk_id: string;
+  dom_path: string;
+  url?: string;
+  rank?: number;
+  rrf_score?: number;
+  excerpt?: string;
+}
+
+export interface IntentEvaluation {
+  intent_id: string;
+  query: string;
+  category: IntentCategory;
+  status: EntailmentStatus;
+  reasoning: string;
+  evidence: EvidenceReference[];
+  confidence: number;
+  difficulty?: "easy" | "medium" | "hard";
+}
+
+export type ContradictionSeverity = "HARD_CONTRADICTION" | "SOFT_INCONSISTENCY";
+
+export interface Contradiction {
+  contradiction_id: string;
+  entity: string;
+  conflict: string;
+  values: unknown[];
+  severity: ContradictionSeverity;
+  source_urls: string[];
+  dom_paths: string[];
+}
+
+export interface PullRequestResult {
+  pr_url: string;
+  pr_number: number;
+  branch_name: string;
+  title: string;
+  created_at: string;
+}
+
+export interface ApiError {
+  status: number;
+  message: string;
+  detail?: string;
 }
