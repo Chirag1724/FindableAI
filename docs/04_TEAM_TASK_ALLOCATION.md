@@ -348,50 +348,58 @@ FindableAI/
 
 #### Phase 0: Foundation
 
-| Task ID | Task | Priority | Details |
-| :--- | :--- | :--- | :--- |
-| P3-0.1 | Next.js scaffold | Critical | Initialize Next.js 14+ with App Router, TypeScript, Tailwind CSS. Install shadcn/ui, next-themes, Recharts, diff2html, Lucide Icons |
-| P3-0.2 | Design system | Critical | Setup `globals.css` with CSS variables for dark/light mode. Define color palette (emerald for SUPPORTED, red for CONTRADICTED, amber for UNKNOWN, violet for scores). Configure `tailwind.config.ts` |
-| P3-0.3 | shadcn/ui components | High | Initialize and install required components: Card, Badge, Table, Dialog, Sheet, Tabs, Progress, Tooltip, Button, Input |
-| P3-0.4 | API client | High | `lib/api.ts`: Typed functions for all backend endpoints (`createScan`, `getScan`, `getIntents`, `getContradictions`, `getPatches`, `applyPatches`) |
+| Task ID | Task | Priority | Status | Details |
+| :--- | :--- | :--- | :--- | :--- |
+| P3-0.1 | Next.js scaffold | Critical | [x] Done | Initialize Next.js 14+ with App Router, TypeScript, Tailwind CSS. Installed Lucide Icons, Recharts, clsx, tailwind-merge, Geist font |
+| P3-0.2 | Design system | Critical | [x] Done | Dark theme with Geist typography (custom dark theme), custom CSS variables in `globals.css` (not the originally planned system) |
+| P3-0.3 | shadcn/ui components | High | [x] Done | Custom components built instead of shadcn/ui by design decision |
+| P3-0.4 | API client | High | [x] Done | `lib/api.ts`: Typed functions for all backend endpoints (`createScan`, `getScan`, `getIntents`, `getContradictions`, `getPatches`, `applyPatches`) |
 
 #### Phase 4: Dashboard UI
 
-| Task ID | Task | Priority | Details |
-| :--- | :--- | :--- | :--- |
-| P3-4.1 | Landing Page | Critical | Hero section with: animated gradient background, prominent URL input field, "Scan Now" CTA button, value proposition copy, dark mode by default |
-| P3-4.2 | SSE Hook | Critical | `hooks/useScanStream.ts`: EventSource connection, event parsing, phase tracking, auto-cleanup on unmount |
-| P3-4.3 | Scan Progress Component | Critical | `ScanProgress.tsx`: Horizontal stepper showing 6 phases (OBSERVE → PLAN → ACT → VERIFY → REFLECT → STOP). Active phase pulses. Completed phases show checkmark |
-| P3-4.4 | Score Gauge | Critical | `ScoreGauge.tsx`: Radial bar chart (Recharts) with 4 concentric arcs for sub-scores + large center number for F-Score. Smooth counter animation from 0 to final score |
-| P3-4.5 | Intent Matrix | Critical | `IntentMatrix.tsx`: Sortable/filterable table of 30 queries. Columns: Category, Query, Status (badge), Confidence. Click row to expand: reasoning, evidence chunks, DOM paths |
-| P3-4.6 | Contradiction Cards | High | `ContradictionCard.tsx`: Card per contradiction showing entity name, conflicting values side-by-side, source URLs (clickable), DOM paths (copyable), severity badge |
-| P3-4.7 | Evidence Viewer | High | `EvidenceViewer.tsx`: Slide-out Sheet panel. Shows: chunk content (highlighted), source URL (linked), CSS selector path (with copy button), extractability score |
-| P3-4.8 | Patch Modal | High | `PatchModal.tsx`: Full-width Dialog. Content: (a) unified diff rendered with diff2html, (b) projected score improvement badge, (c) "Create Pull Request" button with loading state |
-| P3-4.9 | Responsive layout | Medium | Dashboard grid: score gauge (left), intent matrix (center/right). Tablet breakpoint at 768px. Cards stack vertically on smaller screens |
-| P3-4.10 | Loading & empty states | Medium | Skeleton loaders for all data-dependent components. Empty state illustrations for zero results |
+| Task ID | Task | Priority | Status | Details |
+| :--- | :--- | :--- | :--- | :--- |
+| P3-4.1 | Landing Page | Critical | [x] Done | Hero section with: animated gradient background, prominent URL input field, "Test Your Site" CTA button, value proposition copy, dark mode by default |
+| P3-4.2 | SSE Hook | Critical | [x] Done | `hooks/useScanStream.ts`: EventSource connection, event parsing, phase tracking, auto-cleanup on unmount, polling fallback |
+| P3-4.3 | Scan Progress Component | Critical | [x] Done | `ScanProgress.tsx`: Stepper showing active and completed pipeline phases with status indicators |
+| P3-4.4 | Score Gauge | Critical | [x] Done | `ScoreGauge.tsx`: Circular score gauge with animated number count-up and sub-score metrics |
+| P3-4.5 | Intent Matrix | Critical | [x] Done | `IntentMatrix.tsx`: Sortable/filterable table of 30 queries across 10 categories with category tabs, search, expandable evidence citations |
+| P3-4.6 | Contradiction Cards | High | [x] Done | `ContradictionCard.tsx`: Cards showing conflicting claims side-by-side with severity badges, source URLs, and copyable DOM selector paths |
+| P3-4.7 | Evidence Viewer | High | [x] Done | `EvidenceViewer.tsx`: Slide-out panel showing extracted chunk text, source URL, CSS selector path with copy button |
+| P3-4.8 | Patch Modal | High | [x] Done | `PatchModal.tsx`: Full-width dialog with unified diff view, projected score improvement badge, and GitHub PR trigger |
+| P3-4.9 | Responsive layout | Medium | [x] Done | Dashboard responsive layout across desktop, tablet, and mobile |
+| P3-4.10 | Loading & empty states | Medium | [x] Done | `Skeletons.tsx`, `EmptyState.tsx`, `ErrorState.tsx` loaders and empty state representations |
 
 #### Phase 5: Integration & Polish
 
 | Task ID | Task | Priority | Status | Details |
 | :--- | :--- | :--- | :--- | :--- |
-| P3-5.1 | End-to-end integration | P0 | ❌ Blocked on PROD-5.1 | Connect UI to **real** intelligence results (not mock F-score/patches). Extends playbook 5.1. |
-| P3-5.2 | Error handling UI | P1 | ❌ Not started | Invalid URL, scan failed, timeout, GitHub auth. See **PROD-5.5**. |
-| P3-5.3 | Micro-animations | P2 | ❌ Not started | Polish only — not production-blocking. |
-| P3-5.4 | Demo pre-cache fallback | P1 | ❌ Not started | Useful for demos; optional if live E2E is reliable. Aligns with playbook 5.2. |
-| P3-5.5 | README & screenshots | P1 | ⚠️ Partial | README exists; production URLs/screenshots pending **PROD-8.2**. |
+| P3-5.1 | End-to-end integration | P0 | ⚠️ Partial | UI is fully wired to the API contract via a normalizer that handles both mock and real backend response shapes, but full integration is pending backend wiring of the real scorer/intent/contradiction engines into the live API (see scans.py) |
+| P3-5.2 | Error handling UI | P1 | [x] Done | Error boundaries and fallback states (`ErrorState.tsx`, `error.tsx`, `not-found.tsx`) |
+| P3-5.3 | Micro-animations | P2 | [x] Done | Smooth gauge count-up (`useCountUp`), hover transitions, modal animations |
+| P3-5.4 | Demo pre-cache fallback | P1 | [x] Done | SSE with polling fallback (`useScanStream.ts`), offline mock data fallbacks |
+| P3-5.5 | README & screenshots | P1 | ❌ Not started | Production URLs/screenshots pending **PROD-8.2**. |
 | P3-5.6 | Browser testing | P2 | ❌ Not started | Chrome/Firefox/Safari smoke after UI components exist. |
 
 #### Deliverables Checklist
 
 - [x] `frontend/` Next.js scaffold (`package.json`, Tailwind, `src/app/`)
-- [x] `frontend/src/types/scan.ts` — initial TS scan types
-- [x] `frontend/src/app/page.tsx` — landing + basic SSE client **(shell only)**
-- [ ] `frontend/src/hooks/useScanStream.ts` — dedicated SSE hook
-- [ ] `frontend/src/lib/api.ts` — typed API client
-- [ ] `frontend/src/components/ScoreGauge.tsx`, `IntentMatrix.tsx`, `ContradictionCard.tsx`, `EvidenceViewer.tsx`, `PatchModal.tsx`, `ScanProgress.tsx`
-- [ ] `frontend/src/app/scans/[id]/page.tsx` — full dashboard
-- [ ] Dark mode / responsive polish
-- [ ] Live E2E against non-mock backend intelligence
+- [x] `frontend/src/types/scan.ts` - initial TS scan types
+- [x] `frontend/src/app/page.tsx` - landing page + full UI
+- [x] `frontend/src/hooks/useScanStream.ts` - dedicated SSE hook with polling fallback
+- [x] `frontend/src/lib/api.ts` - typed API client
+- [x] `frontend/src/components/ScoreGauge.tsx`, `IntentMatrix.tsx`, `ContradictionCard.tsx`, `EvidenceViewer.tsx`, `PatchModal.tsx`, `ScanProgress.tsx`, `SummaryStats.tsx`, `StatusBadge.tsx`, `Skeletons.tsx`, `EmptyState.tsx`, `ErrorState.tsx`, `CopyButton.tsx`
+- [x] `frontend/src/app/scans/[id]/page.tsx` - full scan results dashboard
+- [x] Dark mode / responsive polish (Geist typography + custom dark theme)
+- [x] Vitest + React Testing Library test suite (267 tests, covering lib/hooks/components)
+- [ ] Live E2E against non-mock backend intelligence (pending backend wiring)
+
+#### Frontend Integration Notes for Shiv/Himanshu
+
+- The frontend normalizer (`src/lib/normalize.ts`) already handles both the current mock response shapes and the real `IntentEvaluation`/`Contradiction` schemas, so no frontend changes are needed once real data is wired into `scans.py`
+- The frontend expects `FScoreBreakdown` (from `schemas/fscore.py`) on the score endpoint, not the scorer's internal `ScoreBreakdown` (from `schemas/scoring.py`) - an adapter is needed to convert one to the other before wiring `Scorer.score()` into the API. The mapping is not a simple rename: `s_ans` maps to `coverage`, `s_con` maps to `contradiction_penalty`, `s_str` maps to `structural_clarity`, and `s_acc` has no corresponding field in the API schema yet
+- The frontend expects a `grade` field (A-F) on the score response, which does not currently exist in the scorer's output and needs to be derived somewhere
+- The F-score weights currently differ between the docs' Option A (0.40/0.30/0.20/0.10) and the mock data / README's Option B (0.40/0.35/-0.15/0.10) - this should be resolved as a team decision before wiring real scores, since the frontend renders whichever weights it receives
 
 ---
 
