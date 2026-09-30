@@ -10,14 +10,15 @@ interface StatCardProps {
   suffix?: string;
   decimals?: number;
   isDuration?: boolean;
+  className?: string;
 }
 
-function StatCard({ label, value, suffix = "", decimals = 0, isDuration = false }: StatCardProps) {
+function StatCard({ label, value, suffix = "", decimals = 0, isDuration = false, className = "" }: StatCardProps) {
   const { value: animatedValue, ref } = useCountUp(value, isDuration ? 1 : decimals);
 
   return (
     <div
-      className="rounded-xl bg-[#141414] px-4 py-4 sm:px-5 sm:py-5"
+      className={`rounded-xl bg-[#141414] px-4 py-4 sm:px-5 sm:py-5 ${className}`}
       style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
     >
       <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-[#A1A1A1]">
@@ -43,6 +44,7 @@ export function SummaryStats({ summary }: { summary: AuditSummary }) {
         label="Duration"
         value={summary.execution_time_seconds}
         isDuration
+        className="col-span-2 sm:col-span-1"
       />
     </div>
   );

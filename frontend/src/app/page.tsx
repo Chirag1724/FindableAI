@@ -16,6 +16,8 @@ import {
   GitPullRequest,
   Cpu,
   Layers,
+  Menu,
+  X,
 } from "lucide-react";
 import { getHealth } from "@/lib/api";
 import type { FScoreBreakdown } from "@/types/scan";
@@ -174,7 +176,7 @@ function HealthIndicator() {
   if (online === null) return null;
 
   return (
-    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-atelier-coal border border-atelier-hairline text-xs">
+    <div className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full bg-atelier-coal border border-atelier-hairline text-xs shrink-0">
       <span
         className={`h-1.5 w-1.5 rounded-full ${
           online ? "bg-emerald-400 animate-pulse" : "bg-rose-400"
@@ -190,6 +192,7 @@ function HealthIndicator() {
 
 export default function HomePage() {
   const [headerScrolled, setHeaderScrolled] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setHeaderScrolled(window.scrollY > 10);
@@ -198,7 +201,7 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-atelier-ink text-white font-sans selection:bg-atelier-gold selection:text-atelier-ink relative overflow-hidden">
+    <div className="min-h-screen bg-atelier-ink text-white font-sans selection:bg-atelier-gold selection:text-atelier-ink relative overflow-x-hidden">
       {/* Soft Gold Radial Ambient Glow at Top */}
       <div
         className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 h-[500px] w-[900px] rounded-full opacity-20 blur-[130px]"
@@ -212,79 +215,154 @@ export default function HomePage() {
       {/* Sticky Top Nav */}
       <header
         className={`sticky top-0 z-50 transition-all duration-300 ${
-          headerScrolled
-            ? "backdrop-blur-md bg-atelier-ink/85 border-b border-atelier-hairline py-3.5"
-            : "bg-transparent border-b border-white/[0.06] py-4 sm:py-5"
+          headerScrolled || mobileMenuOpen
+            ? "backdrop-blur-md bg-atelier-ink/90 border-b border-atelier-hairline py-3 sm:py-3.5"
+            : "bg-transparent border-b border-white/[0.06] py-3.5 sm:py-5"
         }`}
       >
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 flex items-center justify-between">
-          {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5 sm:gap-3 group">
-            <Image
-              src="/logo.png"
-              alt="FindableAI Logo"
-              width={36}
-              height={36}
-              className="h-8 w-8 sm:h-9 sm:w-9 rounded-lg object-contain transition-transform group-hover:scale-105"
-              priority
-            />
-            <div className="flex items-baseline gap-1.5">
-              <span className="font-serif text-lg tracking-tight text-atelier-champagne font-medium">
-                FindableAI
-              </span>
-              <span className="text-[10px] font-mono tracking-widest text-atelier-fog uppercase hidden sm:inline">
-                MDO
-              </span>
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between">
+            {/* Logo */}
+            <Link href="/" className="flex items-center gap-2 sm:gap-3 group">
+              <Image
+                src="/logo.png"
+                alt="FindableAI Logo"
+                width={36}
+                height={36}
+                className="h-7 w-7 sm:h-9 sm:w-9 rounded-lg object-contain transition-transform group-hover:scale-105"
+                priority
+              />
+              <div className="flex items-baseline gap-1.5">
+                <span className="font-serif text-base sm:text-lg tracking-tight text-atelier-champagne font-medium">
+                  FindableAI
+                </span>
+                <span className="text-[10px] font-mono tracking-widest text-atelier-fog uppercase hidden sm:inline">
+                  MDO
+                </span>
+              </div>
+            </Link>
+
+            {/* Navigation links (md+) */}
+            <nav className="hidden md:flex items-center gap-8 text-xs font-medium tracking-wide">
+              <Link
+                href="/audit"
+                className="text-atelier-fog transition-colors hover:text-atelier-champagne"
+              >
+                Audit Engine
+              </Link>
+              <a
+                href="#architecture"
+                className="text-atelier-fog transition-colors hover:text-atelier-champagne"
+              >
+                Architecture
+              </a>
+              <a
+                href="#preview"
+                className="text-atelier-fog transition-colors hover:text-atelier-champagne"
+              >
+                F-Score Metric
+              </a>
+              <a
+                href="#faq"
+                className="text-atelier-fog transition-colors hover:text-atelier-champagne"
+              >
+                FAQ
+              </a>
+              <a
+                href="http://localhost:8000/docs"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-atelier-fog transition-colors hover:text-atelier-champagne"
+              >
+                API Docs
+              </a>
+            </nav>
+
+            {/* Actions & Mobile Menu Toggle */}
+            <div className="flex items-center gap-2 sm:gap-3.5">
+              <HealthIndicator />
+              <Link
+                href="/audit"
+                className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium border border-atelier-gold/40 text-atelier-champagne bg-atelier-gold/5 hover:bg-atelier-gold/15 transition-all hover:border-atelier-gold active:scale-95"
+              >
+                <span>Start audit</span>
+                <ArrowRight className="h-3 w-3" />
+              </Link>
+
+              {/* Hamburger Button (Mobile < md) */}
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen((o) => !o)}
+                aria-label="Toggle navigation menu"
+                aria-expanded={mobileMenuOpen}
+                className="md:hidden flex items-center justify-center h-8 w-8 rounded-lg border border-atelier-hairline text-atelier-champagne bg-atelier-coal/80 hover:bg-atelier-panel transition-colors active:scale-95"
+              >
+                {mobileMenuOpen ? (
+                  <X className="h-4 w-4" />
+                ) : (
+                  <Menu className="h-4 w-4" />
+                )}
+              </button>
             </div>
-          </Link>
-
-          {/* Navigation links (md+) */}
-          <nav className="hidden md:flex items-center gap-8 text-xs font-medium tracking-wide">
-            <Link
-              href="/audit"
-              className="text-atelier-fog transition-colors hover:text-atelier-champagne"
-            >
-              Audit Engine
-            </Link>
-            <a
-              href="#architecture"
-              className="text-atelier-fog transition-colors hover:text-atelier-champagne"
-            >
-              Architecture
-            </a>
-            <a
-              href="#preview"
-              className="text-atelier-fog transition-colors hover:text-atelier-champagne"
-            >
-              F-Score Metric
-            </a>
-            <a
-              href="#faq"
-              className="text-atelier-fog transition-colors hover:text-atelier-champagne"
-            >
-              FAQ
-            </a>
-            <a
-              href="http://localhost:8000/docs"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-atelier-fog transition-colors hover:text-atelier-champagne"
-            >
-              API Docs
-            </a>
-          </nav>
-
-          {/* Actions */}
-          <div className="flex items-center gap-3.5">
-            <HealthIndicator />
-            <Link
-              href="/audit"
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium border border-atelier-gold/40 text-atelier-champagne bg-atelier-gold/5 hover:bg-atelier-gold/15 transition-all hover:border-atelier-gold active:scale-95"
-            >
-              <span>Start audit</span>
-              <ArrowRight className="h-3 w-3" />
-            </Link>
           </div>
+
+          {/* Mobile Dropdown Menu */}
+          {mobileMenuOpen && (
+            <div className="md:hidden border-t border-atelier-hairline/60 bg-atelier-ink/95 backdrop-blur-xl px-2 pt-3 pb-5 space-y-3 mt-3 animate-in fade-in slide-in-from-top-2 duration-200">
+              <nav className="flex flex-col space-y-1 text-xs">
+                <Link
+                  href="/audit"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center justify-between px-3.5 py-2.5 rounded-lg text-atelier-champagne bg-atelier-coal/70 hover:bg-atelier-panel border border-atelier-hairline transition-colors font-medium"
+                >
+                  <span>Audit Engine</span>
+                  <ArrowRight className="h-3.5 w-3.5 text-atelier-gold" />
+                </Link>
+                <a
+                  href="#architecture"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="px-3.5 py-2 rounded-lg text-atelier-fog hover:text-atelier-champagne hover:bg-white/[0.04] transition-colors"
+                >
+                  Architecture Pipeline
+                </a>
+                <a
+                  href="#preview"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="px-3.5 py-2 rounded-lg text-atelier-fog hover:text-atelier-champagne hover:bg-white/[0.04] transition-colors"
+                >
+                  F-Score Metric
+                </a>
+                <a
+                  href="#faq"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="px-3.5 py-2 rounded-lg text-atelier-fog hover:text-atelier-champagne hover:bg-white/[0.04] transition-colors"
+                >
+                  FAQ
+                </a>
+                <a
+                  href="http://localhost:8000/docs"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center justify-between px-3.5 py-2 rounded-lg text-atelier-fog hover:text-atelier-champagne hover:bg-white/[0.04] transition-colors"
+                >
+                  <span>API Docs</span>
+                  <ArrowUpRight className="h-3.5 w-3.5 text-atelier-fog" />
+                </a>
+              </nav>
+
+              <div className="pt-2 border-t border-atelier-hairline/50">
+                <Link
+                  href="/audit"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center justify-center gap-2 w-full py-3 rounded-full bg-gold-gradient text-atelier-ink font-semibold text-xs tracking-wider uppercase shadow-md active:scale-95"
+                >
+                  <span>Start Machine Audit</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
@@ -293,30 +371,30 @@ export default function HomePage() {
         {/* Hero Section - Full Viewport First Fold */}
         <section
           id="audit"
-          className="min-h-[calc(100vh-4rem)] min-h-[calc(100dvh-4rem)] flex flex-col justify-center items-center text-center max-w-3xl mx-auto py-12"
+          className="min-h-[calc(100vh-4rem)] min-h-[calc(100dvh-4rem)] flex flex-col justify-center items-center text-center max-w-3xl mx-auto py-8 sm:py-12"
         >
           {/* Eyebrow Pill */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-atelier-coal border border-atelier-hairline text-[11px] font-semibold tracking-[0.22em] text-atelier-soft-gold uppercase mb-6 shadow-sm">
-            <Sparkles className="h-3 w-3 text-atelier-gold" />
-            <span>The Machine Discoverability Platform</span>
+          <div className="inline-flex items-center gap-2 px-3 sm:px-3.5 py-1 rounded-full bg-atelier-coal border border-atelier-hairline text-[10px] sm:text-[11px] font-semibold tracking-[0.16em] sm:tracking-[0.22em] text-atelier-soft-gold uppercase mb-5 sm:mb-6 shadow-sm max-w-full">
+            <Sparkles className="h-3 w-3 shrink-0 text-atelier-gold" />
+            <span className="truncate">The Machine Discoverability Platform</span>
           </div>
 
           {/* Headline */}
-          <h1 className="font-serif text-4xl sm:text-5xl lg:text-[4.2rem] leading-[1.08] tracking-tight text-white mb-6">
+          <h1 className="font-serif text-3xl sm:text-5xl lg:text-[4.2rem] leading-[1.12] sm:leading-[1.08] tracking-tight text-white mb-4 sm:mb-6">
             Discoverability, engineered with{" "}
             <span className="italic font-normal text-gold-gradient">precision</span>.
           </h1>
 
           {/* Subhead */}
-          <p className="text-base sm:text-lg text-atelier-fog leading-relaxed max-w-2xl mx-auto mb-10">
+          <p className="text-sm sm:text-base md:text-lg text-atelier-fog leading-relaxed max-w-2xl mx-auto mb-8 sm:mb-10 px-2 sm:px-0">
             Can AI search engines reliably cite your site? Audit Perplexity and SearchGPT citation rates, detect factual contradictions, and dispatch autonomous code fixes.
           </p>
 
           {/* Hero CTAs */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 w-full sm:w-auto px-4 sm:px-0">
             <Link
               href="/audit"
-              className="group inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-full bg-gold-gradient text-atelier-ink font-semibold text-xs tracking-wider uppercase transition-all duration-200 hover:brightness-105 active:scale-95 shadow-lg w-full sm:w-auto"
+              className="group inline-flex items-center justify-center gap-2.5 px-8 py-3.5 sm:py-4 rounded-full bg-gold-gradient text-atelier-ink font-semibold text-xs tracking-wider uppercase transition-all duration-200 hover:brightness-105 active:scale-95 shadow-lg w-full sm:w-auto max-w-xs sm:max-w-none"
             >
               <span>Test Your Site</span>
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
@@ -324,7 +402,7 @@ export default function HomePage() {
 
             <a
               href="#architecture"
-              className="inline-flex items-center justify-center gap-2 px-7 py-4 rounded-full border border-atelier-gold/35 text-atelier-champagne bg-atelier-gold/5 hover:bg-atelier-gold/15 transition-all text-xs font-semibold tracking-wider uppercase hover:border-atelier-gold active:scale-95 w-full sm:w-auto"
+              className="inline-flex items-center justify-center gap-2 px-7 py-3.5 sm:py-4 rounded-full border border-atelier-gold/35 text-atelier-champagne bg-atelier-gold/5 hover:bg-atelier-gold/15 transition-all text-xs font-semibold tracking-wider uppercase hover:border-atelier-gold active:scale-95 w-full sm:w-auto max-w-xs sm:max-w-none"
             >
               <span>Explore Architecture ↓</span>
             </a>
@@ -332,37 +410,37 @@ export default function HomePage() {
         </section>
 
         {/* How It Works / Architecture Pipeline Section (#architecture) */}
-        <section id="architecture" className="mb-24 lg:mb-32 scroll-mt-24">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-atelier-coal border border-atelier-hairline text-[11px] font-semibold tracking-[0.22em] text-atelier-soft-gold uppercase mb-3 shadow-sm">
+        <section id="architecture" className="mb-20 sm:mb-24 lg:mb-32 scroll-mt-24">
+          <div className="text-center max-w-3xl mx-auto mb-12 sm:mb-16">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-atelier-coal border border-atelier-hairline text-[10px] sm:text-[11px] font-semibold tracking-[0.16em] sm:tracking-[0.22em] text-atelier-soft-gold uppercase mb-3 shadow-sm">
               <Layers className="h-3 w-3 text-atelier-gold" />
               <span>The Verification Loop</span>
             </div>
-            <h2 className="font-serif text-3xl sm:text-5xl text-white font-normal mb-4">
+            <h2 className="font-serif text-2xl sm:text-4xl lg:text-5xl text-white font-normal mb-3 sm:mb-4">
               How machine discoverability is{" "}
               <span className="italic font-normal text-gold-gradient">computed</span>.
             </h2>
-            <p className="text-xs sm:text-sm text-atelier-fog max-w-xl mx-auto leading-relaxed">
+            <p className="text-xs sm:text-sm text-atelier-fog max-w-xl mx-auto leading-relaxed px-2 sm:px-0">
               From headless DOM extraction to natural language inference and automated pull requests. A deterministic 6-stage architecture.
             </p>
           </div>
 
           {/* 6-Stage Pipeline Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
             {PIPELINE_STAGES.map((stage) => {
               const IconComponent = stage.icon;
               return (
                 <div
                   key={stage.step}
-                  className="group relative rounded-2xl bg-atelier-coal/70 border border-atelier-hairline p-7 transition-all duration-300 hover:border-atelier-gold/40 hover:bg-atelier-panel hover:shadow-gold-subtle flex flex-col justify-between"
+                  className="group relative rounded-2xl bg-atelier-coal/70 border border-atelier-hairline p-5 sm:p-7 transition-all duration-300 hover:border-atelier-gold/40 hover:bg-atelier-panel hover:shadow-gold-subtle flex flex-col justify-between"
                 >
                   <div>
                     {/* Header: Step Number & Icon */}
-                    <div className="flex items-center justify-between mb-5">
-                      <span className="font-serif text-2xl text-atelier-soft-gold/60 font-light group-hover:text-atelier-gold transition-colors">
+                    <div className="flex items-center justify-between mb-4 sm:mb-5">
+                      <span className="font-serif text-xl sm:text-2xl text-atelier-soft-gold/60 font-light group-hover:text-atelier-gold transition-colors">
                         {stage.step}
                       </span>
-                      <div className="h-9 w-9 rounded-xl bg-atelier-ink border border-atelier-hairline flex items-center justify-center text-atelier-champagne group-hover:border-atelier-gold/40 transition-colors">
+                      <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-atelier-ink border border-atelier-hairline flex items-center justify-center text-atelier-champagne group-hover:border-atelier-gold/40 transition-colors">
                         <IconComponent className="h-4 w-4" />
                       </div>
                     </div>
@@ -371,7 +449,7 @@ export default function HomePage() {
                     <p className="text-[10px] font-mono tracking-[0.2em] text-atelier-soft-gold uppercase mb-1.5">
                       {stage.tag}
                     </p>
-                    <h3 className="font-serif text-lg text-white font-medium mb-3">
+                    <h3 className="font-serif text-base sm:text-lg text-white font-medium mb-2.5 sm:mb-3">
                       {stage.title}
                     </h3>
 
@@ -382,7 +460,7 @@ export default function HomePage() {
                   </div>
 
                   {/* Tech Badge Footer */}
-                  <div className="mt-6 pt-4 border-t border-atelier-hairline/60 flex items-center justify-between text-[11px]">
+                  <div className="mt-5 sm:mt-6 pt-3.5 sm:pt-4 border-t border-atelier-hairline/60 flex items-center justify-between text-[11px]">
                     <span className="font-mono text-atelier-fog/80 text-[10px]">
                       {stage.techBadge}
                     </span>
@@ -396,39 +474,39 @@ export default function HomePage() {
           </div>
 
           {/* Deterministic Formula Callout */}
-          <div className="mt-8 rounded-2xl bg-gradient-to-r from-atelier-coal via-atelier-panel to-atelier-coal border border-atelier-hairline p-6 text-center">
-            <p className="text-[11px] font-mono text-atelier-soft-gold tracking-widest uppercase mb-1">
+          <div className="mt-6 sm:mt-8 rounded-2xl bg-gradient-to-r from-atelier-coal via-atelier-panel to-atelier-coal border border-atelier-hairline p-4 sm:p-6 text-center overflow-x-auto">
+            <p className="text-[10px] sm:text-[11px] font-mono text-atelier-soft-gold tracking-widest uppercase mb-1.5">
               THE MATHEMATICAL INVARIANT
             </p>
-            <p className="font-mono text-xs sm:text-sm text-atelier-champagne">
+            <p className="font-mono text-[11px] sm:text-xs md:text-sm text-atelier-champagne leading-relaxed break-words sm:whitespace-nowrap">
               F-Score = (0.40 × Coverage) + (0.35 × Entailment) − (0.15 × Contradiction) + (0.10 × Structural DOM)
             </p>
           </div>
         </section>
 
         {/* Live Preview Section (#preview) */}
-        <section id="preview" className="mb-24 lg:mb-32">
-          <div className="text-center mb-10">
-            <p className="text-[11px] font-semibold tracking-[0.24em] text-atelier-soft-gold uppercase mb-2">
+        <section id="preview" className="mb-20 sm:mb-24 lg:mb-32">
+          <div className="text-center mb-8 sm:mb-10">
+            <p className="text-[10px] sm:text-[11px] font-semibold tracking-[0.2em] sm:tracking-[0.24em] text-atelier-soft-gold uppercase mb-2">
               Evidence-Grounded Intelligence
             </p>
-            <h2 className="font-serif text-3xl sm:text-4xl text-white font-medium mb-3">
+            <h2 className="font-serif text-2xl sm:text-4xl text-white font-medium mb-3">
               Sample output from a live MDO scan
             </h2>
-            <p className="text-xs sm:text-sm text-atelier-fog max-w-xl mx-auto">
+            <p className="text-xs sm:text-sm text-atelier-fog max-w-xl mx-auto px-2 sm:px-0">
               Real telemetry generated from multi-page crawls, hybrid pgvector retrieval, and DeBERTa-v3 natural language inference.
             </p>
           </div>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             {/* ScoreGauge Panel */}
-            <div className="rounded-2xl bg-atelier-panel border border-atelier-hairline shadow-gold-subtle p-6 sm:p-8">
+            <div className="rounded-2xl bg-atelier-panel border border-atelier-hairline shadow-gold-subtle p-4 sm:p-8">
               <ScoreGauge fScore={SAMPLE_FSCORE} />
             </div>
 
             {/* Scan Progress & Stats Panel */}
-            <div className="space-y-6">
-              <div className="rounded-2xl bg-atelier-panel border border-atelier-hairline shadow-gold-subtle p-6 sm:p-8">
+            <div className="space-y-4 sm:space-y-6">
+              <div className="rounded-2xl bg-atelier-panel border border-atelier-hairline shadow-gold-subtle p-4 sm:p-8">
                 <ScanProgress
                   currentStatus="completed"
                   latestEvent={{
@@ -444,7 +522,7 @@ export default function HomePage() {
               </div>
 
               {/* Three Stat Cards */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-3 gap-2 sm:gap-4">
                 {[
                   { v: "30", l: "Buyer queries simulated" },
                   { v: "4", l: "F-Score core sub-factors" },
@@ -452,10 +530,10 @@ export default function HomePage() {
                 ].map(({ v, l }) => (
                   <div
                     key={l}
-                    className="rounded-xl bg-atelier-coal border border-atelier-hairline p-4 text-center"
+                    className="rounded-xl bg-atelier-coal border border-atelier-hairline p-2.5 sm:p-4 text-center flex flex-col justify-center"
                   >
-                    <p className="font-serif text-2xl font-medium text-white mb-0.5">{v}</p>
-                    <p className="text-[11px] text-atelier-fog leading-tight">{l}</p>
+                    <p className="font-serif text-lg sm:text-2xl font-medium text-white mb-0.5">{v}</p>
+                    <p className="text-[10px] sm:text-[11px] text-atelier-fog leading-tight break-words">{l}</p>
                   </div>
                 ))}
               </div>
@@ -464,15 +542,15 @@ export default function HomePage() {
         </section>
 
         {/* Answer Engine Trust Strip */}
-        <section className="mb-24 lg:mb-32 text-center">
-          <p className="text-[11px] font-semibold tracking-[0.24em] text-atelier-fog uppercase mb-8">
+        <section className="mb-20 sm:mb-24 lg:mb-32 text-center">
+          <p className="text-[10px] sm:text-[11px] font-semibold tracking-[0.2em] sm:tracking-[0.24em] text-atelier-fog uppercase mb-6 sm:mb-8">
             Engineered to maximize citation rates across
           </p>
-          <div className="flex flex-wrap items-center justify-center gap-8 sm:gap-14 opacity-75">
+          <div className="flex flex-wrap items-center justify-center gap-6 sm:gap-14 opacity-75">
             {TRUST_ENGINES.map((engine) => (
               <span
                 key={engine}
-                className="font-serif italic text-lg sm:text-2xl text-atelier-fog/80 hover:text-atelier-champagne transition-colors cursor-default"
+                className="font-serif italic text-base sm:text-2xl text-atelier-fog/80 hover:text-atelier-champagne transition-colors cursor-default"
               >
                 {engine}
               </span>
@@ -481,14 +559,14 @@ export default function HomePage() {
         </section>
 
         {/* Enterprise Commission Bar */}
-        <section className="mb-24 lg:mb-32">
-          <div className="rounded-2xl border border-atelier-hairline bg-gradient-to-r from-atelier-coal via-atelier-panel to-atelier-coal p-7 sm:p-9 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-sm">
-            <div className="flex items-start sm:items-center gap-4">
-              <div className="h-12 w-12 rounded-xl bg-atelier-ink border border-atelier-gold/30 flex items-center justify-center shrink-0 shadow-inner">
-                <Building2 className="h-6 w-6 text-atelier-champagne" />
+        <section className="mb-20 sm:mb-24 lg:mb-32">
+          <div className="rounded-2xl border border-atelier-hairline bg-gradient-to-r from-atelier-coal via-atelier-panel to-atelier-coal p-5 sm:p-9 flex flex-col md:flex-row items-start md:items-center justify-between gap-5 sm:gap-6 shadow-sm">
+            <div className="flex items-start sm:items-center gap-3.5 sm:gap-4">
+              <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl bg-atelier-ink border border-atelier-gold/30 flex items-center justify-center shrink-0 shadow-inner">
+                <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-atelier-champagne" />
               </div>
               <div>
-                <h3 className="font-serif text-xl sm:text-2xl text-white font-medium mb-1">
+                <h3 className="font-serif text-lg sm:text-2xl text-white font-medium mb-1">
                   Need a custom enterprise commission?
                 </h3>
                 <p className="text-xs sm:text-sm text-atelier-fog max-w-2xl leading-relaxed">
@@ -499,7 +577,7 @@ export default function HomePage() {
 
             <a
               href="mailto:enterprise@findable.ai?subject=Enterprise%20Commission%20Inquiry"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-full border border-atelier-gold/40 text-atelier-champagne bg-atelier-gold/5 hover:bg-atelier-gold/15 transition-all text-xs font-semibold tracking-wider uppercase shrink-0 hover:border-atelier-gold active:scale-95"
+              className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full border border-atelier-gold/40 text-atelier-champagne bg-atelier-gold/5 hover:bg-atelier-gold/15 transition-all text-xs font-semibold tracking-wider uppercase shrink-0 hover:border-atelier-gold active:scale-95 w-full md:w-auto"
             >
               <span>Talk to our team</span>
               <ArrowUpRight className="h-3.5 w-3.5" />
@@ -508,12 +586,12 @@ export default function HomePage() {
         </section>
 
         {/* FAQ Accordion (#faq) */}
-        <section id="faq" className="mx-auto max-w-3xl mb-24 lg:mb-32">
-          <div className="text-center mb-12">
-            <h2 className="font-serif text-3xl sm:text-4xl text-white font-normal mb-3">
+        <section id="faq" className="mx-auto max-w-3xl mb-20 sm:mb-24 lg:mb-32">
+          <div className="text-center mb-10 sm:mb-12">
+            <h2 className="font-serif text-2xl sm:text-4xl text-white font-normal mb-3">
               Questions, answered
             </h2>
-            <p className="text-xs sm:text-sm text-atelier-fog">
+            <p className="text-xs sm:text-sm text-atelier-fog px-2 sm:px-0">
               Everything you need to understand about machine discoverability, F-Scores, and automated fixes.
             </p>
           </div>
@@ -522,18 +600,18 @@ export default function HomePage() {
             {FAQS.map((faq, index) => (
               <details
                 key={index}
-                className="group py-5 transition-colors focus-within:bg-atelier-coal/20"
+                className="group py-4 sm:py-5 transition-colors focus-within:bg-atelier-coal/20"
                 open={faq.defaultOpen}
               >
-                <summary className="flex items-center justify-between cursor-pointer text-left focus:outline-none">
-                  <span className="font-serif text-base sm:text-lg text-white font-normal group-hover:text-atelier-champagne transition-colors pr-6">
+                <summary className="flex items-center justify-between cursor-pointer text-left focus:outline-none gap-4">
+                  <span className="font-serif text-sm sm:text-lg text-white font-normal group-hover:text-atelier-champagne transition-colors pr-2">
                     {faq.question}
                   </span>
-                  <div className="h-7 w-7 rounded-full border border-atelier-hairline flex items-center justify-center text-atelier-soft-gold shrink-0 transition-transform duration-200 group-open:rotate-45 group-hover:border-atelier-gold/40">
-                    <Plus className="h-4 w-4" />
+                  <div className="h-6 w-6 sm:h-7 sm:w-7 rounded-full border border-atelier-hairline flex items-center justify-center text-atelier-soft-gold shrink-0 transition-transform duration-200 group-open:rotate-45 group-hover:border-atelier-gold/40">
+                    <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   </div>
                 </summary>
-                <div className="pt-3 pb-1 pr-12 text-xs sm:text-sm text-atelier-fog leading-relaxed">
+                <div className="pt-3 pb-1 pr-6 sm:pr-12 text-xs sm:text-sm text-atelier-fog leading-relaxed">
                   <p>{faq.answer}</p>
                 </div>
               </details>
@@ -541,7 +619,7 @@ export default function HomePage() {
           </div>
 
           {/* Support Note */}
-          <div className="text-center mt-8">
+          <div className="text-center mt-6 sm:mt-8">
             <p className="text-xs text-atelier-fog">
               Have a question not listed here?{" "}
               <a
@@ -556,9 +634,9 @@ export default function HomePage() {
       </main>
 
       {/* Boutique Footer */}
-      <footer className="border-t border-atelier-hairline bg-atelier-coal py-12 text-xs text-atelier-fog">
+      <footer className="border-t border-atelier-hairline bg-atelier-coal py-10 sm:py-12 text-xs text-atelier-fog">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-6 pb-8 border-b border-atelier-hairline/60">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-6 pb-6 sm:pb-8 border-b border-atelier-hairline/60">
             {/* Left */}
             <div className="flex items-center gap-3">
               <Image
@@ -577,7 +655,7 @@ export default function HomePage() {
             </div>
 
             {/* Right Nav */}
-            <div className="flex flex-wrap items-center justify-center gap-6">
+            <div className="flex flex-wrap items-center justify-center sm:justify-end gap-x-5 gap-y-2.5">
               <Link href="/audit" className="hover:text-atelier-champagne transition-colors">
                 Audit Engine
               </Link>
@@ -610,7 +688,7 @@ export default function HomePage() {
           </div>
 
           {/* Bottom Copyright */}
-          <div className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px]">
+          <div className="pt-5 sm:pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left text-[11px]">
             <p>© {new Date().getFullYear()} FindableAI Inc. All rights reserved.</p>
             <p className="text-atelier-soft-gold">
               Engineered with precision for autonomous web discoverability.
