@@ -40,9 +40,23 @@ const config: Config = {
           light: "#a78bfa",   // violet-400
           subtle: "#2e1065",  // violet-950
         },
+        // Atelier Dark Luxury Palette
+        atelier: {
+          ink: "#0a0a0c",
+          coal: "#111114",
+          panel: "#16161a",
+          hairline: "#26262c",
+          gold: "#d4af72",
+          champagne: "#e8d3a8",
+          "soft-gold": "#b89b6a",
+          "gold-light": "#f3e3bf",
+          fog: "#9a9aa2",
+          mist: "#c8c8d0",
+        },
       },
       fontFamily: {
-        sans: ["var(--font-geist-sans)", "-apple-system", '"Segoe UI"', "system-ui", "sans-serif"],
+        sans: ["var(--font-inter)", "var(--font-geist-sans)", "-apple-system", '"Segoe UI"', "system-ui", "sans-serif"],
+        serif: ["var(--font-fraunces)", "serif"],
         mono: ["var(--font-geist-mono)", '"SF Mono"', "Consolas", "monospace"],
       },
     },
