@@ -170,25 +170,26 @@ export default function AuditPage() {
       />
 
       {/* Top Header */}
-      <header className="sticky top-0 z-50 backdrop-blur-md bg-atelier-ink/85 border-b border-atelier-hairline py-4">
+      <header className="sticky top-0 z-50 backdrop-blur-md bg-atelier-ink/85 border-b border-atelier-hairline py-3.5 sm:py-4">
         <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 flex items-center justify-between">
           <Link
             href="/"
-            className="inline-flex items-center gap-2 text-xs font-medium text-atelier-fog hover:text-atelier-champagne transition-colors"
+            className="inline-flex items-center gap-1.5 sm:gap-2 text-xs font-medium text-atelier-fog hover:text-atelier-champagne transition-colors"
           >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            <span>Back to Overview</span>
+            <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
+            <span className="hidden sm:inline">Back to Overview</span>
+            <span className="sm:hidden">Overview</span>
           </Link>
 
-          <Link href="/" className="flex items-center gap-2.5 group">
+          <Link href="/" className="flex items-center gap-2 sm:gap-2.5 group">
             <Image
               src="/logo.png"
               alt="FindableAI Logo"
               width={28}
               height={28}
-              className="h-7 w-7 rounded-md object-contain"
+              className="h-6 w-6 sm:h-7 sm:w-7 rounded-md object-contain"
             />
-            <span className="font-serif text-base tracking-tight text-atelier-champagne font-medium">
+            <span className="font-serif text-sm sm:text-base tracking-tight text-atelier-champagne font-medium">
               FindableAI
             </span>
           </Link>
@@ -198,25 +199,25 @@ export default function AuditPage() {
       </header>
 
       {/* Main Workspace */}
-      <main className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 pt-12 pb-24 lg:pt-16">
+      <main className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 pt-8 sm:pt-12 pb-20 sm:pb-24 lg:pt-16">
         {/* Title */}
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-atelier-coal border border-atelier-hairline text-[11px] font-semibold tracking-[0.22em] text-atelier-soft-gold uppercase mb-4 shadow-sm">
+        <div className="text-center mb-8 sm:mb-10">
+          <div className="inline-flex items-center gap-2 px-3 sm:px-3.5 py-1 rounded-full bg-atelier-coal border border-atelier-hairline text-[10px] sm:text-[11px] font-semibold tracking-[0.16em] sm:tracking-[0.22em] text-atelier-soft-gold uppercase mb-3 sm:mb-4 shadow-sm">
             <Sparkles className="h-3 w-3 text-atelier-gold" />
             <span>MDO Diagnostic Console</span>
           </div>
 
-          <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl text-white font-normal mb-3">
+          <h1 className="font-serif text-2xl sm:text-4xl lg:text-5xl text-white font-normal mb-2.5 sm:mb-3">
             Initialize your machine audit
           </h1>
-          <p className="text-xs sm:text-sm text-atelier-fog max-w-lg mx-auto leading-relaxed">
+          <p className="text-xs sm:text-sm text-atelier-fog max-w-lg mx-auto leading-relaxed px-2 sm:px-0">
             Configure crawl scope, synthetic buyer personas, and optional GitHub repository integration for automated zero-hallucination PRs.
           </p>
         </div>
 
         {/* Audit Form Card */}
-        <div className="rounded-2xl bg-atelier-panel border border-atelier-hairline shadow-gold-panel p-6 sm:p-9 relative">
-          <form onSubmit={(e) => void handleSubmit(e)} noValidate className="space-y-7">
+        <div className="rounded-2xl bg-atelier-panel border border-atelier-hairline shadow-gold-panel p-4 sm:p-8 md:p-9 relative">
+          <form onSubmit={(e) => void handleSubmit(e)} noValidate className="space-y-6 sm:space-y-7">
             {/* Field 1: Target URL */}
             <div>
               <label
@@ -227,7 +228,7 @@ export default function AuditPage() {
               </label>
 
               <div
-                className="flex items-center gap-3 rounded-xl bg-atelier-coal border px-4 py-3.5 transition-colors"
+                className="flex items-center gap-3 rounded-xl bg-atelier-coal border px-3.5 sm:px-4 py-3 sm:py-3.5 transition-colors"
                 style={{
                   borderColor: urlError ? "#f43f5e" : "#26262c",
                 }}
@@ -266,7 +267,7 @@ export default function AuditPage() {
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
                 {PERSONAS.map((p) => {
                   const isActive = selectedPersonas.includes(p.id);
                   return (
@@ -274,16 +275,16 @@ export default function AuditPage() {
                       key={p.id}
                       type="button"
                       onClick={() => togglePersona(p.id)}
-                      className={`p-3.5 rounded-xl border text-left transition-all duration-200 flex flex-col justify-between ${
+                      className={`p-3 sm:p-3.5 rounded-xl border text-left transition-all duration-200 flex flex-col justify-between ${
                         isActive
                           ? "bg-atelier-coal border-atelier-gold/40 shadow-sm"
                           : "bg-atelier-coal/40 border-atelier-hairline opacity-60 hover:opacity-100"
                       }`}
                     >
-                      <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center justify-between mb-1.5 sm:mb-2">
                         <span className="text-xs font-medium text-white">{p.name}</span>
                         <div
-                          className={`h-4 w-4 rounded-full flex items-center justify-center border text-[9px] ${
+                          className={`h-4 w-4 rounded-full flex items-center justify-center border text-[9px] shrink-0 ml-2 ${
                             isActive
                               ? "bg-gold-gradient text-atelier-ink border-transparent font-bold"
                               : "border-atelier-hairline text-transparent"
@@ -324,10 +325,10 @@ export default function AuditPage() {
                 onChange={(e) => setMaxPages(parseInt(e.target.value, 10))}
                 className="w-full accent-[#d4af72] cursor-pointer bg-atelier-coal"
               />
-              <div className="flex justify-between text-[10px] font-mono text-atelier-fog mt-1">
-                <span>1 page (Homepage only)</span>
+              <div className="flex justify-between text-[10px] font-mono text-atelier-fog mt-1.5">
+                <span>1 page <span className="hidden sm:inline">(Homepage only)</span></span>
                 <span>10 pages</span>
-                <span>25 pages (Deep crawl)</span>
+                <span>25 pages <span className="hidden sm:inline">(Deep crawl)</span></span>
               </div>
             </div>
 

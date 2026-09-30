@@ -277,7 +277,7 @@ export function IntentMatrix({ intents }: IntentMatrixProps) {
 
       {/* Table */}
       <div
-        className="rounded-2xl overflow-hidden"
+        className="rounded-2xl overflow-x-auto"
         style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
       >
         {sorted.length === 0 ? (
@@ -285,7 +285,7 @@ export function IntentMatrix({ intents }: IntentMatrixProps) {
             No intents match the current filters.
           </div>
         ) : (
-          <table className="w-full table-fixed bg-[#141414] text-sm">
+          <table className="w-full min-w-[560px] sm:min-w-full table-fixed bg-[#141414] text-sm">
             <thead>
               <tr className="border-b border-white/5 text-left">
                 {(
