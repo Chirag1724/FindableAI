@@ -344,32 +344,29 @@ export default function ScanDashboardPage() {
               <SummaryStats summary={displayScan.summary} />
             ) : null}
 
-            {/* Score + intents grid */}
-            <div className="grid grid-cols-1 gap-6 sm:gap-8 lg:grid-cols-[320px_1fr]">
-              {/* Score gauge */}
-              {scan.loading || (!displayScan.f_score && !scan.data?.f_score) ? (
-                <GaugeSkeleton />
-              ) : (() => {
-                const fs = displayScan.f_score ?? scan.data?.f_score;
-                return fs ? <ScoreGauge fScore={fs} /> : null;
-              })()}
+            {/* Findability Analytics Matrix (2x2) */}
+            {scan.loading || (!displayScan.f_score && !scan.data?.f_score) ? (
+              <GaugeSkeleton />
+            ) : (() => {
+              const fs = displayScan.f_score ?? scan.data?.f_score;
+              return fs ? <ScoreGauge fScore={fs} /> : null;
+            })()}
 
-              {/* Intents */}
-              <div>
-                <h2 className="mb-3 text-sm font-semibold text-[#EDEDED]">
-                  Intent Evaluations
-                </h2>
-                {intents.loading ? (
-                  <TableSkeleton />
-                ) : intents.error ? (
-                  <ErrorState
-                    message={intents.error}
-                    onRetry={intents.retry}
-                  />
-                ) : (
-                  <IntentMatrix intents={intents.data ?? []} />
-                )}
-              </div>
+            {/* Intent Evaluations */}
+            <div>
+              <h2 className="mb-3 text-sm font-semibold text-[#EDEDED]">
+                Intent Evaluations
+              </h2>
+              {intents.loading ? (
+                <TableSkeleton />
+              ) : intents.error ? (
+                <ErrorState
+                  message={intents.error}
+                  onRetry={intents.retry}
+                />
+              ) : (
+                <IntentMatrix intents={intents.data ?? []} />
+              )}
             </div>
 
             {/* Contradictions */}
