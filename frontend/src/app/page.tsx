@@ -1,15 +1,27 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import Image from "next/image";
-import { Search, ChevronDown, ChevronUp, Activity } from "lucide-react";
-import { createScan, getHealth } from "@/lib/api";
-import type { ApiError } from "@/types/scan";
+import {
+  Sparkles,
+  ArrowRight,
+  ArrowUpRight,
+  Building2,
+  Plus,
+  Globe,
+  Bot,
+  ShieldCheck,
+  Activity,
+  GitPullRequest,
+  Cpu,
+  Layers,
+} from "lucide-react";
+import { getHealth } from "@/lib/api";
+import type { FScoreBreakdown } from "@/types/scan";
 import dynamic from "next/dynamic";
 import { ScanProgress } from "@/components/ScanProgress";
 import { GaugeSkeleton } from "@/components/Skeletons";
-import type { FScoreBreakdown } from "@/types/scan";
 
 const ScoreGauge = dynamic(
   () => import("@/components/ScoreGauge").then((mod) => mod.ScoreGauge),
@@ -22,11 +34,11 @@ const SAMPLE_FSCORE: FScoreBreakdown = {
   grade: "B",
   coverage: {
     name: "Query Intent Coverage",
-    weight: 0.40,
+    weight: 0.4,
     score: 79.0,
     details: "Answers 11 of 14 simulated high-intent queries.",
-    strengths: ["Clear pricing page", "Detailed feature list"],
-    gaps: ["Missing security compliance info"],
+    strengths: ["Clear pricing and specs", "Detailed architecture docs"],
+    gaps: ["Missing security compliance microdata"],
   },
   entailment: {
     name: "Evidence Grounding",
@@ -42,17 +54,111 @@ const SAMPLE_FSCORE: FScoreBreakdown = {
     score: 8.0,
     details: "One conflict detected between homepage and docs.",
     strengths: [],
-    gaps: ["Opening hours differ across pages"],
+    gaps: ["Pricing table contradicts FAQ terms"],
   },
   structural_clarity: {
     name: "DOM Structure",
-    weight: 0.10,
+    weight: 0.1,
     score: 82.0,
     details: "Good heading hierarchy, missing JSON-LD.",
     strengths: ["Semantic HTML5 elements"],
     gaps: ["No Schema.org microdata"],
   },
 };
+
+const PIPELINE_STAGES = [
+  {
+    step: "01",
+    tag: "DOM EXTRACTION",
+    title: "Headless Crawl & CSS Traceability",
+    description:
+      "Playwright traverses semantic DOM trees (h1–h6, article, table, meta), preserving exact CSS selectors so every discovered knowledge gap maps to an exact line in code.",
+    icon: Globe,
+    techBadge: "Playwright · CSS Selectors",
+  },
+  {
+    step: "02",
+    tag: "INTENT SYNTHESIS",
+    title: "Buyer Persona Simulation",
+    description:
+      "Simulates skeptical CTOs, developer evaluators, and procurement officers, generating realistic high-intent queries that real users prompt into Perplexity and SearchGPT.",
+    icon: Bot,
+    techBadge: "Multi-Persona LLM Agent",
+  },
+  {
+    step: "03",
+    tag: "HYBRID RETRIEVAL",
+    title: "Dense & Sparse Hybrid Fusion",
+    description:
+      "Mirrors LLM search context assembly by fusing pgvector dense embeddings with BM25 lexical keyword ranking using Reciprocal Rank Fusion (RRF).",
+    icon: Cpu,
+    techBadge: "pgvector + BM25 + RRF",
+  },
+  {
+    step: "04",
+    tag: "NLI VERIFICATION",
+    title: "Factual Contradiction Detection",
+    description:
+      "A DeBERTa-v3 cross-encoder and LLM judge evaluate evidence entailment. Claims are classified as entailed, neutral, or conflicting contradictions.",
+    icon: ShieldCheck,
+    techBadge: "DeBERTa-v3 · NLI Judge",
+  },
+  {
+    step: "05",
+    tag: "F-SCORE ENGINE",
+    title: "Deterministic 0–100 Scoring",
+    description:
+      "A mathematical formula balancing Intent Coverage (40%), Evidence Grounding (35%), Contradiction Penalty (15%), and Structural Clarity (10%).",
+    icon: Activity,
+    techBadge: "4-Factor Mathematical Formula",
+  },
+  {
+    step: "06",
+    tag: "AUTONOMOUS REMEDIATION",
+    title: "DOM-Anchored GitHub Pull Requests",
+    description:
+      "Generates unified diffs with precise DOM content enhancements and Schema.org JSON-LD microdata, opening ready-to-merge pull requests directly on your repository.",
+    icon: GitPullRequest,
+    techBadge: "GitHub API · Zero Hallucination",
+  },
+];
+
+const FAQS = [
+  {
+    question: "How does FindableAI differ from traditional SEO tools like Ahrefs or Semrush?",
+    answer:
+      "Traditional SEO tools optimize for keyword density, backlinks, and search crawlers like Googlebot. Modern searchers rely on AI answer engines like Perplexity, SearchGPT, and Claude. FindableAI audits machine discoverability: whether an LLM can retrieve, verify, and cite your factual claims without hallucinating.",
+    defaultOpen: true,
+  },
+  {
+    question: "What exactly is the Findability F-Score?",
+    answer:
+      "The F-Score is a deterministic 0 to 100 metric evaluated across four mathematically grounded pillars: Query Intent Coverage (40%), Evidence Grounding Entailment (35%), Factual Contradiction Penalty (15%), and DOM Structural Clarity (10%). It pinpoints exactly where AI engines lose confidence in your site.",
+  },
+  {
+    question: "How do autonomous GitHub Pull Requests work?",
+    answer:
+      "When FindableAI identifies ungrounded queries or structural ambiguities, it traces the exact CSS selector path in your DOM. It then writes zero-hallucination unified diffs with content patches and Schema.org JSON-LD microdata, opening a clean PR directly in your repository for your team to review and merge.",
+  },
+  {
+    question: "Can I run audits on local or staging URLs?",
+    answer:
+      "For live public URLs, audits execute immediately. For local or private staging environments, you can run our CLI crawler or provide a private GitHub repository URL to audit source files and templates directly.",
+  },
+  {
+    question: "Do I need to install an SDK or grant write access to production?",
+    answer:
+      "No. Discoverability scans run non-invasively using headless Playwright browsers crawling your public URLs. For automatic code fixes, we only need GitHub repository write permissions for the designated remediation branch you authorize.",
+  },
+];
+
+const TRUST_ENGINES = [
+  "Perplexity",
+  "SearchGPT",
+  "Gemini Pro",
+  "Claude 3.5",
+  "Mistral Large",
+];
 
 function HealthIndicator() {
   const [online, setOnline] = useState<boolean | null>(null);
@@ -68,341 +174,288 @@ function HealthIndicator() {
   if (online === null) return null;
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-atelier-coal border border-atelier-hairline text-xs">
       <span
-        className={`h-1.5 w-1.5 rounded-full ${online ? "bg-emerald-400 animate-pulse" : "bg-rose-400"
-          }`}
+        className={`h-1.5 w-1.5 rounded-full ${
+          online ? "bg-emerald-400 animate-pulse" : "bg-rose-400"
+        }`}
         aria-hidden="true"
       />
-      <span className="text-xs text-[#A1A1A1]">
-        API {online ? "online" : "offline"}
+      <span className="text-[10px] font-mono tracking-wider text-atelier-fog">
+        API {online ? "ONLINE" : "OFFLINE"}
       </span>
     </div>
   );
 }
 
-function StatCard({
-  value,
-  label,
-}: {
-  value: string;
-  label: string;
-}) {
-  return (
-    <div
-      className="rounded-xl bg-[#141414] px-4 py-4 sm:px-6 sm:py-5 animate-fade-up"
-      style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
-    >
-      <p className="text-2xl font-bold text-[#EDEDED]">{value}</p>
-      <p className="mt-0.5 text-xs text-[#A1A1A1]">{label}</p>
-    </div>
-  );
-}
-
 export default function HomePage() {
-  const router = useRouter();
-  const [url, setUrl] = useState("");
-  const [urlError, setUrlError] = useState<string | null>(null);
-  const [maxPages, setMaxPages] = useState(5);
-  const [repoUrl, setRepoUrl] = useState("");
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
   const [headerScrolled, setHeaderScrolled] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
 
-  // Sticky header glass effect on scroll
   useEffect(() => {
     const onScroll = () => setHeaderScrolled(window.scrollY > 10);
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const validateUrl = (value: string): string | null => {
-    const trimmed = value.trim();
-    if (!trimmed) return "Please enter a URL.";
-    try {
-      const parsed = new URL(trimmed);
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        return "URL must start with http:// or https://";
-      }
-    } catch {
-      return "Please enter a valid URL (e.g. https://example.com)";
-    }
-    return null;
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmedUrl = url.trim();
-    const err = validateUrl(trimmedUrl);
-    if (err) {
-      setUrlError(err);
-      return;
-    }
-    setUrlError(null);
-    setSubmitError(null);
-    setSubmitting(true);
-
-    abortRef.current?.abort();
-    const ac = new AbortController();
-    abortRef.current = ac;
-
-    try {
-      const scan = await createScan(
-        {
-          url: trimmedUrl,
-          max_pages: maxPages,
-          personas: ["cto", "developer", "procurement"],
-          repo_url: repoUrl.trim() || null,
-        },
-        ac.signal
-      );
-      router.push(`/scans/${scan.scan_id}`);
-    } catch (err) {
-      if ((err as { name?: string }).name === "AbortError") return;
-      const apiErr = err as ApiError;
-      if (apiErr.status === 400 && apiErr.detail?.startsWith("Security rejection")) {
-        setSubmitError(
-          `Security check blocked this URL: ${apiErr.detail}. Please use a publicly accessible URL.`
-        );
-      } else if (apiErr.status === 0) {
-        setSubmitError(
-          "Cannot reach the FindableAI API. Make sure the backend server is running on port 8000."
-        );
-      } else {
-        setSubmitError(apiErr.message || "Failed to start scan. Please try again.");
-      }
-      setSubmitting(false);
-    }
-  };
-
-  useEffect(() => {
-    return () => abortRef.current?.abort();
-  }, []);
-
-  const handleUrlChange = (val: string) => {
-    setUrl(val);
-    if (urlError) setUrlError(validateUrl(val));
-  };
-
   return (
-    <div className="min-h-screen bg-background">
-      {/* Fixed header */}
+    <div className="min-h-screen bg-atelier-ink text-white font-sans selection:bg-atelier-gold selection:text-atelier-ink relative overflow-hidden">
+      {/* Soft Gold Radial Ambient Glow at Top */}
+      <div
+        className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 h-[500px] w-[900px] rounded-full opacity-20 blur-[130px]"
+        style={{
+          background:
+            "radial-gradient(ellipse at center, #d4af72 0%, rgba(212, 175, 114, 0.05) 60%, transparent 100%)",
+        }}
+        aria-hidden="true"
+      />
+
+      {/* Sticky Top Nav */}
       <header
-        className={`fixed inset-x-0 top-0 z-40 flex h-14 sm:h-16 items-center justify-between border-b border-white/[0.06] px-5 sm:px-8 lg:px-12 transition-all duration-300 ${headerScrolled
-            ? "glass"
-            : "bg-transparent"
-          }`}
+        className={`sticky top-0 z-50 transition-all duration-300 ${
+          headerScrolled
+            ? "backdrop-blur-md bg-atelier-ink/85 border-b border-atelier-hairline py-3.5"
+            : "bg-transparent border-b border-white/[0.06] py-4 sm:py-5"
+        }`}
       >
-        <div className="flex items-center gap-2.5">
-          <Image
-            src="/logo.png"
-            alt="FindableAI"
-            width={36}
-            height={36}
-            className="h-7 w-7 sm:h-9 sm:w-9 rounded-md"
-            priority
-          />
-          <span className="text-sm sm:text-base font-bold text-[#EDEDED]">FindableAI</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <HealthIndicator />
-          <a
-            href="http://localhost:8000/docs"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-[#A1A1A1] transition-colors hover:text-[#EDEDED] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
-          >
-            API Docs
-          </a>
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 flex items-center justify-between">
+          {/* Logo */}
+          <Link href="/" className="flex items-center gap-2.5 sm:gap-3 group">
+            <Image
+              src="/logo.png"
+              alt="FindableAI Logo"
+              width={36}
+              height={36}
+              className="h-8 w-8 sm:h-9 sm:w-9 rounded-lg object-contain transition-transform group-hover:scale-105"
+              priority
+            />
+            <div className="flex items-baseline gap-1.5">
+              <span className="font-serif text-lg tracking-tight text-atelier-champagne font-medium">
+                FindableAI
+              </span>
+              <span className="text-[10px] font-mono tracking-widest text-atelier-fog uppercase hidden sm:inline">
+                MDO
+              </span>
+            </div>
+          </Link>
+
+          {/* Navigation links (md+) */}
+          <nav className="hidden md:flex items-center gap-8 text-xs font-medium tracking-wide">
+            <Link
+              href="/audit"
+              className="text-atelier-fog transition-colors hover:text-atelier-champagne"
+            >
+              Audit Engine
+            </Link>
+            <a
+              href="#architecture"
+              className="text-atelier-fog transition-colors hover:text-atelier-champagne"
+            >
+              Architecture
+            </a>
+            <a
+              href="#preview"
+              className="text-atelier-fog transition-colors hover:text-atelier-champagne"
+            >
+              F-Score Metric
+            </a>
+            <a
+              href="#faq"
+              className="text-atelier-fog transition-colors hover:text-atelier-champagne"
+            >
+              FAQ
+            </a>
+            <a
+              href="http://localhost:8000/docs"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-atelier-fog transition-colors hover:text-atelier-champagne"
+            >
+              API Docs
+            </a>
+          </nav>
+
+          {/* Actions */}
+          <div className="flex items-center gap-3.5">
+            <HealthIndicator />
+            <Link
+              href="/audit"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium border border-atelier-gold/40 text-atelier-champagne bg-atelier-gold/5 hover:bg-atelier-gold/15 transition-all hover:border-atelier-gold active:scale-95"
+            >
+              <span>Start audit</span>
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 pb-24 pt-24 sm:px-6 sm:pt-28 lg:px-8">
-        {/* Hero */}
-        <section className="mx-auto max-w-2xl text-center mb-12 sm:mb-20">
-          <p
-            className="mb-5 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium text-[#A1A1A1] animate-fade-up delay-0"
-            style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
-          >
-            <Activity size={12} className="text-violet-400" aria-hidden="true" />
-            GEO / MDO Diagnostics
-          </p>
+      {/* Main Content */}
+      <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        {/* Hero Section - Full Viewport First Fold */}
+        <section
+          id="audit"
+          className="min-h-[calc(100vh-4rem)] min-h-[calc(100dvh-4rem)] flex flex-col justify-center items-center text-center max-w-3xl mx-auto py-12"
+        >
+          {/* Eyebrow Pill */}
+          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-atelier-coal border border-atelier-hairline text-[11px] font-semibold tracking-[0.22em] text-atelier-soft-gold uppercase mb-6 shadow-sm">
+            <Sparkles className="h-3 w-3 text-atelier-gold" />
+            <span>The Machine Discoverability Platform</span>
+          </div>
 
-          <h1
-            className="text-4xl font-extrabold leading-tight tracking-tight text-[#EDEDED] sm:text-5xl animate-fade-up delay-1"
-          >
-            Can AI search engines actually find your site?
+          {/* Headline */}
+          <h1 className="font-serif text-4xl sm:text-5xl lg:text-[4.2rem] leading-[1.08] tracking-tight text-white mb-6">
+            Discoverability, engineered with{" "}
+            <span className="italic font-normal text-gold-gradient">precision</span>.
           </h1>
 
-          <p className="mt-4 sm:mt-6 text-base text-[#A1A1A1] animate-fade-up delay-2">
-            Run a full discoverability audit. Get an F-Score, detect factual contradictions, and generate code fixes automatically.
+          {/* Subhead */}
+          <p className="text-base sm:text-lg text-atelier-fog leading-relaxed max-w-2xl mx-auto mb-10">
+            Can AI search engines reliably cite your site? Audit Perplexity and SearchGPT citation rates, detect factual contradictions, and dispatch autonomous code fixes.
           </p>
 
-          {/* URL input form */}
-          <form
-            onSubmit={(e) => void handleSubmit(e)}
-            className="mt-8 sm:mt-10 animate-fade-up delay-3"
-            noValidate
-          >
-            <div
-              className="flex items-stretch overflow-hidden rounded-2xl"
-              style={{
-                boxShadow: urlError
-                  ? "0 0 0 1px rgba(244,63,94,0.5)"
-                  : "0 0 0 1px rgba(255,255,255,0.1), 0 4px 20px rgba(0,0,0,0.4)",
-              }}
+          {/* Hero CTAs */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <Link
+              href="/audit"
+              className="group inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-full bg-gold-gradient text-atelier-ink font-semibold text-xs tracking-wider uppercase transition-all duration-200 hover:brightness-105 active:scale-95 shadow-lg w-full sm:w-auto"
             >
-              <div className="flex flex-1 items-center gap-3 bg-[#141414] pl-4">
-                <Search
-                  size={16}
-                  className="shrink-0 text-[#A1A1A1]"
-                  aria-hidden="true"
-                />
-                <input
-                  id="scan-url-input"
-                  data-testid="scan-url-input"
-                  type="url"
-                  value={url}
-                  onChange={(e) => handleUrlChange(e.target.value)}
-                  placeholder="https://acme.com"
-                  required
-                  aria-label="Website URL to audit"
-                  aria-describedby={urlError ? "url-error" : undefined}
-                  aria-invalid={!!urlError}
-                  className="w-full bg-transparent py-4 text-sm text-[#EDEDED] placeholder-[#A1A1A1]/50 focus-visible:outline-none"
-                />
-              </div>
-              <button
-                type="submit"
-                id="scan-submit"
-                data-testid="scan-submit"
-                disabled={submitting}
-                className="shrink-0 rounded-r-2xl bg-violet-600 px-6 py-4 text-sm font-semibold text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset"
-              >
-                {submitting ? "Starting..." : "Run Audit"}
-              </button>
-            </div>
+              <span>Test Your Site</span>
+              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+            </Link>
 
-            {urlError && (
-              <p id="url-error" role="alert" className="mt-2 text-xs text-rose-400 text-left">
-                {urlError}
-              </p>
-            )}
-
-            {submitError && (
-              <p role="alert" className="mt-2 text-xs text-rose-400 text-left">
-                {submitError}
-              </p>
-            )}
-
-            {/* Advanced options */}
-            <div className="mt-3 text-left">
-              <button
-                type="button"
-                onClick={() => setAdvancedOpen((o) => !o)}
-                aria-expanded={advancedOpen}
-                className="flex items-center gap-1 text-xs text-[#A1A1A1] transition-colors hover:text-[#EDEDED] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
-              >
-                {advancedOpen ? (
-                  <ChevronUp size={12} aria-hidden="true" />
-                ) : (
-                  <ChevronDown size={12} aria-hidden="true" />
-                )}
-                Advanced options
-              </button>
-
-              {advancedOpen && (
-                <div
-                  className="mt-3 space-y-3 rounded-xl bg-[#141414] p-4"
-                  style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
-                >
-                  <div>
-                    <label
-                      htmlFor="max-pages"
-                      className="mb-1 block text-xs font-medium text-[#A1A1A1]"
-                    >
-                      Max pages to crawl (1-25)
-                    </label>
-                    <input
-                      id="max-pages"
-                      type="number"
-                      min={1}
-                      max={25}
-                      value={maxPages}
-                      onChange={(e) =>
-                        setMaxPages(
-                          Math.min(25, Math.max(1, parseInt(e.target.value, 10) || 5))
-                        )
-                      }
-                      className="w-24 rounded-lg bg-[#191919] px-3 py-2 text-sm text-[#EDEDED] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                      style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="repo-url"
-                      className="mb-1 block text-xs font-medium text-[#A1A1A1]"
-                    >
-                      GitHub repo URL (optional, for PR creation)
-                    </label>
-                    <input
-                      id="repo-url"
-                      type="url"
-                      value={repoUrl}
-                      onChange={(e) => setRepoUrl(e.target.value)}
-                      placeholder="https://github.com/owner/repo"
-                      className="w-full rounded-lg bg-[#191919] px-3 py-2 text-sm text-[#EDEDED] placeholder-[#A1A1A1]/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                      style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          </form>
+            <a
+              href="#architecture"
+              className="inline-flex items-center justify-center gap-2 px-7 py-4 rounded-full border border-atelier-gold/35 text-atelier-champagne bg-atelier-gold/5 hover:bg-atelier-gold/15 transition-all text-xs font-semibold tracking-wider uppercase hover:border-atelier-gold active:scale-95 w-full sm:w-auto"
+            >
+              <span>Explore Architecture ↓</span>
+            </a>
+          </div>
         </section>
 
-        {/* Live preview section - uses real components with sample data */}
-        <section
-          className="w-full mb-12 animate-fade-up delay-4"
-          aria-label="Sample audit preview"
-        >
-          <p className="mb-4 sm:mb-6 text-center text-xs text-[#A1A1A1]">
-            Sample output - what your audit looks like when complete
-          </p>
-          <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">
-            {/* Real ScoreGauge component with sample data */}
-            <ScoreGauge fScore={SAMPLE_FSCORE} />
+        {/* How It Works / Architecture Pipeline Section (#architecture) */}
+        <section id="architecture" className="mb-24 lg:mb-32 scroll-mt-24">
+          <div className="text-center max-w-3xl mx-auto mb-16">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-atelier-coal border border-atelier-hairline text-[11px] font-semibold tracking-[0.22em] text-atelier-soft-gold uppercase mb-3 shadow-sm">
+              <Layers className="h-3 w-3 text-atelier-gold" />
+              <span>The Verification Loop</span>
+            </div>
+            <h2 className="font-serif text-3xl sm:text-5xl text-white font-normal mb-4">
+              How machine discoverability is{" "}
+              <span className="italic font-normal text-gold-gradient">computed</span>.
+            </h2>
+            <p className="text-xs sm:text-sm text-atelier-fog max-w-xl mx-auto leading-relaxed">
+              From headless DOM extraction to natural language inference and automated pull requests. A deterministic 6-stage architecture.
+            </p>
+          </div>
 
-            {/* Real ScanProgress component showing a completed state */}
-            <div className="space-y-4">
-              <ScanProgress
-                currentStatus="completed"
-                latestEvent={{
-                  scan_id: "scan_preview",
-                  status: "completed",
-                  progress_percent: 100,
-                  current_step: "Audit Complete",
-                  message: "Findability report and patches ready.",
-                  timestamp: new Date().toISOString(),
-                }}
-                lastGoodStatus="completed"
-              />
-              {/* Stat mini-cards */}
-              <div className="grid grid-cols-3 gap-3">
+          {/* 6-Stage Pipeline Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
+            {PIPELINE_STAGES.map((stage) => {
+              const IconComponent = stage.icon;
+              return (
+                <div
+                  key={stage.step}
+                  className="group relative rounded-2xl bg-atelier-coal/70 border border-atelier-hairline p-7 transition-all duration-300 hover:border-atelier-gold/40 hover:bg-atelier-panel hover:shadow-gold-subtle flex flex-col justify-between"
+                >
+                  <div>
+                    {/* Header: Step Number & Icon */}
+                    <div className="flex items-center justify-between mb-5">
+                      <span className="font-serif text-2xl text-atelier-soft-gold/60 font-light group-hover:text-atelier-gold transition-colors">
+                        {stage.step}
+                      </span>
+                      <div className="h-9 w-9 rounded-xl bg-atelier-ink border border-atelier-hairline flex items-center justify-center text-atelier-champagne group-hover:border-atelier-gold/40 transition-colors">
+                        <IconComponent className="h-4 w-4" />
+                      </div>
+                    </div>
+
+                    {/* Tag & Title */}
+                    <p className="text-[10px] font-mono tracking-[0.2em] text-atelier-soft-gold uppercase mb-1.5">
+                      {stage.tag}
+                    </p>
+                    <h3 className="font-serif text-lg text-white font-medium mb-3">
+                      {stage.title}
+                    </h3>
+
+                    {/* Description */}
+                    <p className="text-xs text-atelier-fog leading-relaxed">
+                      {stage.description}
+                    </p>
+                  </div>
+
+                  {/* Tech Badge Footer */}
+                  <div className="mt-6 pt-4 border-t border-atelier-hairline/60 flex items-center justify-between text-[11px]">
+                    <span className="font-mono text-atelier-fog/80 text-[10px]">
+                      {stage.techBadge}
+                    </span>
+                    <span className="text-atelier-soft-gold text-xs opacity-0 group-hover:opacity-100 transition-opacity">
+                      →
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Deterministic Formula Callout */}
+          <div className="mt-8 rounded-2xl bg-gradient-to-r from-atelier-coal via-atelier-panel to-atelier-coal border border-atelier-hairline p-6 text-center">
+            <p className="text-[11px] font-mono text-atelier-soft-gold tracking-widest uppercase mb-1">
+              THE MATHEMATICAL INVARIANT
+            </p>
+            <p className="font-mono text-xs sm:text-sm text-atelier-champagne">
+              F-Score = (0.40 × Coverage) + (0.35 × Entailment) − (0.15 × Contradiction) + (0.10 × Structural DOM)
+            </p>
+          </div>
+        </section>
+
+        {/* Live Preview Section (#preview) */}
+        <section id="preview" className="mb-24 lg:mb-32">
+          <div className="text-center mb-10">
+            <p className="text-[11px] font-semibold tracking-[0.24em] text-atelier-soft-gold uppercase mb-2">
+              Evidence-Grounded Intelligence
+            </p>
+            <h2 className="font-serif text-3xl sm:text-4xl text-white font-medium mb-3">
+              Sample output from a live MDO scan
+            </h2>
+            <p className="text-xs sm:text-sm text-atelier-fog max-w-xl mx-auto">
+              Real telemetry generated from multi-page crawls, hybrid pgvector retrieval, and DeBERTa-v3 natural language inference.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            {/* ScoreGauge Panel */}
+            <div className="rounded-2xl bg-atelier-panel border border-atelier-hairline shadow-gold-subtle p-6 sm:p-8">
+              <ScoreGauge fScore={SAMPLE_FSCORE} />
+            </div>
+
+            {/* Scan Progress & Stats Panel */}
+            <div className="space-y-6">
+              <div className="rounded-2xl bg-atelier-panel border border-atelier-hairline shadow-gold-subtle p-6 sm:p-8">
+                <ScanProgress
+                  currentStatus="completed"
+                  latestEvent={{
+                    scan_id: "scan_preview",
+                    status: "completed",
+                    progress_percent: 100,
+                    current_step: "Audit Complete",
+                    message: "Findability report, citation graph, and patches ready.",
+                    timestamp: new Date().toISOString(),
+                  }}
+                  lastGoodStatus="completed"
+                />
+              </div>
+
+              {/* Three Stat Cards */}
+              <div className="grid grid-cols-3 gap-4">
                 {[
-                  { v: "30", l: "buyer queries tested" },
-                  { v: "4", l: "F-Score sub-factors" },
-                  { v: "Auto", l: "opens a pull request" },
+                  { v: "30", l: "Buyer queries simulated" },
+                  { v: "4", l: "F-Score core sub-factors" },
+                  { v: "1-Click", l: "DOM fix pull request" },
                 ].map(({ v, l }) => (
                   <div
                     key={l}
-                    className="rounded-xl bg-[#141414] px-3 py-3 sm:px-4 sm:py-4 text-center"
-                    style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
+                    className="rounded-xl bg-atelier-coal border border-atelier-hairline p-4 text-center"
                   >
-                    <p className="text-xl font-bold text-[#EDEDED]">{v}</p>
-                    <p className="mt-0.5 text-[10px] text-[#A1A1A1]">{l}</p>
+                    <p className="font-serif text-2xl font-medium text-white mb-0.5">{v}</p>
+                    <p className="text-[11px] text-atelier-fog leading-tight">{l}</p>
                   </div>
                 ))}
               </div>
@@ -410,15 +463,161 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* Stat cards */}
-        <section className="mx-auto max-w-4xl">
-          <div className="grid grid-cols-1 gap-3 sm:gap-4 sm:grid-cols-3">
-            <StatCard value="30" label="Synthetic buyer queries per scan" />
-            <StatCard value="4" label="F-Score sub-factors analyzed" />
-            <StatCard value="1-click" label="Automatic GitHub pull request" />
+        {/* Answer Engine Trust Strip */}
+        <section className="mb-24 lg:mb-32 text-center">
+          <p className="text-[11px] font-semibold tracking-[0.24em] text-atelier-fog uppercase mb-8">
+            Engineered to maximize citation rates across
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-8 sm:gap-14 opacity-75">
+            {TRUST_ENGINES.map((engine) => (
+              <span
+                key={engine}
+                className="font-serif italic text-lg sm:text-2xl text-atelier-fog/80 hover:text-atelier-champagne transition-colors cursor-default"
+              >
+                {engine}
+              </span>
+            ))}
+          </div>
+        </section>
+
+        {/* Enterprise Commission Bar */}
+        <section className="mb-24 lg:mb-32">
+          <div className="rounded-2xl border border-atelier-hairline bg-gradient-to-r from-atelier-coal via-atelier-panel to-atelier-coal p-7 sm:p-9 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-sm">
+            <div className="flex items-start sm:items-center gap-4">
+              <div className="h-12 w-12 rounded-xl bg-atelier-ink border border-atelier-gold/30 flex items-center justify-center shrink-0 shadow-inner">
+                <Building2 className="h-6 w-6 text-atelier-champagne" />
+              </div>
+              <div>
+                <h3 className="font-serif text-xl sm:text-2xl text-white font-medium mb-1">
+                  Need a custom enterprise commission?
+                </h3>
+                <p className="text-xs sm:text-sm text-atelier-fog max-w-2xl leading-relaxed">
+                  Dedicated Playwright crawler clusters, custom LLM benchmark suites, private VPC deployment, and white-glove onboarding for high-traffic platforms.
+                </p>
+              </div>
+            </div>
+
+            <a
+              href="mailto:enterprise@findable.ai?subject=Enterprise%20Commission%20Inquiry"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-full border border-atelier-gold/40 text-atelier-champagne bg-atelier-gold/5 hover:bg-atelier-gold/15 transition-all text-xs font-semibold tracking-wider uppercase shrink-0 hover:border-atelier-gold active:scale-95"
+            >
+              <span>Talk to our team</span>
+              <ArrowUpRight className="h-3.5 w-3.5" />
+            </a>
+          </div>
+        </section>
+
+        {/* FAQ Accordion (#faq) */}
+        <section id="faq" className="mx-auto max-w-3xl mb-24 lg:mb-32">
+          <div className="text-center mb-12">
+            <h2 className="font-serif text-3xl sm:text-4xl text-white font-normal mb-3">
+              Questions, answered
+            </h2>
+            <p className="text-xs sm:text-sm text-atelier-fog">
+              Everything you need to understand about machine discoverability, F-Scores, and automated fixes.
+            </p>
+          </div>
+
+          <div className="divide-y divide-atelier-hairline border-y border-atelier-hairline">
+            {FAQS.map((faq, index) => (
+              <details
+                key={index}
+                className="group py-5 transition-colors focus-within:bg-atelier-coal/20"
+                open={faq.defaultOpen}
+              >
+                <summary className="flex items-center justify-between cursor-pointer text-left focus:outline-none">
+                  <span className="font-serif text-base sm:text-lg text-white font-normal group-hover:text-atelier-champagne transition-colors pr-6">
+                    {faq.question}
+                  </span>
+                  <div className="h-7 w-7 rounded-full border border-atelier-hairline flex items-center justify-center text-atelier-soft-gold shrink-0 transition-transform duration-200 group-open:rotate-45 group-hover:border-atelier-gold/40">
+                    <Plus className="h-4 w-4" />
+                  </div>
+                </summary>
+                <div className="pt-3 pb-1 pr-12 text-xs sm:text-sm text-atelier-fog leading-relaxed">
+                  <p>{faq.answer}</p>
+                </div>
+              </details>
+            ))}
+          </div>
+
+          {/* Support Note */}
+          <div className="text-center mt-8">
+            <p className="text-xs text-atelier-fog">
+              Have a question not listed here?{" "}
+              <a
+                href="mailto:support@findable.ai"
+                className="text-atelier-champagne hover:underline underline-offset-4"
+              >
+                Ping our team and we will sort it together.
+              </a>
+            </p>
           </div>
         </section>
       </main>
+
+      {/* Boutique Footer */}
+      <footer className="border-t border-atelier-hairline bg-atelier-coal py-12 text-xs text-atelier-fog">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-6 pb-8 border-b border-atelier-hairline/60">
+            {/* Left */}
+            <div className="flex items-center gap-3">
+              <Image
+                src="/logo.png"
+                alt="FindableAI Logo"
+                width={32}
+                height={32}
+                className="h-8 w-8 rounded-lg object-contain"
+              />
+              <div>
+                <span className="font-serif text-base text-atelier-champagne font-medium">FindableAI</span>
+                <span className="text-[11px] text-atelier-fog block">
+                  Autonomous Machine Discoverability Platform
+                </span>
+              </div>
+            </div>
+
+            {/* Right Nav */}
+            <div className="flex flex-wrap items-center justify-center gap-6">
+              <Link href="/audit" className="hover:text-atelier-champagne transition-colors">
+                Audit Engine
+              </Link>
+              <a href="#architecture" className="hover:text-atelier-champagne transition-colors">
+                Architecture
+              </a>
+              <a href="#preview" className="hover:text-atelier-champagne transition-colors">
+                F-Score Metric
+              </a>
+              <a href="#faq" className="hover:text-atelier-champagne transition-colors">
+                FAQ
+              </a>
+              <a
+                href="http://localhost:8000/docs"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-atelier-champagne transition-colors"
+              >
+                API Docs
+              </a>
+              <a
+                href="https://github.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-atelier-champagne transition-colors"
+              >
+                GitHub
+              </a>
+            </div>
+          </div>
+
+          {/* Bottom Copyright */}
+          <div className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px]">
+            <p>© {new Date().getFullYear()} FindableAI Inc. All rights reserved.</p>
+            <p className="text-atelier-soft-gold">
+              Engineered with precision for autonomous web discoverability.
+            </p>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

@@ -15,6 +15,7 @@
 /* Base */
 html {
   color-scheme: dark;
+  scroll-behavior: smooth;
 }
 
 body {
@@ -108,3 +109,36 @@ body {
 .delay-5 {
   animation-delay: 400ms;
 }
+
+/* Atelier Dark Luxury Utilities */
+.text-gold-gradient {
+  background: linear-gradient(180deg, #f3e3bf 0%, #d4af72 55%, #b89b6a 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.bg-gold-gradient {
+  background: linear-gradient(135deg, #e8d3a8 0%, #d4af72 50%, #b89b6a 100%);
+}
+
+.shadow-gold-panel {
+  box-shadow:
+    0 0 0 1px rgba(212, 175, 114, 0.35),
+    0 30px 60px -20px rgba(212, 175, 114, 0.22),
+    0 0 100px -40px rgba(212, 175, 114, 0.35);
+}
+
+.shadow-gold-subtle {
+  box-shadow:
+    0 0 0 1px rgba(212, 175, 114, 0.2),
+    0 12px 32px -8px rgba(0, 0, 0, 0.6);
+}
+
+/* Native accordion summary styling */
+details > summary {
+  list-style: none;
+}
+
+details > summary::-webkit-details-marker {
+  display: none;
+}
