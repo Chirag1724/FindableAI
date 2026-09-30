@@ -91,6 +91,7 @@ describe("truncate", () => {
 // --- gradeColor ---
 
 describe("gradeColor", () => {
+  it("S returns amber", () => expect(gradeColor("S")).toContain("amber"));
   it("A returns emerald", () => expect(gradeColor("A")).toContain("emerald"));
   it("A+ returns emerald", () => expect(gradeColor("A+")).toContain("emerald"));
   it("B returns violet", () => expect(gradeColor("B")).toContain("violet"));
