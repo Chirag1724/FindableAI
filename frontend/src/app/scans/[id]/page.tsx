@@ -15,14 +15,19 @@ import { getScan } from "@/lib/api";
 import { useScanStream } from "@/hooks/useScanStream";
 import { useScanData } from "@/hooks/useScanData";
 import { scanStatusMeta, formatRelativeTime } from "@/lib/format";
+import dynamic from "next/dynamic";
 import { ScanProgress } from "@/components/ScanProgress";
-import { ScoreGauge } from "@/components/ScoreGauge";
 import { SummaryStats } from "@/components/SummaryStats";
 import { IntentMatrix } from "@/components/IntentMatrix";
 import { ContradictionCard } from "@/components/ContradictionCard";
 import { PatchModal } from "@/components/PatchModal";
 import { ErrorState } from "@/components/ErrorState";
 import { GaugeSkeleton, TableSkeleton, CardSkeleton, StatsSkeleton } from "@/components/Skeletons";
+
+const ScoreGauge = dynamic(
+  () => import("@/components/ScoreGauge").then((mod) => mod.ScoreGauge),
+  { ssr: false, loading: () => <GaugeSkeleton /> }
+);
 import type { ScanResponse, ScanStatus } from "@/types/scan";
 
 const TERMINAL_STATUSES: ScanStatus[] = ["completed", "failed"];

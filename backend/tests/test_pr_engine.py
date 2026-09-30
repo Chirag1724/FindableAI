@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import pytest
 
@@ -126,7 +127,7 @@ def _applied_patch(
 
 
 def _request(**overrides: object) -> PREngineRequest:
-    data = dict(
+    data: dict[str, Any] = dict(
         source_repo="acme/demo-site",
         target_branch="main",
         scan_id="scan-42",

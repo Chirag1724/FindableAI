@@ -20,7 +20,6 @@ from app.schemas.intelligence import (
     IntentQuery,
 )
 from app.schemas.patching import (
-    BusinessFacts,
     FormattedPatch,
     GeneratedJsonLd,
     JsonLdGenerationResult,
@@ -39,7 +38,7 @@ from app.schemas.scoring import SchemaOrgReport, SchemaTypeResult, ScoreBreakdow
 
 def _intent_batch() -> IntentBatch:
     queries = []
-    for i, cat in enumerate(list(IntentCategory)):
+    for _, cat in enumerate(list(IntentCategory)):
         for j in range(3):
             queries.append(
                 IntentQuery(
