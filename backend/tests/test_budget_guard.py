@@ -144,7 +144,7 @@ async def test_reservation_before_provider_ordering():
 
     async def traced_reserve() -> int:
         events.append("reserve")
-        return await original_reserve()
+        return int(await original_reserve())
 
     guard.reserve = traced_reserve  # type: ignore[method-assign]
     client = _client(AsyncMock(side_effect=provider), budget=guard)

@@ -331,7 +331,10 @@ async def create_scan(request: ScanRequest, background_tasks: BackgroundTasks):
     """
     parsed = urlparse(str(request.url))
     allow_private = False
-    if settings.ENVIRONMENT.lower() != "production" and parsed.hostname in ("localhost", "127.0.0.1"):
+    if settings.ENVIRONMENT.lower() != "production" and parsed.hostname in (
+        "localhost",
+        "127.0.0.1",
+    ):
         allow_private = True
 
     try:

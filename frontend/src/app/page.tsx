@@ -6,9 +6,15 @@ import Image from "next/image";
 import { Search, ChevronDown, ChevronUp, Activity } from "lucide-react";
 import { createScan, getHealth } from "@/lib/api";
 import type { ApiError } from "@/types/scan";
-import { ScoreGauge } from "@/components/ScoreGauge";
+import dynamic from "next/dynamic";
 import { ScanProgress } from "@/components/ScanProgress";
+import { GaugeSkeleton } from "@/components/Skeletons";
 import type { FScoreBreakdown } from "@/types/scan";
+
+const ScoreGauge = dynamic(
+  () => import("@/components/ScoreGauge").then((mod) => mod.ScoreGauge),
+  { ssr: false, loading: () => <GaugeSkeleton /> }
+);
 
 // Sample data for the live preview - uses exact backend schema shape
 const SAMPLE_FSCORE: FScoreBreakdown = {
