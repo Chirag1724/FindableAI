@@ -17,6 +17,7 @@ from app.crawler.crawler import AsyncCrawler
 from app.crawler.dom_chunker import ChunkData, DOMChunker
 from app.crawler.search import store_dom_chunks
 from app.db import AsyncSessionLocal
+from app.engines.patch_assembler import assemble_real_patches
 from app.engines.scorer import ScoreInputs, Scorer, adapt_score_breakdown_to_api
 from app.models.database import DOMChunk as DOMChunkModel
 from app.models.database import Scan as ScanModel
@@ -325,7 +326,22 @@ async def run_scan_pipeline(
             score_breakdown = None
             f_score = generate_mock_fscore(url)
 
-        patches = generate_mock_patches()
+        patches: list[PatchProposal] = []
+        if score_breakdown and html_docs:
+            try:
+                patches = assemble_real_patches(
+                    html=html_docs[0],
+                    url=url,
+                    score_inputs=score_inputs,
+                    score_breakdown=score_breakdown,
+                    chunks=extracted_chunks,
+                    contradictions=contradictions,
+                )
+            except Exception as patch_err:
+                logger.warning("Real patch assembly error: %s", patch_err)
+
+        if not patches:
+            patches = generate_mock_patches()
         summary = AuditSummary(
             pages_crawled=pages_crawled,
             dom_chunks_extracted=len(extracted_chunks),
