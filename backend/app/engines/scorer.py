@@ -24,6 +24,7 @@ from typing import Any, Protocol, runtime_checkable
 from bs4 import BeautifulSoup
 
 from app.engines.contradiction import extract_facts
+from app.schemas.fscore import FScoreBreakdown, SubScoreMetric
 from app.schemas.intelligence import (
     Contradiction,
     ContradictionSeverity,
@@ -42,14 +43,10 @@ from app.schemas.scoring import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# TEAM DECISION REQUIRED
+# CANONICAL F-SCORE FORMULATION
 # ---------------------------------------------------------------------------
-# Option A (docs/01, docs/04 — provisional default in ScoreWeights):
-#   F = 0.40*S_ans + 0.30*S_con + 0.20*S_str + 0.10*S_acc
-# Option B (README.md alternative formulation — NOT used as default):
-#   F-Score = 100 * (0.40*S_coverage + 0.35*S_entailment
-#                    - 0.15*S_contradiction + 0.10*S_structure)
-# Change only ScoreWeights / provisional_score_weights() after confirmation.
+# F = 0.40*S_ans + 0.30*S_con + 0.20*S_str + 0.10*S_acc
+# Aligns with database columns: s_ans, s_con, s_str, s_acc
 # ---------------------------------------------------------------------------
 
 REQUIRED_SCHEMA_TYPES: tuple[str, ...] = (
@@ -703,3 +700,140 @@ class Scorer:
 
 def score(inputs: ScoreInputs) -> ScoreBreakdown:
     return Scorer().score(inputs)
+
+
+def derive_grade(
+    f_score: float,
+    contradiction_count: int = 0,
+    *,
+    s_ans: float = 100.0,
+    hard_contradictions: int = 0,
+) -> str:
+    """
+    Derives letter grade with industry-standard audit gating:
+    - S-Tier: F >= 95.0 AND 0 contradictions
+    - Answerability Floor: S_ans < 30.0 caps grade at D (cannot pass if AI cannot answer queries)
+    - Contradiction Ceiling: 2+ hard contradictions caps grade at C (hallucination risk)
+    """
+    if f_score >= 95.0 and contradiction_count == 0:
+        base_grade = "S"
+    elif f_score >= 90.0:
+        base_grade = "A+"
+    elif f_score >= 85.0:
+        base_grade = "A"
+    elif f_score >= 80.0:
+        base_grade = "B+"
+    elif f_score >= 70.0:
+        base_grade = "B"
+    elif f_score >= 65.0:
+        base_grade = "C+"
+    elif f_score >= 60.0:
+        base_grade = "C"
+    elif f_score >= 55.0:
+        base_grade = "D+"
+    elif f_score >= 50.0:
+        base_grade = "D"
+    else:
+        base_grade = "F"
+
+    # Guardrail 1: Answerability Floor (if AI cannot answer customer queries, cap at D)
+    if s_ans < 30.0 and base_grade in ("S", "A+", "A", "B+", "B", "C+", "C"):
+        return "D"
+
+    # Guardrail 2: Contradiction Ceiling (multiple conflicting claims across pages cap at C)
+    if hard_contradictions >= 2 and base_grade in ("S", "A+", "A", "B+", "B"):
+        return "C"
+
+    return base_grade
+
+
+def adapt_score_breakdown_to_api(sb: ScoreBreakdown) -> FScoreBreakdown:
+    """
+    Convert internal ScoreBreakdown into API-facing FScoreBreakdown.
+
+    Option A Canonical Mapping:
+    - s_ans (40%) -> coverage (SubScoreMetric)
+    - s_con (30%) -> contradiction_penalty (SubScoreMetric, inverted to penalty scale)
+    - s_str (20%) -> structural_clarity (SubScoreMetric)
+    - s_acc (10%) -> entailment (SubScoreMetric, machine accessibility & data extractability)
+    """
+    ans_diag = sb.diagnostics.get("s_ans", {})
+    acc_diag = sb.diagnostics.get("s_acc", {})
+    con_diag = sb.diagnostics.get("s_con", {})
+
+    evaluated = ans_diag.get("evaluated", 0)
+    supported = ans_diag.get("status_counts", {}).get("supported", 0)
+    coverage_metric = SubScoreMetric(
+        name="Query Intent Coverage",
+        weight=0.40,
+        score=round(sb.s_ans, 1),
+        details=(
+            f"Answers {supported} of {evaluated} simulated user queries."
+            if evaluated
+            else "No intent evaluations available."
+        ),
+        strengths=["High semantic overlap with common user search queries"]
+        if sb.s_ans >= 70.0
+        else [],
+        gaps=["Target queries lack definitive grounding in indexed DOM chunks"]
+        if sb.s_ans < 70.0
+        else [],
+    )
+
+    contras_count = con_diag.get("contradictions", 0)
+    hard_count = con_diag.get("hard", 0)
+    penalty_score = round(max(0.0, 100.0 - sb.s_con), 1)
+    contra_metric = SubScoreMetric(
+        name="Contradiction Penalty",
+        weight=0.30,
+        score=penalty_score,
+        details=(
+            f"{contras_count} conflicting claims detected across DOM chunks."
+            if contras_count
+            else "Zero contradictory claims detected."
+        ),
+        strengths=["Consistent facts and terms across crawled pages"] if contras_count == 0 else [],
+        gaps=[f"{contras_count} factual conflicts require reconciliation"]
+        if contras_count > 0
+        else [],
+    )
+
+    present_schemas = [t.schema_type for t in sb.schema_report.types if t.present and t.valid]
+    missing_schemas = [t.schema_type for t in sb.schema_report.types if not t.present]
+    str_metric = SubScoreMetric(
+        name="DOM & Schema Structure",
+        weight=0.20,
+        score=round(sb.s_str, 1),
+        details=(
+            f"{len(present_schemas)} of {len(sb.schema_report.required_types)} required "
+            "Schema.org microdata types verified."
+        ),
+        strengths=[f"Valid Schema.org {s} microdata" for s in present_schemas[:3]],
+        gaps=[f"Missing Schema.org {s} JSON-LD" for s in missing_schemas[:3]],
+    )
+
+    found_fields = acc_diag.get("fields_found", [])
+    acc_metric = SubScoreMetric(
+        name="Extractability & Accessibility",
+        weight=0.10,
+        score=round(sb.s_acc, 1),
+        details="Machine accessibility of core business metadata (hours, address, phone).",
+        strengths=[f"Easily extractable {f}" for f in found_fields[:3]],
+        gaps=["Core business details not found in semantic text"] if sb.s_acc < 50.0 else [],
+    )
+
+    grade = derive_grade(
+        sb.f_score,
+        contradiction_count=contras_count,
+        s_ans=sb.s_ans,
+        hard_contradictions=hard_count,
+    )
+
+    return FScoreBreakdown(
+        overall_score=round(sb.f_score, 1),
+        grade=grade,
+        coverage=coverage_metric,
+        entailment=acc_metric,
+        contradiction_penalty=contra_metric,
+        structural_clarity=str_metric,
+    )

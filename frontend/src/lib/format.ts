@@ -40,6 +40,8 @@ export function truncate(str: string, max: number): string {
 
 export function gradeColor(grade: string): string {
   switch (grade.toUpperCase()) {
+    case "S":
+      return "text-amber-300 font-extrabold";
     case "A":
     case "A+":
       return "text-emerald-400";

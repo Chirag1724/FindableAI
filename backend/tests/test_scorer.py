@@ -10,12 +10,14 @@ from app.engines.scorer import (
     ScoreInputs,
     Scorer,
     ScorerError,
+    adapt_score_breakdown_to_api,
     analyze_schema_org,
     calculate_accessibility,
     calculate_answerability,
     calculate_consistency,
     calculate_f_score,
     calculate_structure,
+    derive_grade,
     provisional_score_weights,
 )
 from app.schemas.intelligence import (
@@ -597,3 +599,69 @@ def test_s_acc_heading_ratio_deterministic():
     b = calculate_accessibility(chunks)
     assert a == b
     assert a[1]["heading_support"] == pytest.approx(1.0 / 3.0)
+
+
+# --- S-Tier Grading & API Adapter Tests ---
+
+
+def test_derive_grade_s_tier_and_thresholds():
+    # S tier requires >= 95.0 and zero contradictions
+    assert derive_grade(98.0, contradiction_count=0) == "S"
+    assert derive_grade(95.0, contradiction_count=0) == "S"
+    # >= 95.0 with contradictions falls back to A+
+    assert derive_grade(96.0, contradiction_count=1) == "A+"
+
+    # Standard tiers
+    assert derive_grade(92.0) == "A+"
+    assert derive_grade(87.0) == "A"
+    assert derive_grade(82.0) == "B+"
+    assert derive_grade(75.0) == "B"
+    assert derive_grade(67.0) == "C+"
+    assert derive_grade(62.0) == "C"
+    assert derive_grade(57.0) == "D+"
+    assert derive_grade(52.0) == "D"
+    assert derive_grade(35.0) == "F"
+
+
+def test_adapt_score_breakdown_to_api():
+    html = """
+    <html><head>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"LocalBusiness","name":"Cafe"}</script>
+    </head><body><h1>Welcome to Cafe</h1><p>Call +1 555-123-4567 Monday open</p></body></html>
+    """
+    inputs = ScoreInputs(
+        intent_evaluations=[
+            _eval(EntailmentStatus.SUPPORTED, "i1"),
+            _eval(EntailmentStatus.SUPPORTED, "i2"),
+        ],
+        contradictions=[],
+        html_documents=[html],
+        chunks=[FakeChunk("Call +1 555-123-4567 Monday open", "h1", 6)],
+        extracted_fact_count=5,
+    )
+    score_breakdown = Scorer().score(inputs)
+    api_breakdown = adapt_score_breakdown_to_api(score_breakdown)
+
+    assert api_breakdown.overall_score == round(score_breakdown.f_score, 1)
+    assert api_breakdown.coverage.score == round(score_breakdown.s_ans, 1)
+    assert api_breakdown.coverage.weight == 0.40
+    assert api_breakdown.contradiction_penalty.weight == 0.30
+    # Penalty is 100 - s_con (with s_con=100 -> penalty=0)
+    assert api_breakdown.contradiction_penalty.score == 0.0
+    assert api_breakdown.structural_clarity.weight == 0.20
+    assert api_breakdown.entailment.weight == 0.10
+    assert api_breakdown.grade in ("S", "A+", "A", "B+", "B", "C+", "C", "D+", "D", "F")
+
+
+def test_derive_grade_guardrails():
+    # 1. Answerability Floor: even with high overall F (e.g. 74.0), s_ans < 30 caps at D
+    assert derive_grade(74.0, s_ans=25.0) == "D"
+    assert derive_grade(92.0, s_ans=10.0) == "D"
+    # Normal s_ans allows normal grade
+    assert derive_grade(74.0, s_ans=75.0) == "B"
+
+    # 2. Contradiction Ceiling: 2+ hard contradictions caps grade at C
+    assert derive_grade(88.0, hard_contradictions=2) == "C"
+    assert derive_grade(94.0, hard_contradictions=3) == "C"
+    # 1 hard contradiction drops S to A+, but doesn't cap at C
+    assert derive_grade(88.0, contradiction_count=1, hard_contradictions=1) == "A"
