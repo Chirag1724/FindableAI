@@ -30,6 +30,10 @@ const ScoreGauge = dynamic(
   { ssr: false, loading: () => <GaugeSkeleton /> }
 );
 
+const DOCS_URL = process.env.NEXT_PUBLIC_API_URL
+  ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")}/docs`
+  : "/docs";
+
 // Sample data for the live preview - uses exact backend schema shape
 const SAMPLE_FSCORE: FScoreBreakdown = {
   overall_score: 74.2,
@@ -269,7 +273,7 @@ export default function HomePage() {
                 FAQ
               </a>
               <a
-                href="http://localhost:8000/docs"
+                href={DOCS_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-atelier-fog transition-colors hover:text-atelier-champagne"
@@ -340,7 +344,7 @@ export default function HomePage() {
                   FAQ
                 </a>
                 <a
-                  href="http://localhost:8000/docs"
+                  href={DOCS_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => setMobileMenuOpen(false)}
@@ -669,7 +673,7 @@ export default function HomePage() {
                 FAQ
               </a>
               <a
-                href="http://localhost:8000/docs"
+                href={DOCS_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-atelier-champagne transition-colors"

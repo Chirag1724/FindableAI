@@ -12,6 +12,14 @@ const nextConfig = {
         source: "/api/:path*",
         destination: `${backendUrl.replace(/\/$/, "")}/api/:path*`,
       },
+      {
+        source: "/docs",
+        destination: `${backendUrl.replace(/\/$/, "")}/docs`,
+      },
+      {
+        source: "/openapi.json",
+        destination: `${backendUrl.replace(/\/$/, "")}/openapi.json`,
+      },
     ];
   },
 };
