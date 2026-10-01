@@ -113,18 +113,19 @@ Allowed category values: {category_values}
 QUESTION QUALITY:
 - Natural language, concise, realistic customer/search-agent intent
 - Specific enough to be useful; one primary information need per question
+- Keep queries concise (under 12 words each) and expected_evidence_type brief (under 4 words, e.g. "pricing page", "FAQ", "docs")
 - Not repetitive; not artificially phrased; avoid compound questions unless necessary
-- Each query MUST be a question (prefer ending with '?')
+- Each query MUST be a question (ending with '?')
 - Do NOT answer the questions
 - Do NOT invent business facts or claim undocumented policies as facts
 - Do NOT cite evidence or assert what the business offers
 - Use business_context only to tailor which questions are relevant — not to answer them
 
 OUTPUT CONTRACT (IntentBatch):
-- business_type: short inferred business category (e.g. "restaurant", "clinic")
+- business_type: short inferred business category (e.g. "restaurant", "clinic", "SaaS platform")
 - queries: exactly {REQUIRED_QUERY_COUNT} IntentQuery objects
 - Each IntentQuery needs: intent_id, category, query, difficulty ("easy"|"medium"|"hard"),
-  expected_evidence_type (where an answer would likely appear on a website)
+  expected_evidence_type (brief phrase: "pricing table", "FAQ", "terms", "contact page")
 
 intent_id format examples: eligibility_01, policy_02, edge_cases_03
 """
@@ -300,6 +301,7 @@ class IntentGenerator:
                     {"role": "user", "content": _build_user_prompt(cleaned_context)},
                 ],
                 max_retries=0,
+                max_tokens=1000,
             )
         except IntentGenerationError:
             raise

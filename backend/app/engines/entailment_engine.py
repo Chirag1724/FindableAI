@@ -362,6 +362,7 @@ class EntailmentEngine:
                     {"role": "user", "content": user_prompt},
                 ],
                 max_retries=0,
+                max_tokens=300,
             )
         except BudgetExhausted:
             raise
@@ -424,7 +425,13 @@ class EntailmentEngine:
         if not intents:
             return []
 
-        tasks = [self.evaluate_intent(intent=intent, scan_id=scan_id) for intent in intents]
+        sem = asyncio.Semaphore(5)
+
+        async def _eval_with_sem(intent: IntentQuery) -> IntentEvaluation:
+            async with sem:
+                return await self.evaluate_intent(intent=intent, scan_id=scan_id)
+
+        tasks = [_eval_with_sem(intent) for intent in intents]
         return list(await asyncio.gather(*tasks))
 
 

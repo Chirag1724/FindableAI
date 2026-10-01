@@ -60,3 +60,11 @@ class ScanResponse(BaseModel):
     summary: AuditSummary | None = None
     patches: list[PatchProposal] = Field(default_factory=list)
     error: str | None = None
+    execution_mode: str | None = Field(
+        default=None,
+        description="Execution mode: 'real_llm' or 'deterministic_fallback'",
+    )
+    llm_calls_made: int | None = Field(
+        default=0,
+        description="Total LLM provider calls consumed via BudgetGuard",
+    )

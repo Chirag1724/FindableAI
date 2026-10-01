@@ -287,6 +287,27 @@ export default function ScanDashboardPage() {
           </div>
 
           <div className="flex shrink-0 items-center gap-3">
+            {displayScan.execution_mode && (
+              <span
+                className={`hidden items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-medium sm:inline-flex border ${
+                  displayScan.execution_mode === "real_llm"
+                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+                    : "border-amber-500/20 bg-amber-500/10 text-amber-400"
+                }`}
+                title={
+                  displayScan.execution_mode === "real_llm"
+                    ? `Real LLM Pipeline active (${displayScan.llm_calls_made ?? 0} calls)`
+                    : "Deterministic Fallback Mode (LLM rate-limited or unconfigured)"
+                }
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    displayScan.execution_mode === "real_llm" ? "bg-emerald-400" : "bg-amber-400"
+                  }`}
+                />
+                {displayScan.execution_mode === "real_llm" ? "Real LLM" : "Fallback Mode"}
+              </span>
+            )}
             <ScanStatusBadge status={currentStatus} />
             <div className="hidden items-center gap-1 text-xs text-[#A1A1A1] sm:flex">
               <Clock size={12} aria-hidden="true" />

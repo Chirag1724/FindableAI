@@ -237,7 +237,7 @@ FindableAI/
 | P2-2.3 | NLI Entailment Engine | Critical | ✅ **DONE** — `backend/app/engines/entailment_engine.py`. Flow: `Intent → hybrid_search(..., k=5) → top-5 chunks → LLMClient NLI → IntentEvaluation`. Concurrent `evaluate_intents` via `asyncio.gather`; shared `LLMClient` budget preserved. |
 | P2-2.4 | Anti-Hallucination Guardrails | Critical | ✅ **DONE** — evidence-only `NLI_SYSTEM_PROMPT`; zero-chunk → deterministic UNKNOWN (0 LLM calls); non-UNKNOWN must cite retrieved IDs; fabricated IDs rejected; no LLM repair/retry (`max_retries=0`) |
 | P2-2.5 | Contradiction Detector | High | ✅ **DONE** — `backend/app/engines/contradiction.py`. Hybrid: deterministic structured facts first; LLM only for semantic ambiguity. Severities: HARD_CONTRADICTION / SOFT_INCONSISTENCY. Flow: chunks → extract → normalize → compare → optional semantic LLM → deduped `Contradiction`. |
-| P2-2.6 | F-Score Calculator | Critical | ✅ **DONE** — `backend/app/engines/scorer.py`. Deterministic `S_ans` / `S_con` / `S_str` / `S_acc` + configurable `ScoreWeights` aggregation. **Production weights remain configuration-driven pending team confirmation** (docs Option A vs README Option B). Provisional defaults mirror docs `0.40/0.30/0.20/0.10`. |
+| P2-2.6 | F-Score Calculator | Critical | ✅ **DONE** — `backend/app/engines/scorer.py`. Deterministic `S_ans` / `S_con` / `S_str` / `S_acc` with canonical confirmed weights `0.40 / 0.30 / 0.20 / 0.10` via `ScoreWeights`. |
 | P2-2.7 | Schema.org Checker | High | ✅ **DONE** — JSON-LD parse via BeautifulSoup + `json.loads`; checks LocalBusiness (subtypes), PostalAddress, OpeningHoursSpecification, GeoCoordinates, Menu/hasMenu, FAQPage; `@graph` / arrays / `@type` arrays; malformed blocks reported safely. |
 
 #### Phase 3: Patch Engine & GitHub
@@ -284,8 +284,8 @@ FindableAI/
 | Item | Status |
 | :--- | :--- |
 | Deterministic S_ans / S_con / S_str / S_acc + F aggregation | ✅ |
-| Configurable `ScoreWeights` (centralized); provisional docs weights | ✅ |
-| Canonical production formula **not** silently finalized (docs vs README) | ⚠️ team decision |
+| Configurable `ScoreWeights` (centralized); canonical confirmed weights | ✅ |
+| Canonical production formula (0.40/0.30/0.20/0.10) | ✅ Finalized |
 | Schema.org JSON-LD offline checker (6 required types) | ✅ |
 | No LLM / network / DB in scorer | ✅ |
 | Patches / GitHub PR | ✅ P2-3.1–3.6 |
@@ -399,7 +399,7 @@ FindableAI/
 - The frontend normalizer (`src/lib/normalize.ts`) already handles both the current mock response shapes and the real `IntentEvaluation`/`Contradiction` schemas, so no frontend changes are needed once real data is wired into `scans.py`
 - The frontend expects `FScoreBreakdown` (from `schemas/fscore.py`) on the score endpoint, not the scorer's internal `ScoreBreakdown` (from `schemas/scoring.py`) - an adapter is needed to convert one to the other before wiring `Scorer.score()` into the API. The mapping is not a simple rename: `s_ans` maps to `coverage`, `s_con` maps to `contradiction_penalty`, `s_str` maps to `structural_clarity`, and `s_acc` has no corresponding field in the API schema yet
 - The frontend expects a `grade` field (A-F) on the score response, which does not currently exist in the scorer's output and needs to be derived somewhere
-- The F-score weights currently differ between the docs' Option A (0.40/0.30/0.20/0.10) and the mock data / README's Option B (0.40/0.35/-0.15/0.10) - this should be resolved as a team decision before wiring real scores, since the frontend renders whichever weights it receives
+- The F-score weights are canonically finalized as 0.40 * S_ans + 0.30 * S_con + 0.20 * S_str + 0.10 * S_acc (Coverage 40%, Consistency 30%, Structure 20%, Extractability 10%)
 
 ---
 
@@ -648,12 +648,12 @@ Chirag Dwivedi should **not wait** for the backend to be complete. Instead:
 | :--- | :--- | :--- |
 | LLM + BudgetGuard + engines + DAG | ✅ Implemented | `app/core/llm.py`, `budget.py`, `engines/*`, `orchestration/*`, extensive unit tests |
 | Crawler / chunker / SSRF / embeddings / hybrid_search | ✅ Largely implemented | `crawler/*`, `security.py`, `embeddings.py`, `search.py`, `demo-site/` |
-| Scan API + SSE | ⚠️ Partial | Real crawl→chunk→store; then **sleep + `generate_mock_fscore` / `generate_mock_patches`** — **does not call `FindableAIDAG`** (`api/v1/scans.py`) |
+| Scan API + SSE | ✅ Implemented | Real crawl→chunk→store; FindableAIDAG orchestrates real intent, entailment, contradiction, scorer and patch generation (`api/v1/scans.py`) |
 | Frontend dashboard | ⚠️ Shell | `page.tsx` + types only; no ScoreGauge/IntentMatrix/PatchModal components |
 | Redis/Celery workers | ❌ Not used in app | `docker-compose` has Redis; no Celery/ARQ code path (BackgroundTasks only) |
 | CI/CD | ❌ Missing | No `.github/workflows/` |
 | App Dockerfile | ❌ Missing | Compose = Postgres+Redis only |
-| Canonical F-score | ⚠️ Spec conflict | Implementation defaults `0.40/0.30/0.20/0.10`; README still documents a different formula |
+| Canonical F-score | ✅ Finalized | Implementation and README unified at `0.40/0.30/0.20/0.10` |
 
 ### Priorities
 

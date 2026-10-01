@@ -203,6 +203,7 @@ class LLMClient:
                 # Disable Instructor/LiteLLM internal retries so each provider
                 # attempt is explicitly budget-guarded above.
                 "max_retries": 0,
+                "max_tokens": kwargs.get("max_tokens", 2500),
                 **kwargs,
             }
             # Force max_retries=0 even if kwargs overrode it.

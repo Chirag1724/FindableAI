@@ -135,8 +135,51 @@ async def hybrid_search(
 
         return chunks[:k]
 
-    if session is not None:
-        return await _execute_search(session)
+    try:
+        if session is not None:
+            return await _execute_search(session)
 
-    async with AsyncSessionLocal() as s:
-        return await _execute_search(s)
+        async with AsyncSessionLocal() as s:
+            return await _execute_search(s)
+    except Exception as exc:
+        logger.debug("Database hybrid_search unavailable (%s); using in-memory candidate scoring", exc)
+        from app.api.v1 import scans as scans_module
+        lookup_keys = [str(scan_id)]
+        if hasattr(scan_id, "hex"):
+            lookup_keys.append(scan_id.hex)
+            lookup_keys.append(f"scan_{scan_id.hex[:12]}")
+        raw_chunks = []
+        for key in lookup_keys:
+            if key in scans_module.CHUNKS_DB:
+                raw_chunks = scans_module.CHUNKS_DB[key]
+                break
+
+        if not raw_chunks:
+            return []
+
+        words = [w.lower() for w in cleaned_query.split() if len(w) > 2]
+        if not words:
+            words = [cleaned_query.lower()]
+
+        scored: list[tuple[float, DOMChunk]] = []
+        for i, rc in enumerate(raw_chunks):
+            content = getattr(rc, "content", "") or ""
+            text = content.lower()
+            match_score = sum(1.0 for word in words if word in text)
+            if match_score > 0:
+                c_id = getattr(rc, "id", None)
+                if not isinstance(c_id, uuid.UUID):
+                    c_id = uuid.UUID(int=i + 1)
+                chunk_obj = DOMChunk(
+                    id=c_id,
+                    scan_id=scan_id if isinstance(scan_id, uuid.UUID) else uuid.uuid4(),
+                    url=getattr(rc, "url", ""),
+                    dom_path=getattr(rc, "dom_path", ""),
+                    content=content,
+                    tag=getattr(rc, "tag", "div"),
+                    word_count=getattr(rc, "word_count", len(content.split())),
+                )
+                scored.append((match_score, chunk_obj))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [item[1] for item in scored[:k]]

@@ -226,12 +226,12 @@ Visit `http://localhost:3000` to access the FindableAI Scan Console.
 
 FindableAI evaluates content across four mathematically rigorous sub-scores:
 
-$$\text{F-Score} = 100 \times \left( 0.40 \cdot S_{\text{coverage}} + 0.35 \cdot S_{\text{entailment}} - 0.15 \cdot S_{\text{contradiction}} + 0.10 \cdot S_{\text{structure}} \right)$$
+$$\text{F-Score} = 100 \times \left( 0.40 \cdot S_{\text{ans}} + 0.30 \cdot S_{\text{con}} + 0.20 \cdot S_{\text{str}} + 0.10 \cdot S_{\text{acc}} \right)$$
 
-1. **Coverage ($S_{\text{coverage}}$)**: Ratio of critical synthetic user queries answered by the page.
-2. **Entailment ($S_{\text{entailment}}$)**: Proportion of claims that strictly entail unambiguous factual grounding.
-3. **Contradiction Penalty ($S_{\text{contradiction}}$)**: Direct penalty for conflicting facts across DOM chunks.
-4. **Structure ($S_{\text{structure}}$)**: Presence of valid Schema.org JSON-LD microdata, semantic tables, and heading hierarchies.
+1. **Answerability ($S_{\text{ans}}$, 40%)**: Ratio and depth of critical synthetic buyer and researcher queries answered by crawled content.
+2. **Consistency ($S_{\text{con}}$, 30%)**: Absence of factual conflicts across pages (operating hours, pricing, policies, contact details).
+3. **Structure ($S_{\text{str}}$, 20%)**: Coverage and syntactic validity of Schema.org JSON-LD microdata across core entity types.
+4. **Extractability & Accessibility ($S_{\text{acc}}$, 10%)**: Clean machine readability and DOM structural clarity of key entity metadata.
 
 ## 🤝 Contributing
 
