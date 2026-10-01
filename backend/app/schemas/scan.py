@@ -4,6 +4,7 @@ from enum import StrEnum
 from pydantic import BaseModel, Field
 
 from .fscore import FScoreBreakdown
+from .intelligence import Contradiction, IntentEvaluation
 from .patch import PatchProposal
 
 
@@ -59,6 +60,8 @@ class ScanResponse(BaseModel):
     f_score: FScoreBreakdown | None = None
     summary: AuditSummary | None = None
     patches: list[PatchProposal] = Field(default_factory=list)
+    intents: list[IntentEvaluation] = Field(default_factory=list)
+    contradictions: list[Contradiction] = Field(default_factory=list)
     error: str | None = None
     execution_mode: str | None = Field(
         default=None,

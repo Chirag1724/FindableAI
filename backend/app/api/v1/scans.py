@@ -51,8 +51,6 @@ SCANS_DB: dict[str, ScanResponse] = {}
 CHUNKS_DB: dict[str, list[ChunkData]] = {}
 EVENT_LOGS: dict[str, list[ScanStatusEvent]] = {}
 EVENT_QUEUES: dict[str, list[asyncio.Queue[ScanStatusEvent | None]]] = {}
-INTENTS_DB: dict[str, list[IntentEvaluation]] = {}
-CONTRADICTIONS_DB: dict[str, list[Contradiction]] = {}
 
 
 def _generate_fallback_evaluations(url: str, chunks: Sequence[Any]) -> list[IntentEvaluation]:
@@ -405,7 +403,7 @@ async def run_scan_pipeline(
             chunks=extracted_chunks,
         )
 
-        patches: list[PatchProposal] = []
+        patches: list[PatchProposal] | None = None
         if score_breakdown and html_docs:
             try:
                 patches = assemble_real_patches(
@@ -418,13 +416,10 @@ async def run_scan_pipeline(
                 )
             except Exception as patch_err:
                 logger.warning("Real patch assembly error: %s", patch_err)
+                patches = None
 
-        if not patches:
+        if patches is None:
             patches = generate_mock_patches()
-
-        # Persist real per-scan evaluations & contradictions
-        INTENTS_DB[scan_id] = evaluations
-        CONTRADICTIONS_DB[scan_id] = contradictions
 
         # Phase 9: COMPLETED
         end_time = datetime.now(UTC)
@@ -455,6 +450,8 @@ async def run_scan_pipeline(
             record.f_score = f_score
             record.summary = summary
             record.patches = patches
+            record.intents = evaluations
+            record.contradictions = contradictions
             record.execution_mode = execution_mode
             record.llm_calls_made = llm_calls_made
 
@@ -624,6 +621,8 @@ async def get_scan(scan_id: str) -> ScanResponse:
             execution_time_seconds=8.4,
         ),
         patches=generate_mock_patches(),
+        intents=_generate_fallback_evaluations("https://example.com", []),
+        contradictions=_generate_fallback_contradictions("https://example.com"),
     )
     SCANS_DB[scan_id] = mock_scan
     return mock_scan
@@ -732,6 +731,12 @@ async def stream_scan_progress(scan_id: str):
                                 execution_time_seconds=9.8,
                             )
                             SCANS_DB[scan_id].patches = generate_mock_patches()
+                            SCANS_DB[scan_id].intents = _generate_fallback_evaluations(
+                                SCANS_DB[scan_id].target_url, []
+                            )
+                            SCANS_DB[scan_id].contradictions = _generate_fallback_contradictions(
+                                SCANS_DB[scan_id].target_url
+                            )
                         return
                     await asyncio.sleep(0.8)
                 return
@@ -796,13 +801,14 @@ async def get_scan_chunks(scan_id: str) -> list[dict[str, Any]]:
 @router.get("/{scan_id}/intents")
 async def get_scan_intents(scan_id: str) -> list[dict[str, Any]]:
     """Returns synthetic intent evaluations for this scan (Task P1-2.3)."""
-    if scan_id in INTENTS_DB:
-        return [eval_item.model_dump(mode="json") for eval_item in INTENTS_DB[scan_id]]
     if scan_id in SCANS_DB:
-        target_url = SCANS_DB[scan_id].target_url
+        scan_record = SCANS_DB[scan_id]
+        if scan_record.intents:
+            return [eval_item.model_dump(mode="json") for eval_item in scan_record.intents]
+        target_url = scan_record.target_url
         chunks = CHUNKS_DB.get(scan_id, [])
         evals = _generate_fallback_evaluations(target_url, chunks)
-        INTENTS_DB[scan_id] = evals
+        scan_record.intents = evals
         return [eval_item.model_dump(mode="json") for eval_item in evals]
     return []
 
@@ -810,12 +816,13 @@ async def get_scan_intents(scan_id: str) -> list[dict[str, Any]]:
 @router.get("/{scan_id}/contradictions")
 async def get_scan_contradictions(scan_id: str) -> list[dict[str, Any]]:
     """Returns detected factual contradictions across crawled pages (Task P1-2.3)."""
-    if scan_id in CONTRADICTIONS_DB:
-        return [con.model_dump(mode="json") for con in CONTRADICTIONS_DB[scan_id]]
     if scan_id in SCANS_DB:
-        target_url = SCANS_DB[scan_id].target_url
+        scan_record = SCANS_DB[scan_id]
+        if scan_record.contradictions:
+            return [con.model_dump(mode="json") for con in scan_record.contradictions]
+        target_url = scan_record.target_url
         cons = _generate_fallback_contradictions(target_url)
-        CONTRADICTIONS_DB[scan_id] = cons
+        scan_record.contradictions = cons
         return [con.model_dump(mode="json") for con in cons]
     return []
 
@@ -823,7 +830,7 @@ async def get_scan_contradictions(scan_id: str) -> list[dict[str, Any]]:
 @router.get("/{scan_id}/patches", response_model=list[PatchProposal])
 async def get_scan_patches(scan_id: str) -> list[PatchProposal]:
     """Returns remediation code patches for this scan (Task P1-2.4)."""
-    if scan_id in SCANS_DB and SCANS_DB[scan_id].patches:
+    if scan_id in SCANS_DB:
         return SCANS_DB[scan_id].patches
     return generate_mock_patches()
 
