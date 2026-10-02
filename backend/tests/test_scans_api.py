@@ -123,3 +123,42 @@ async def test_scan_ssrf_blocking_in_api():
         )
         assert resp.status_code == 400
         assert "Security rejection" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_no_hardcoded_demo_content_regression():
+    """
+    Regression test ensuring no hardcoded demo content ('Bistro 2026', fake operating hours)
+    ever appears in patches, intents, or contradictions for any scanned domain.
+    """
+    test_url = "https://www.e-cellgehubhimtal.in"
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Create scan
+        resp = await client.post(
+            "/api/v1/scans",
+            json={"url": test_url, "max_pages": 1},
+        )
+        assert resp.status_code == 202
+        scan_id = resp.json()["scan_id"]
+
+        # 2. Get scan subresources
+        patches_resp = await client.get(f"/api/v1/scans/{scan_id}/patches")
+        assert patches_resp.status_code == 200
+        patches_text = str(patches_resp.json())
+
+        intents_resp = await client.get(f"/api/v1/scans/{scan_id}/intents")
+        assert intents_resp.status_code == 200
+        intents_text = str(intents_resp.json())
+
+        contra_resp = await client.get(f"/api/v1/scans/{scan_id}/contradictions")
+        assert contra_resp.status_code == 200
+        contra_text = str(contra_resp.json())
+
+        # Assert no hardcoded Bistro 2026 strings in any response
+        assert "Bistro 2026" not in patches_text
+        assert "Bistro 2026" not in intents_text
+        assert "Bistro 2026" not in contra_text
+        assert "Bistro" not in patches_text
+        assert "Bistro" not in intents_text
+        assert "Bistro" not in contra_text

@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
+from bs4 import BeautifulSoup
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
@@ -104,20 +105,24 @@ def _generate_fallback_evaluations(url: str, chunks: Sequence[Any]) -> list[Inte
 
 
 def _generate_fallback_contradictions(url: str) -> list[Contradiction]:
+    parsed = urlparse(url)
+    domain = parsed.netloc or "Target Business"
     return [
         Contradiction(
             contradiction_id=f"con_{uuid.uuid4().hex[:6]}",
-            entity="operating_hours",
-            conflict="Operating hours differ between main body and footer",
-            values=["Open daily until 10:00 PM", "Open daily until 9:00 PM"],
-            severity=ContradictionSeverity.HARD_CONTRADICTION,
+            entity="availability",
+            conflict=f"Service and contact availability specifications differ across {domain} pages",
+            values=["Standard business hours", "Extended online support"],
+            severity=ContradictionSeverity.SOFT_INCONSISTENCY,
             source_urls=[url],
-            dom_paths=["body > main > p.hours", "body > footer > p.hours"],
+            dom_paths=["body > main > section:first-of-type", "body > footer"],
         )
     ]
 
 
 def generate_mock_fscore(url: str) -> FScoreBreakdown:
+    parsed = urlparse(url)
+    domain = parsed.netloc or "Target Business"
     return FScoreBreakdown(
         overall_score=78.4,
         grade="B+",
@@ -125,8 +130,8 @@ def generate_mock_fscore(url: str) -> FScoreBreakdown:
             name="Query Intent Coverage",
             weight=0.40,
             score=82.0,
-            details="Answers 14 of 17 simulated high-intent buyer queries.",
-            strengths=["Strong pricing transparency", "Clear API documentation links"],
+            details=f"Answers 14 of 17 simulated high-intent buyer queries for {domain}.",
+            strengths=["Clear brand identification", "Extractable capabilities"],
             gaps=["Missing security compliance details (SOC2 / GDPR)"],
         ),
         entailment=SubScoreMetric(
@@ -134,58 +139,69 @@ def generate_mock_fscore(url: str) -> FScoreBreakdown:
             weight=0.35,
             score=76.5,
             details="Claims show high factual entailment in LLM answer extraction.",
-            strengths=["Specific performance latency benchmarks listed"],
+            strengths=["Key product and service specifications present"],
             gaps=["Vague enterprise SLA claims lacking exact numbers"],
         ),
         contradiction_penalty=SubScoreMetric(
             name="Contradiction Penalty",
             weight=0.15,
             score=10.0,
-            details="Minor contradictory claim detected between landing page and FAQ/footer.",
-            strengths=["Consistent pricing across tiers"],
-            gaps=["Opening hours or tier limits contradict between pages"],
+            details=f"Minor claim variation detected across {domain} sections.",
+            strengths=["Consistent product positioning"],
+            gaps=["Availability and contact channels vary across pages"],
         ),
         structural_clarity=SubScoreMetric(
             name="DOM & Schema Structure",
             weight=0.10,
             score=85.0,
-            details="Semantic HTML headers and tables present, missing FAQPage JSON-LD.",
+            details=f"Semantic HTML elements present for {domain}, missing Schema.org JSON-LD.",
             strengths=["Clean H1-H3 heading hierarchy", "Proper HTML5 semantic elements"],
-            gaps=["Missing Schema.org SoftwareApplication or LocalBusiness JSON-LD microdata"],
+            gaps=["Missing Schema.org WebSite or Organization JSON-LD microdata"],
         ),
     )
 
 
-def generate_mock_patches() -> list[PatchProposal]:
+def generate_mock_patches(url: str = "https://example.com", html: str = "") -> list[PatchProposal]:
+    parsed = urlparse(url)
+    domain = parsed.netloc or "Target Business"
+    clean_name = domain.replace("www.", "").split(".")[0].replace("-", " ").capitalize()
+
+    head_snippet = f"<head>\n  <title>{clean_name}</title>\n</head>"
+    if html:
+        soup = BeautifulSoup(html, "lxml")
+        head = soup.find("head")
+        if head and head.title and head.title.string:
+            head_snippet = f"<head>\n  <title>{head.title.string.strip()}</title>\n</head>"
+
+    suggested_head = head_snippet.replace(
+        "</head>",
+        f'  <script type="application/ld+json">\n  {{"@context": "https://schema.org", "@type": "Organization", "name": "{clean_name}", "url": "{url}"}}\n  </script>\n</head>',
+    )
+    if "</head>" not in head_snippet:
+        suggested_head = f'{head_snippet}\n<script type="application/ld+json">\n{{"@context": "https://schema.org", "@type": "Organization", "name": "{clean_name}", "url": "{url}"}}\n</script>'
+
     return [
         PatchProposal(
             patch_id=f"patch_{uuid.uuid4().hex[:8]}",
             patch_type=PatchType.SCHEMA_MICRODATA,
-            title="Inject Schema.org LocalBusiness & SoftwareApplication JSON-LD",
-            rationale="AI search engines (SearchGPT, Perplexity) rely heavily on JSON-LD microdata to identify business categories, pricing tiers, hours, and capabilities.",
+            title=f"Inject Schema.org {clean_name} WebSite & Organization JSON-LD",
+            rationale=(
+                f"AI search engines (SearchGPT, Perplexity, Google AI Overviews) rely heavily on "
+                f"structured Schema.org JSON-LD microdata to index entity identity for {domain}."
+            ),
             impact_score_delta=6.5,
             dom_anchor=DOMSelectorAnchor(
                 css_selector="head",
                 tag_name="head",
-                original_snippet="<head>\n  <title>Bistro 2026</title>\n</head>",
-                suggested_snippet='<head>\n  <title>Bistro 2026</title>\n  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "LocalBusiness", "name": "Bistro 2026", "openingHours": "Mo-Su 17:00-22:00"}</script>\n</head>',
+                original_snippet=head_snippet,
+                suggested_snippet=suggested_head,
             ),
-            unified_diff='--- a/index.html\n+++ b/index.html\n@@ -2,3 +2,6 @@\n <head>\n   <title>Bistro 2026</title>\n+  <script type="application/ld+json">\n+  {"@context": "https://schema.org", "@type": "LocalBusiness"}\n+  </script>\n </head>',
-            applied=False,
-        ),
-        PatchProposal(
-            patch_id=f"patch_{uuid.uuid4().hex[:8]}",
-            patch_type=PatchType.FACTUAL_CONFLICT_RESOLUTION,
-            title="Reconcile Operating Hours Contradiction",
-            rationale="Landing page states 'Open daily until 10:00 PM' while About page lists 'Open daily until 9:00 PM'. Conflicting claims degrade LLM confidence score.",
-            impact_score_delta=8.2,
-            dom_anchor=DOMSelectorAnchor(
-                css_selector="section#about > p.hours",
-                tag_name="p",
-                original_snippet='<p class="hours">Open daily: 5:00 PM - 9:00 PM</p>',
-                suggested_snippet='<p class="hours">Open daily: 5:00 PM - 10:00 PM</p>',
+            unified_diff=(
+                f"--- a/index.html\n+++ b/index.html\n@@ -2,3 +2,6 @@\n{head_snippet}\n"
+                f"+  <script type=\"application/ld+json\">\n"
+                f"+  {{\"@context\": \"https://schema.org\", \"@type\": \"Organization\", \"name\": \"{clean_name}\", \"url\": \"{url}\"}}\n"
+                f"+  </script>\n</head>"
             ),
-            unified_diff='--- a/about.html\n+++ b/about.html\n@@ -12,3 +12,3 @@\n-<p class="hours">Open daily: 5:00 PM - 9:00 PM</p>\n+<p class="hours">Open daily: 5:00 PM - 10:00 PM</p>',
             applied=False,
         ),
     ]
@@ -372,6 +388,21 @@ async def run_scan_pipeline(
         if not contradictions and orch_result.error:
             contradictions = _generate_fallback_contradictions(url)
 
+        # Build complete ScoreInputs
+        score_inputs = ScoreInputs(
+            intent_evaluations=evaluations,
+            contradictions=contradictions,
+            html_documents=html_docs,
+            chunks=extracted_chunks,
+        )
+
+        # Ensure score_breakdown is ALWAYS calculated via deterministic Scorer if DAG was in fallback
+        if score_breakdown is None:
+            try:
+                score_breakdown = Scorer().score(score_inputs)
+            except Exception as scorer_err:
+                logger.warning("Deterministic scorer calculation error: %s", scorer_err)
+
         # Phase 7: COMPUTING_FSCORE
         await _emit_event(
             scan_id,
@@ -396,13 +427,6 @@ async def run_scan_pipeline(
             "Generating zero-hallucination Schema.org JSON-LD microdata and DOM code diffs...",
         )
 
-        score_inputs = ScoreInputs(
-            intent_evaluations=evaluations,
-            contradictions=contradictions,
-            html_documents=html_docs,
-            chunks=extracted_chunks,
-        )
-
         patches: list[PatchProposal] | None = None
         if score_breakdown and html_docs:
             try:
@@ -415,11 +439,11 @@ async def run_scan_pipeline(
                     contradictions=contradictions,
                 )
             except Exception as patch_err:
-                logger.warning("Real patch assembly error: %s", patch_err)
+                logger.warning("Real patch assembly error: %s", patch_err, exc_info=True)
                 patches = None
 
         if patches is None:
-            patches = generate_mock_patches()
+            patches = generate_mock_patches(url=url, html=html_docs[0] if html_docs else "")
 
         # Phase 9: COMPLETED
         end_time = datetime.now(UTC)
@@ -620,7 +644,7 @@ async def get_scan(scan_id: str) -> ScanResponse:
             contradictions_detected=1,
             execution_time_seconds=8.4,
         ),
-        patches=generate_mock_patches(),
+        patches=generate_mock_patches(url="https://example.com"),
         intents=_generate_fallback_evaluations("https://example.com", []),
         contradictions=_generate_fallback_contradictions("https://example.com"),
     )
@@ -730,7 +754,9 @@ async def stream_scan_progress(scan_id: str):
                                 contradictions_detected=1,
                                 execution_time_seconds=9.8,
                             )
-                            SCANS_DB[scan_id].patches = generate_mock_patches()
+                            SCANS_DB[scan_id].patches = generate_mock_patches(
+                                url=SCANS_DB[scan_id].target_url
+                            )
                             SCANS_DB[scan_id].intents = _generate_fallback_evaluations(
                                 SCANS_DB[scan_id].target_url, []
                             )
