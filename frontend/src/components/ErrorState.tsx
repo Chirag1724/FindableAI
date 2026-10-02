@@ -18,22 +18,21 @@ export function ErrorState({
   return (
     <div
       data-testid="error-state"
-      className="flex flex-col items-center justify-center gap-4 rounded-2xl bg-[#141414] px-6 py-12 text-center"
-      style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
+      className="flex flex-col items-center justify-center gap-4 rounded-xl bg-surface shadow-border px-6 py-12 text-center"
     >
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-rose-950">
-        <AlertTriangle size={22} className="text-rose-400" aria-hidden="true" />
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-rose-950/70 border border-rose-800/50">
+        <AlertTriangle size={20} className="text-rose-400" aria-hidden="true" />
       </div>
       <div>
-        <p className="text-sm font-semibold text-[#EDEDED]">{title}</p>
-        <p className="mt-1 text-xs text-[#A1A1A1]">{message}</p>
+        <p className="text-sm font-semibold text-text-primary">{title}</p>
+        <p className="mt-1 text-xs text-text-muted max-w-sm leading-relaxed">{message}</p>
       </div>
-      <div className="flex gap-2">
+      <div className="flex gap-2.5 pt-1">
         {onRetry && (
           <button
             type="button"
             onClick={onRetry}
-            className="rounded-lg bg-[#191919] px-4 py-2 text-sm text-[#EDEDED] transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="rounded-lg bg-white px-4 py-2 text-xs font-semibold text-black tracking-wider uppercase transition-colors duration-150 hover:bg-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           >
             {retryLabel}
           </button>

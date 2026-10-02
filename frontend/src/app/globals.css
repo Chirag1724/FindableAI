@@ -8,6 +8,7 @@
   --text-muted: #a1a1a1;
   --surface: #141414;
   --surface-secondary: #191919;
+  --surface-tertiary: #222222;
   --accent: #7c3aed;
   --accent-light: #a78bfa;
 }
@@ -40,22 +41,59 @@ body {
 
 /* Elevated glass surface (modals, slide-overs, sticky bars) */
 .glass {
-  background: rgba(20, 20, 20, 0.72);
+  background: rgba(20, 20, 20, 0.85);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.1),
-    0 8px 32px rgba(0, 0, 0, 0.5);
+    0 8px 32px rgba(0, 0, 0, 0.6);
 }
 
-/* Soft 1px ring border replacement (crisper than CSS border on dark bg) */
+/* Soft 1px shadow-as-border replacement (crisper than CSS border on dark background) */
+.shadow-border {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.shadow-border-interactive {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transition: box-shadow 150ms ease, background-color 150ms ease, border-color 150ms ease;
+}
+
+.shadow-border-interactive:hover {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+/* Retain backward-compatible ring-border alias */
 .ring-border {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
-/* Reduced motion: disable all animations and transitions */
-@media (prefers-reduced-motion: reduce) {
+/* Custom dark scrollbar for internal overflow containers */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
 
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.25);
+}
+
+/* Reduced motion: disable all CSS animations and transitions */
+@media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
@@ -66,74 +104,6 @@ body {
   }
 }
 
-/* Entrance animation keyframes */
-@keyframes fade-up {
-  from {
-    opacity: 0;
-    transform: translateY(24px);
-    filter: blur(8px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-    filter: blur(0);
-  }
-}
-
-.animate-fade-up {
-  animation: fade-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-/* Stagger delays for entrance animations */
-.delay-0 {
-  animation-delay: 0ms;
-}
-
-.delay-1 {
-  animation-delay: 80ms;
-}
-
-.delay-2 {
-  animation-delay: 160ms;
-}
-
-.delay-3 {
-  animation-delay: 240ms;
-}
-
-.delay-4 {
-  animation-delay: 320ms;
-}
-
-.delay-5 {
-  animation-delay: 400ms;
-}
-
-/* Atelier Dark Luxury Utilities */
-.text-gold-gradient {
-  background: linear-gradient(180deg, #f3e3bf 0%, #d4af72 55%, #b89b6a 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.bg-gold-gradient {
-  background: linear-gradient(135deg, #e8d3a8 0%, #d4af72 50%, #b89b6a 100%);
-}
-
-.shadow-gold-panel {
-  box-shadow:
-    0 0 0 1px rgba(212, 175, 114, 0.35),
-    0 30px 60px -20px rgba(212, 175, 114, 0.22),
-    0 0 100px -40px rgba(212, 175, 114, 0.35);
-}
-
-.shadow-gold-subtle {
-  box-shadow:
-    0 0 0 1px rgba(212, 175, 114, 0.2),
-    0 12px 32px -8px rgba(0, 0, 0, 0.6);
-}
-
 /* Native accordion summary styling */
 details > summary {
   list-style: none;
@@ -141,4 +111,19 @@ details > summary {
 
 details > summary::-webkit-details-marker {
   display: none;
-}
+}
+
+/* Ambient engineering grid background */
+.hero-grid-bg {
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 80%);
+}
+
+.hero-glow {
+  background: radial-gradient(circle 600px at 50% 25%, rgba(124, 58, 237, 0.14), rgba(16, 185, 129, 0.05) 45%, transparent 75%);
+}
+

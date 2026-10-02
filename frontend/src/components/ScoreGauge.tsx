@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import {
   RadialBarChart,
   RadialBar,
@@ -10,22 +9,12 @@ import {
   PolarGrid,
   PolarAngleAxis,
   PolarRadiusAxis,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
   Tooltip,
-  Cell,
-  PieChart,
-  Pie,
 } from "recharts";
 import {
-  ChevronDown,
-  ChevronUp,
   Activity,
   Compass,
   BarChart3,
-  PieChart as PieIcon,
   ShieldCheck,
   AlertTriangle,
 } from "lucide-react";
@@ -66,16 +55,16 @@ function DarkTooltip({ active, payload }: CustomTooltipProps) {
   const p = item.payload;
 
   return (
-    <div className="rounded-lg bg-[#1c1c1c] px-3 py-2 text-xs text-[#EDEDED] shadow-xl border border-white/10">
+    <div className="rounded-lg bg-surface-secondary px-3 py-2 text-xs text-text-primary shadow-xl shadow-border">
       <div className="font-medium text-white mb-0.5">
         {p?.fullName ?? p?.dimension ?? p?.name ?? item.name}
       </div>
       {p?.earned !== undefined && p?.max !== undefined ? (
-        <div className="text-[#A1A1A1]">
+        <div className="text-text-muted">
           Earned: <span className="font-mono text-emerald-400 font-semibold">{p.earned}</span> / {p.max} pts
         </div>
       ) : (
-        <div className="text-[#A1A1A1]">
+        <div className="text-text-muted">
           Score: <span className="font-mono text-emerald-400 font-semibold">{item.value?.toFixed(1)}</span> / 100
         </div>
       )}
@@ -85,7 +74,6 @@ function DarkTooltip({ active, payload }: CustomTooltipProps) {
 
 export function ScoreGauge({ fScore }: ScoreGaugeProps) {
   const { value: animatedScore, ref: scoreRef } = useCountUp(fScore.overall_score, 1);
-  const [detailsExpanded, setDetailsExpanded] = useState(false);
 
   const subScores = [
     {
@@ -93,12 +81,11 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
       shortName: "Coverage",
       weight: normalizeWeight(fScore.coverage.weight),
       score: fScore.coverage.score,
+      displayScore: fScore.coverage.score,
       details: fScore.coverage.details,
       strengths: fScore.coverage.strengths,
       gaps: fScore.coverage.gaps,
       color: ARC_COLORS.coverage,
-      fill: ARC_COLORS.coverage,
-      value: fScore.coverage.score,
       maxPts: 40,
       earnedPts: +(fScore.coverage.score * 0.4).toFixed(1),
     },
@@ -107,12 +94,11 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
       shortName: "Consistency",
       weight: normalizeWeight(fScore.contradiction_penalty.weight),
       score: fScore.contradiction_penalty.score,
+      displayScore: Math.max(0, 100 - fScore.contradiction_penalty.score),
       details: fScore.contradiction_penalty.details,
       strengths: fScore.contradiction_penalty.strengths,
       gaps: fScore.contradiction_penalty.gaps,
       color: ARC_COLORS.contradiction,
-      fill: ARC_COLORS.contradiction,
-      value: Math.max(0, 100 - fScore.contradiction_penalty.score),
       maxPts: 30,
       earnedPts: +(Math.max(0, 100 - fScore.contradiction_penalty.score) * 0.3).toFixed(1),
     },
@@ -121,12 +107,11 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
       shortName: "Structure",
       weight: normalizeWeight(fScore.structural_clarity.weight),
       score: fScore.structural_clarity.score,
+      displayScore: fScore.structural_clarity.score,
       details: fScore.structural_clarity.details,
       strengths: fScore.structural_clarity.strengths,
       gaps: fScore.structural_clarity.gaps,
       color: ARC_COLORS.structure,
-      fill: ARC_COLORS.structure,
-      value: fScore.structural_clarity.score,
       maxPts: 20,
       earnedPts: +(fScore.structural_clarity.score * 0.2).toFixed(1),
     },
@@ -135,12 +120,11 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
       shortName: "Extract",
       weight: normalizeWeight(fScore.entailment.weight),
       score: fScore.entailment.score,
+      displayScore: fScore.entailment.score,
       details: fScore.entailment.details,
       strengths: fScore.entailment.strengths,
       gaps: fScore.entailment.gaps,
       color: ARC_COLORS.entailment,
-      fill: ARC_COLORS.entailment,
-      value: fScore.entailment.score,
       maxPts: 10,
       earnedPts: +(fScore.entailment.score * 0.1).toFixed(1),
     },
@@ -178,214 +162,135 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
   const barData = [
     {
       name: "Coverage",
-      fullName: "Query Intent Coverage",
+      fullName: "Intent Coverage (40%)",
       earned: +(fScore.coverage.score * 0.4).toFixed(1),
       max: 40,
       fill: ARC_COLORS.coverage,
     },
     {
       name: "Consistency",
-      fullName: "Fact Consistency",
+      fullName: "Fact Consistency (30%)",
       earned: +(Math.max(0, 100 - fScore.contradiction_penalty.score) * 0.3).toFixed(1),
       max: 30,
       fill: ARC_COLORS.contradiction,
     },
     {
       name: "Structure",
-      fullName: "DOM & Schema Structure",
+      fullName: "DOM Structure (20%)",
       earned: +(fScore.structural_clarity.score * 0.2).toFixed(1),
       max: 20,
       fill: ARC_COLORS.structure,
     },
     {
       name: "Extract",
-      fullName: "Machine Extractability",
+      fullName: "Machine Extractability (10%)",
       earned: +(fScore.entailment.score * 0.1).toFixed(1),
       max: 10,
       fill: ARC_COLORS.entailment,
     },
   ];
 
-  // Pie / Donut Chart Data
-  const pieData = [
+  const radialData = [
+    { name: "Extract", score: fScore.entailment.score, fill: ARC_COLORS.entailment },
+    { name: "Structure", score: fScore.structural_clarity.score, fill: ARC_COLORS.structure },
     {
-      name: "Query Coverage",
-      value: Math.max(1, +(fScore.coverage.score * 0.4).toFixed(1)),
-      color: ARC_COLORS.coverage,
+      name: "Consistency",
+      score: Math.max(0, 100 - fScore.contradiction_penalty.score),
+      fill: ARC_COLORS.contradiction,
     },
-    {
-      name: "Fact Consistency",
-      value: Math.max(1, +(Math.max(0, 100 - fScore.contradiction_penalty.score) * 0.3).toFixed(1)),
-      color: ARC_COLORS.contradiction,
-    },
-    {
-      name: "Schema Structure",
-      value: Math.max(1, +(fScore.structural_clarity.score * 0.2).toFixed(1)),
-      color: ARC_COLORS.structure,
-    },
-    {
-      name: "Extractability",
-      value: Math.max(1, +(fScore.entailment.score * 0.1).toFixed(1)),
-      color: ARC_COLORS.entailment,
-    },
+    { name: "Coverage", score: fScore.coverage.score, fill: ARC_COLORS.coverage },
   ];
 
   return (
-    <div className="space-y-4 sm:space-y-6">
-      {/* Section Title */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-[#A1A1A1] flex items-center gap-2">
-          <Activity size={14} className="text-emerald-400" />
-          Findability Analytics Matrix (2&times;2)
-        </h2>
-        <span className="text-xs text-[#A1A1A1] font-mono">
-          Formula: <span className="text-emerald-400">0.40S_ans + 0.30S_con + 0.20S_str + 0.10S_acc</span>
-        </span>
-      </div>
-
-      {/* 2x2 Analytics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-        {/* CARD 1: RADIAL GAUGE & AUDIT GRADE */}
-        <div
-          className="rounded-2xl bg-[#141414] p-5 sm:p-6 flex flex-col justify-between"
-          style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
-        >
+    <div className="space-y-6 w-full">
+      {/* Upper Grid: 2 cards on left + 1 card on right */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 items-stretch">
+        {/* CARD 1: OVERALL F-SCORE + RADIAL BREAKDOWN */}
+        <div className="h-full rounded-xl bg-surface shadow-border p-5 sm:p-6 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <Activity size={14} className="text-purple-400" />
-              <span className="text-xs font-bold uppercase tracking-wider text-[#EDEDED]">
-                Findability F-Score
+              <Activity size={14} className="text-violet-400" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-text-primary">
+                Overall Findability Score
               </span>
             </div>
             <span
-              className={`px-2.5 py-0.5 rounded text-xs font-black ${gradeColor(fScore.grade)} bg-white/5 border border-white/10`}
+              className={`rounded-md px-2 py-0.5 text-xs font-bold font-mono ${gradeColor(
+                fScore.grade
+              )}`}
             >
               Grade {fScore.grade}
             </span>
           </div>
 
-          {/* Radial Center Graphic */}
-          <div className="relative mx-auto my-2 h-44 w-44 sm:h-52 sm:w-52">
+          <div className="relative mx-auto my-3 h-48 w-48 flex items-center justify-center">
             <ResponsiveContainer width="100%" height="100%">
               <RadialBarChart
-                innerRadius="40%"
+                cx="50%"
+                cy="50%"
+                innerRadius="48%"
                 outerRadius="100%"
+                barSize={6}
+                data={radialData}
                 startAngle={90}
                 endAngle={-270}
-                data={subScores}
-                barSize={9}
               >
-                <RadialBar
-                  dataKey="value"
-                  cornerRadius={5}
-                  background={{ fill: "rgba(255,255,255,0.04)" }}
-                />
+                <RadialBar background={{ fill: "rgba(255,255,255,0.04)" }} dataKey="score" cornerRadius={3} />
               </RadialBarChart>
             </ResponsiveContainer>
 
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
               <span
                 ref={scoreRef}
-                data-testid="f-score-value"
-                className="text-4xl font-black text-[#EDEDED] tabular-nums"
+                className="text-3xl sm:text-4xl font-bold tracking-tight text-white tabular-nums leading-none mb-1"
               >
                 {animatedScore}
               </span>
-              <span className={`text-base font-bold ${gradeColor(fScore.grade)}`}>
-                {fScore.grade}
+              <span className="text-[9px] text-text-muted uppercase font-mono font-medium tracking-wider">
+                out of 100
               </span>
             </div>
           </div>
 
-          {/* Quick Subscore Status Pills */}
-          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5">
+          <div className="grid grid-cols-2 gap-2 pt-3 border-t border-white/[0.06] text-xs">
             {subScores.map((s) => (
-              <div key={s.name} className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#191919] text-xs">
-                <span className="flex items-center gap-1.5 truncate text-[#A1A1A1]">
+              <div key={s.name} className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-text-muted truncate">
                   <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
                   {s.shortName}
                 </span>
-                <span className="font-mono text-[#EDEDED] font-semibold">{s.score.toFixed(1)}</span>
+                <span className="font-mono font-medium text-text-primary">{s.displayScore.toFixed(0)}%</span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* CARD 2: AEO DISCOVERABILITY RADAR */}
-        <div
-          className="rounded-2xl bg-[#141414] p-5 sm:p-6 flex flex-col justify-between"
-          style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <Compass size={14} className="text-emerald-400" />
-              <span className="text-xs font-bold uppercase tracking-wider text-[#EDEDED]">
-                AEO Discoverability Radar
-              </span>
-            </div>
-            <span className="text-[11px] text-[#A1A1A1]">4-Axis Polygon</span>
-          </div>
-
-          <div className="relative mx-auto my-1 h-48 w-full sm:h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <RadarChart data={radarData} outerRadius="75%">
-                <PolarGrid stroke="rgba(255,255,255,0.1)" />
-                <PolarAngleAxis
-                  dataKey="dimension"
-                  tick={{ fill: "#A1A1A1", fontSize: 11 }}
-                />
-                <PolarRadiusAxis
-                  angle={30}
-                  domain={[0, 100]}
-                  tick={false}
-                  axisLine={false}
-                />
-                <Radar
-                  name="Findability"
-                  dataKey="score"
-                  stroke="#8b5cf6"
-                  fill="#8b5cf6"
-                  fillOpacity={0.4}
-                />
-                <Tooltip content={<DarkTooltip />} />
-              </RadarChart>
-            </ResponsiveContainer>
-          </div>
-
-          <p className="text-[11px] text-[#A1A1A1] pt-2 border-t border-white/5">
-            Evaluates machine indexability across simulated search intents, consistency, and DOM schema coverage.
-          </p>
-        </div>
-
-        {/* CARD 3: WEIGHTED CONTRIBUTION BARS */}
-        <div
-          className="rounded-2xl bg-[#141414] p-5 sm:p-6 flex flex-col justify-between"
-          style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
-        >
+        {/* CARD 2: WEIGHTED COMPONENT CONTRIBUTION */}
+        <div className="h-full rounded-xl bg-surface shadow-border p-5 sm:p-6 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <BarChart3 size={14} className="text-sky-400" />
-              <span className="text-xs font-bold uppercase tracking-wider text-[#EDEDED]">
-                Weighted Component Contribution
+              <span className="text-xs font-semibold uppercase tracking-wider text-text-primary">
+                Weighted Contribution
               </span>
             </div>
-            <span className="text-[11px] font-mono text-[#A1A1A1]">Max 100 Pts</span>
+            <span className="text-[11px] font-mono text-text-muted">Max 100 Pts</span>
           </div>
 
-          <div className="space-y-3.5 my-auto py-2">
+          <div className="space-y-3.5 my-auto py-3">
             {barData.map((item) => {
               const pct = Math.min(100, Math.round((item.earned / item.max) * 100));
               return (
                 <div key={item.name} className="space-y-1">
                   <div className="flex justify-between text-xs">
-                    <span className="text-[#EDEDED] font-medium">{item.fullName}</span>
-                    <span className="font-mono text-[#A1A1A1]">
+                    <span className="text-text-primary font-medium">{item.fullName}</span>
+                    <span className="font-mono text-text-muted">
                       <span className="text-emerald-400 font-semibold">{item.earned}</span> / {item.max} pts ({pct}%)
                     </span>
                   </div>
-                  <div className="h-2 w-full rounded-full bg-white/5 overflow-hidden">
+                  <div className="h-1.5 w-full rounded-full bg-white/5 overflow-hidden">
                     <div
-                      className="h-full rounded-full transition-all duration-500"
+                      className="h-full rounded-full transition-all duration-300"
                       style={{ width: `${pct}%`, backgroundColor: item.fill }}
                     />
                   </div>
@@ -394,127 +299,110 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
             })}
           </div>
 
-          <p className="text-[11px] text-[#A1A1A1] pt-2 border-t border-white/5">
-            Query coverage (40%) and consistency (30%) drive 70% of total discoverability score.
+          <p className="text-[11px] text-text-muted pt-3 border-t border-white/[0.06]">
+            Query coverage (40%) and consistency (30%) drive 70% of total score.
           </p>
         </div>
 
-        {/* CARD 4: POINTS ALLOCATION DONUT & PENALTIES */}
-        <div
-          className="rounded-2xl bg-[#141414] p-5 sm:p-6 flex flex-col justify-between"
-          style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
-        >
+        {/* CARD 3: RADAR INDEXABILITY PROFILE (ON THE RIGHT) */}
+        <div className="h-full rounded-xl bg-surface shadow-border p-5 sm:p-6 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <PieIcon size={14} className="text-rose-400" />
-              <span className="text-xs font-bold uppercase tracking-wider text-[#EDEDED]">
-                Points Share &amp; Gap Distribution
+              <Compass size={14} className="text-emerald-400" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-text-primary">
+                Multi-Pillar Radar Profile
               </span>
             </div>
-            <span className="text-[11px] text-rose-400 font-mono">
-              -{fScore.contradiction_penalty.score.toFixed(1)} pts penalty
-            </span>
+            <span className="text-[11px] font-mono text-text-muted">4-Factor Web</span>
           </div>
 
-          <div className="relative mx-auto my-1 h-44 w-full sm:h-52 flex items-center justify-center">
+          <div className="relative mx-auto my-1 h-48 w-full flex items-center justify-center">
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={74}
-                  paddingAngle={3}
-                  dataKey="value"
-                >
-                  {pieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} stroke="transparent" />
-                  ))}
-                </Pie>
+              <RadarChart data={radarData}>
+                <PolarGrid stroke="rgba(255,255,255,0.08)" />
+                <PolarAngleAxis dataKey="dimension" tick={{ fill: "#A1A1A1", fontSize: 11 }} />
+                <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
+                <Radar
+                  name="Score"
+                  dataKey="score"
+                  stroke="#10b981"
+                  fill="#10b981"
+                  fillOpacity={0.25}
+                />
                 <Tooltip content={<DarkTooltip />} />
-              </PieChart>
+              </RadarChart>
             </ResponsiveContainer>
-
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-2xl font-black text-[#EDEDED] tabular-nums">
-                {animatedScore}
-              </span>
-              <span className="text-[9px] text-[#A1A1A1] uppercase font-bold tracking-wider">
-                Earned Pts
-              </span>
-            </div>
           </div>
 
-          <p className="text-[11px] text-[#A1A1A1] pt-2 border-t border-white/5 flex items-center justify-between">
-            <span>Contradiction Deduction:</span>
-            <span className="font-mono text-rose-400 font-semibold">
-              -{fScore.contradiction_penalty.score.toFixed(1)} pts
-            </span>
+          <p className="text-[11px] text-text-muted pt-3 border-t border-white/[0.06]">
+            Evaluates machine indexability across simulated search intents and consistency.
           </p>
         </div>
       </div>
 
-      {/* Expandable Diagnostic Evidence Accordion (Strengths & Gaps) */}
-      <div
-        className="rounded-xl bg-[#141414] overflow-hidden"
-        style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
-      >
-        <button
-          type="button"
-          onClick={() => setDetailsExpanded((v) => !v)}
-          className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/5"
-        >
-          <span className="text-xs font-semibold text-[#EDEDED] flex items-center gap-2">
-            <ShieldCheck size={14} className="text-emerald-400" />
-            Detailed Sub-Score Diagnostics, Strengths &amp; Gaps
-          </span>
-          <div className="flex items-center gap-2 text-xs text-[#A1A1A1]">
-            <span>{detailsExpanded ? "Hide" : "Show"} Diagnostics</span>
-            {detailsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+      {/* LOWER SECTION: DETAILED SUB-SCORE DIAGNOSTICS, STRENGTHS & GAPS */}
+      <div className="rounded-xl bg-surface shadow-border p-5 sm:p-6 space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={16} className="text-emerald-400" />
+            <h3 className="text-xs sm:text-sm font-semibold text-text-primary uppercase tracking-wider">
+              Detailed Sub-Score Diagnostics, Strengths &amp; Gaps
+            </h3>
           </div>
-        </button>
+          <span className="text-[11px] font-mono text-text-muted">4 Verified Pillars</span>
+        </div>
 
-        {detailsExpanded && (
-          <div className="border-t border-white/5 p-4 sm:p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-            {subScores.map((s) => (
-              <div key={s.name} className="rounded-lg bg-[#191919] p-3.5 space-y-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: s.color }} />
-                    <span className="font-semibold text-[#EDEDED]">{s.name}</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {subScores.map((s) => (
+            <div key={s.name} className="rounded-lg bg-surface-secondary shadow-border p-4 space-y-3 text-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2 truncate">
+                    <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                    <span className="font-semibold text-text-primary truncate">{s.shortName}</span>
                   </div>
-                  <span className="font-mono text-[#A1A1A1]">{s.weight}% &bull; {s.score.toFixed(1)}</span>
+                  <span className="font-mono text-text-muted shrink-0 text-[11px]">
+                    {s.weight}% &bull; {s.score.toFixed(0)}
+                  </span>
                 </div>
-                <p className="text-[#A1A1A1]">{s.details}</p>
+                <p className="text-text-muted text-[11px] leading-relaxed">{s.details}</p>
+              </div>
+
+              <div className="space-y-2 pt-2 border-t border-white/[0.06]">
                 {s.strengths.length > 0 && (
-                  <div className="pt-1">
-                    <p className="font-medium text-emerald-400 flex items-center gap-1 mb-1">
-                      <ShieldCheck size={12} /> Strengths
+                  <div>
+                    <p className="font-medium text-emerald-400 flex items-center gap-1 text-[10px] uppercase tracking-wider mb-1">
+                      <ShieldCheck size={11} /> Strengths
                     </p>
-                    <ul className="space-y-0.5 list-disc list-inside text-[#A1A1A1]">
+                    <ul className="space-y-0.5 text-text-muted text-[11px]">
                       {s.strengths.map((str, i) => (
-                        <li key={i}>{str}</li>
+                        <li key={i} className="flex items-start gap-1">
+                          <span className="text-emerald-400">&bull;</span>
+                          <span>{str}</span>
+                        </li>
                       ))}
                     </ul>
                   </div>
                 )}
                 {s.gaps.length > 0 && (
-                  <div className="pt-1">
-                    <p className="font-medium text-rose-400 flex items-center gap-1 mb-1">
-                      <AlertTriangle size={12} /> Gaps
+                  <div>
+                    <p className="font-medium text-rose-400 flex items-center gap-1 text-[10px] uppercase tracking-wider mb-1">
+                      <AlertTriangle size={11} /> Gaps
                     </p>
-                    <ul className="space-y-0.5 list-disc list-inside text-[#A1A1A1]">
+                    <ul className="space-y-0.5 text-text-muted text-[11px]">
                       {s.gaps.map((gap, i) => (
-                        <li key={i}>{gap}</li>
+                        <li key={i} className="flex items-start gap-1">
+                          <span className="text-rose-400">&bull;</span>
+                          <span>{gap}</span>
+                        </li>
                       ))}
                     </ul>
                   </div>
                 )}
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
