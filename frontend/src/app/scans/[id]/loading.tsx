@@ -3,21 +3,20 @@ import { GaugeSkeleton, TableSkeleton, StatsSkeleton, CardSkeleton } from "@/com
 export default function ScanDashboardLoading() {
   return (
     <div className="min-h-screen bg-background">
-      {/* Header placeholder */}
-      <div
-        className="sticky top-0 z-30 h-12 w-full"
-        style={{
-          background: "rgba(10,10,10,0.85)",
-          boxShadow: "0 1px 0 rgba(255,255,255,0.06)",
-        }}
-      />
-      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8 space-y-6">
+      {/* Header placeholder matching real header */}
+      <div className="sticky top-0 z-30 h-14 w-full glass border-b border-white/[0.08]" />
+
+      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6 sm:space-y-8">
         <StatsSkeleton />
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
-          <GaugeSkeleton />
-          <TableSkeleton />
+        <GaugeSkeleton />
+        <div>
+          <div className="mb-3 h-4 w-36 rounded bg-surface-secondary animate-pulse" />
+          <TableSkeleton rows={5} />
         </div>
-        <CardSkeleton count={1} />
+        <div>
+          <div className="mb-3 h-4 w-32 rounded bg-surface-secondary animate-pulse" />
+          <CardSkeleton count={1} />
+        </div>
       </div>
     </div>
   );

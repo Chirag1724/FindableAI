@@ -61,10 +61,11 @@ export function CopyButton({ text, label, className = "" }: CopyButtonProps) {
         onClick={() => void handleCopy()}
         title={label ?? "Copy to clipboard"}
         aria-label={label ?? "Copy to clipboard"}
-        className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${copied
-            ? "text-emerald-400"
-            : "text-[#A1A1A1] hover:text-[#EDEDED]"
-          } ${className}`}
+        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+          copied
+            ? "text-emerald-400 bg-emerald-950/40"
+            : "text-text-muted hover:text-text-primary hover:bg-surface-secondary"
+        } ${className}`}
       >
         {copied ? (
           <Check size={12} aria-hidden="true" />

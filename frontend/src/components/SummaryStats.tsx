@@ -18,13 +18,12 @@ function StatCard({ label, value, suffix = "", decimals = 0, isDuration = false,
 
   return (
     <div
-      className={`rounded-xl bg-[#141414] px-4 py-4 sm:px-5 sm:py-5 ${className}`}
-      style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
+      className={`rounded-xl bg-surface shadow-border shadow-border-interactive px-4 py-4 sm:px-5 sm:py-5 ${className}`}
     >
-      <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-[#A1A1A1]">
+      <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-text-muted">
         {label}
       </p>
-      <p className="text-2xl font-bold text-[#EDEDED] tabular-nums">
+      <p className="text-2xl font-bold text-text-primary tabular-nums">
         <span ref={ref}>
           {isDuration ? formatDuration(value) : `${animatedValue}${suffix}`}
         </span>

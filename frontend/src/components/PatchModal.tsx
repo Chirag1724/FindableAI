@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { X, GitPullRequest, ExternalLink, Loader2 } from "lucide-react";
 import type { PatchProposal, PullRequestResult } from "@/types/scan";
 import { parseUnifiedDiff } from "@/lib/diff";
@@ -8,6 +8,7 @@ import type { DiffLine } from "@/lib/diff";
 import { applyPatches } from "@/lib/api";
 import type { ApiError } from "@/types/scan";
 import { EmptyState } from "./EmptyState";
+import { gsap, EASING, prefersReducedMotion } from "@/lib/motion";
 
 interface PatchModalProps {
   scanId: string;
@@ -21,7 +22,7 @@ function DiffRenderer({ diffText }: { diffText: string }) {
 
   if (parsed.hunks.length === 0) {
     return (
-      <p className="text-xs text-[#A1A1A1] italic">No diff available.</p>
+      <p className="text-xs text-text-muted italic">No diff available.</p>
     );
   }
 
@@ -32,9 +33,9 @@ function DiffRenderer({ diffText }: { diffText: string }) {
       case "del":
         return "bg-rose-950/50 text-rose-300";
       case "meta":
-        return "text-[#A1A1A1] bg-transparent";
+        return "text-text-muted bg-transparent";
       default:
-        return "text-[#A1A1A1]";
+        return "text-text-muted";
     }
   };
 
@@ -47,26 +48,23 @@ function DiffRenderer({ diffText }: { diffText: string }) {
   };
 
   return (
-    <div
-      className="overflow-x-auto rounded-lg"
-      style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
-    >
-      <pre className="min-w-max bg-black/40 p-3 font-mono text-xs leading-relaxed">
+    <div className="overflow-x-auto rounded-lg shadow-border custom-scrollbar">
+      <pre className="min-w-max bg-black/60 p-3 font-mono text-xs leading-relaxed">
         {parsed.hunks.map((hunk, hi) => (
           <div key={hi}>
-            <div className="text-violet-400/70 mb-1">{hunk.header}</div>
+            <div className="text-violet-400/80 mb-1 font-semibold">{hunk.header}</div>
             {hunk.lines.map((line, li) => {
               const oldNo = line.oldLineNo !== null ? String(line.oldLineNo).padStart(3, " ") : "   ";
               const newNo = line.newLineNo !== null ? String(line.newLineNo).padStart(3, " ") : "   ";
               return (
                 <div key={li} className={`flex ${lineClass(line)}`}>
-                  <span className="w-8 shrink-0 select-none pr-2 text-right text-[#A1A1A1]/40">
+                  <span className="w-8 shrink-0 select-none pr-2 text-right text-text-muted/40">
                     {oldNo}
                   </span>
-                  <span className="w-8 shrink-0 select-none pr-2 text-right text-[#A1A1A1]/40">
+                  <span className="w-8 shrink-0 select-none pr-2 text-right text-text-muted/40">
                     {newNo}
                   </span>
-                  <span className="shrink-0 pr-2 select-none">{linePrefix(line)}</span>
+                  <span className="shrink-0 pr-2 select-none font-bold">{linePrefix(line)}</span>
                   <span>{line.content}</span>
                 </div>
               );
@@ -96,6 +94,8 @@ export function PatchModal({
   >("idle");
   const [prResult, setPrResult] = useState<PullRequestResult | null>(null);
   const [prError, setPrError] = useState<string | null>(null);
+
+  const backdropRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const submitRef = useRef<HTMLButtonElement>(null);
@@ -106,13 +106,57 @@ export function PatchModal({
   );
   const projectedScore = Math.min(100, currentScore + totalDelta);
 
+  const handleAnimatedClose = useCallback(() => {
+    if (prefersReducedMotion() || !panelRef.current || !backdropRef.current) {
+      onClose();
+      return;
+    }
+
+    const tl = gsap.timeline({
+      onComplete: onClose,
+    });
+    tl.to(panelRef.current, {
+      y: 16,
+      scale: 0.98,
+      opacity: 0,
+      duration: 0.18,
+      ease: "power2.in",
+    }).to(
+      backdropRef.current,
+      {
+        opacity: 0,
+        duration: 0.18,
+        ease: "power2.in",
+      },
+      "-=0.1"
+    );
+  }, [onClose]);
+
+  // Entrance animation
+  useEffect(() => {
+    if (prefersReducedMotion()) return;
+
+    if (backdropRef.current && panelRef.current) {
+      gsap.fromTo(
+        backdropRef.current,
+        { opacity: 0 },
+        { opacity: 1, duration: 0.25, ease: EASING.modal }
+      );
+      gsap.fromTo(
+        panelRef.current,
+        { y: 20, scale: 0.97, opacity: 0 },
+        { y: 0, scale: 1, opacity: 1, duration: 0.3, ease: EASING.modal }
+      );
+    }
+  }, []);
+
   // Focus trap
   useEffect(() => {
     closeButtonRef.current?.focus();
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onClose();
+        handleAnimatedClose();
         return;
       }
       if (e.key !== "Tab") return;
@@ -150,14 +194,19 @@ export function PatchModal({
       document.body.style.position = "";
       document.body.style.top = "";
       document.body.style.width = "";
-      window.scrollTo(0, scrollY);
+      try {
+        window.scrollTo(0, scrollY);
+      } catch {
+        // Safe ignore in jsdom
+      }
     };
-  }, [onClose]);
+  }, [handleAnimatedClose]);
 
   const handleCreatePr = async () => {
     if (prState === "loading") return;
     setPrState("loading");
     setPrError(null);
+
     try {
       const result = await applyPatches(scanId);
       setPrResult(result);
@@ -171,9 +220,9 @@ export function PatchModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center px-0 sm:px-4"
-      style={{ backgroundColor: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      ref={backdropRef}
+      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center px-0 sm:px-4 bg-black/75 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === e.currentTarget) handleAnimatedClose(); }}
     >
       <div
         ref={panelRef}
@@ -181,28 +230,20 @@ export function PatchModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="patch-modal-title"
-        className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-t-2xl sm:rounded-2xl overflow-hidden"
-        style={{
-          background: "rgba(20,20,20,0.92)",
-          backdropFilter: "blur(20px)",
-          boxShadow: "0 0 0 1px rgba(255,255,255,0.1), 0 24px 80px rgba(0,0,0,0.8)",
-        }}
+        className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-t-2xl sm:rounded-xl glass shadow-2xl overflow-hidden"
       >
         {/* Header */}
-        <div
-          className="flex shrink-0 items-center justify-between px-5 py-4"
-          style={{ boxShadow: "0 1px 0 rgba(255,255,255,0.06)" }}
-        >
+        <div className="flex shrink-0 items-center justify-between px-5 py-4 border-b border-white/[0.08]">
           <div>
             <h2
               id="patch-modal-title"
-              className="flex items-center gap-2 text-sm font-semibold text-[#EDEDED]"
+              className="flex items-center gap-2 text-sm font-semibold text-text-primary"
             >
               <GitPullRequest size={16} aria-hidden="true" />
               Proposed Patches ({patches.length})
             </h2>
             {patches.length > 0 && (
-              <p className="mt-0.5 text-xs text-[#A1A1A1]">
+              <p className="mt-0.5 text-xs text-text-muted">
                 Projected F-Score: {currentScore.toFixed(1)} &rarr;{" "}
                 <span className="font-semibold text-emerald-400">
                   {projectedScore.toFixed(1)}
@@ -214,16 +255,16 @@ export function PatchModal({
           <button
             ref={closeButtonRef}
             type="button"
-            onClick={onClose}
+            onClick={handleAnimatedClose}
             aria-label="Close patches modal"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#A1A1A1] transition-colors hover:bg-white/10 hover:text-[#EDEDED] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors duration-150 hover:bg-white/10 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           >
             <X size={16} aria-hidden="true" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-6">
+        <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
           {patches.length === 0 ? (
             <EmptyState
               title="No patches available"
@@ -242,42 +283,42 @@ export function PatchModal({
                       <span className="rounded-md bg-violet-900/50 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-violet-300">
                         {PATCH_TYPE_LABELS[patch.patch_type] ?? patch.patch_type}
                       </span>
-                      <span className="rounded-full bg-emerald-950 px-2 py-0.5 text-xs font-semibold text-emerald-400 ring-1 ring-emerald-800">
+                      <span className="rounded-full bg-emerald-950/80 px-2 py-0.5 text-xs font-semibold text-emerald-400 border border-emerald-800/50">
                         +{patch.impact_score_delta.toFixed(1)} pts
                       </span>
                     </div>
-                    <h3 className="text-sm font-semibold text-[#EDEDED]">
+                    <h3 className="text-sm font-semibold text-text-primary">
                       {patch.title}
                     </h3>
-                    <p className="mt-1 text-xs text-[#A1A1A1]">
+                    <p className="mt-1 text-xs text-text-muted leading-relaxed">
                       {patch.rationale}
                     </p>
                   </div>
                 </div>
 
                 {/* DOM anchor */}
-                <div className="rounded-lg bg-[#191919] px-3 py-3 space-y-2 text-xs">
-                  <p className="font-semibold text-[#A1A1A1]">DOM Anchor</p>
+                <div className="rounded-lg bg-surface shadow-border px-3.5 py-3 space-y-2 text-xs">
+                  <p className="font-medium text-text-muted">DOM Anchor</p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <p className="text-[10px] text-[#A1A1A1] mb-0.5">Selector</p>
-                      <p className="font-mono text-[#EDEDED] break-all">{patch.dom_anchor.css_selector}</p>
+                      <p className="text-[10px] text-text-muted mb-0.5">Selector</p>
+                      <p className="font-mono text-text-primary break-all">{patch.dom_anchor.css_selector}</p>
                     </div>
                     <div>
-                      <p className="text-[10px] text-[#A1A1A1] mb-0.5">Tag</p>
-                      <p className="font-mono text-[#EDEDED]">{patch.dom_anchor.tag_name}</p>
+                      <p className="text-[10px] text-text-muted mb-0.5">Tag</p>
+                      <p className="font-mono text-text-primary">{patch.dom_anchor.tag_name}</p>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-2 pt-1">
                     <div>
-                      <p className="text-[10px] text-[#A1A1A1] mb-0.5">Before</p>
-                      <pre className="whitespace-pre-wrap break-all font-mono text-[10px] text-rose-300 bg-rose-950/30 rounded p-1.5">
+                      <p className="text-[10px] text-text-muted mb-0.5">Before</p>
+                      <pre className="whitespace-pre-wrap break-all font-mono text-[10px] text-rose-300 bg-rose-950/30 rounded p-2 border border-rose-800/30">
                         {patch.dom_anchor.original_snippet}
                       </pre>
                     </div>
                     <div>
-                      <p className="text-[10px] text-[#A1A1A1] mb-0.5">After</p>
-                      <pre className="whitespace-pre-wrap break-all font-mono text-[10px] text-emerald-300 bg-emerald-950/30 rounded p-1.5">
+                      <p className="text-[10px] text-text-muted mb-0.5">After</p>
+                      <pre className="whitespace-pre-wrap break-all font-mono text-[10px] text-emerald-300 bg-emerald-950/30 rounded p-2 border border-emerald-800/30">
                         {patch.dom_anchor.suggested_snippet}
                       </pre>
                     </div>
@@ -288,22 +329,18 @@ export function PatchModal({
                 <DiffRenderer diffText={patch.unified_diff} />
 
                 {/* Separator */}
-                <div className="h-px bg-white/5" />
+                <div className="h-px bg-white/[0.06]" />
               </div>
             ))
           )}
         </div>
 
         {/* Footer - PR button */}
-        <div
-          className="shrink-0 px-5 py-4"
-          style={{ boxShadow: "0 -1px 0 rgba(255,255,255,0.06)" }}
-        >
+        <div className="shrink-0 px-5 py-4 border-t border-white/[0.08] bg-surface">
           {prState === "success" && prResult ? (
             <div
               data-testid="pr-result"
-              className="flex flex-wrap items-center gap-3 rounded-xl bg-emerald-950/50 px-4 py-3 text-sm"
-              style={{ boxShadow: "0 0 0 1px rgba(16,185,129,0.2)" }}
+              className="flex flex-wrap items-center gap-3 rounded-lg bg-emerald-950/50 border border-emerald-800/40 px-4 py-3 text-sm"
             >
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-emerald-300">
@@ -317,7 +354,7 @@ export function PatchModal({
                 href={prResult.pr_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors duration-150 hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               >
                 <ExternalLink size={12} aria-hidden="true" />
                 View on GitHub
@@ -334,7 +371,7 @@ export function PatchModal({
                 data-testid="create-pr-button"
                 onClick={() => void handleCreatePr()}
                 disabled={prState === "loading" || patches.length === 0}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-white text-black px-5 py-3 text-xs font-semibold tracking-wider uppercase transition-all duration-150 hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 active:scale-[0.99]"
               >
                 {prState === "loading" ? (
                   <>

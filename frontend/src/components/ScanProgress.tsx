@@ -21,16 +21,17 @@ function PhaseIndicator({ state, label, id }: { state: PhaseState; label: string
     >
       {/* Icon */}
       <div
-        className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-full transition-all duration-500 ${state === "done"
-            ? "bg-emerald-500/20 text-emerald-400"
+        className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-full transition-all duration-300 ${
+          state === "done"
+            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
             : state === "active"
               ? "bg-violet-500/20 text-violet-300 ring-2 ring-violet-500/50"
               : state === "error"
-                ? "bg-rose-500/20 text-rose-400"
-                : "bg-white/5 text-[#A1A1A1]"
-          }`}
+                ? "bg-rose-500/20 text-rose-400 border border-rose-500/30"
+                : "bg-surface-secondary shadow-border text-text-muted"
+        }`}
       >
-        {state === "done" && <CheckCircle size={16} aria-hidden="true" />}
+        {state === "done" && <CheckCircle size={15} aria-hidden="true" />}
         {state === "active" && (
           <span
             className="absolute inset-0 rounded-full animate-ping bg-violet-500/30"
@@ -38,22 +39,23 @@ function PhaseIndicator({ state, label, id }: { state: PhaseState; label: string
           />
         )}
         {state === "active" && (
-          <Circle size={10} fill="currentColor" aria-hidden="true" />
+          <Circle size={9} fill="currentColor" aria-hidden="true" />
         )}
-        {state === "error" && <AlertTriangle size={16} aria-hidden="true" />}
-        {state === "pending" && <Circle size={8} fill="currentColor" aria-hidden="true" />}
+        {state === "error" && <AlertTriangle size={15} aria-hidden="true" />}
+        {state === "pending" && <Circle size={7} fill="currentColor" aria-hidden="true" />}
       </div>
 
       {/* Label */}
       <span
-        className={`text-[10px] font-semibold tracking-wider uppercase transition-colors ${state === "active"
+        className={`text-[10px] font-semibold tracking-wider uppercase transition-colors duration-200 ${
+          state === "active"
             ? "text-violet-300"
             : state === "done"
               ? "text-emerald-400"
               : state === "error"
                 ? "text-rose-400"
-                : "text-[#A1A1A1]"
-          }`}
+                : "text-text-muted"
+        }`}
       >
         {label}
       </span>
@@ -71,12 +73,9 @@ export function ScanProgress({
   const message = latestEvent?.message ?? "";
 
   return (
-    <div
-      className="rounded-2xl bg-[#141414] p-5"
-      style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }}
-    >
+    <div className="rounded-xl bg-surface shadow-border p-5">
       {/* Phase stepper - horizontal scroll on small screens */}
-      <div className="overflow-x-auto pb-2 -mx-1 px-1">
+      <div className="overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar">
         <ol
           role="list"
           className="flex items-start gap-0 min-w-max"
@@ -95,8 +94,9 @@ export function ScanProgress({
                 {i < PHASES.length - 1 && (
                   <div
                     aria-hidden="true"
-                    className={`mt-4 h-px w-8 transition-colors duration-500 ${state === "done" ? "bg-emerald-500/40" : "bg-white/10"
-                      }`}
+                    className={`mt-4 h-px w-8 transition-colors duration-300 ${
+                      state === "done" ? "bg-emerald-500/40" : "bg-white/[0.08]"
+                    }`}
                   />
                 )}
               </li>
@@ -108,11 +108,11 @@ export function ScanProgress({
       {/* Progress bar */}
       <div className="mt-4">
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-xs font-medium text-[#A1A1A1]">{currentStep}</span>
-          <span className="font-mono text-xs text-[#A1A1A1]">{progressPercent}%</span>
+          <span className="text-xs font-medium text-text-muted">{currentStep}</span>
+          <span className="font-mono text-xs text-text-muted">{progressPercent}%</span>
         </div>
         <div
-          className="h-1.5 w-full overflow-hidden rounded-full bg-white/5"
+          className="h-1.5 w-full overflow-hidden rounded-full bg-surface-secondary shadow-border"
           role="progressbar"
           aria-valuenow={progressPercent}
           aria-valuemin={0}
@@ -120,7 +120,7 @@ export function ScanProgress({
           aria-label="Scan progress"
         >
           <div
-            className="h-full rounded-full bg-violet-500 transition-all duration-700 ease-out"
+            className="h-full rounded-full bg-violet-500 transition-all duration-500 ease-out"
             style={{ width: `${progressPercent}%` }}
           />
         </div>
@@ -129,7 +129,7 @@ export function ScanProgress({
       {/* Live message */}
       {message && (
         <p
-          className="mt-3 font-mono text-xs text-[#A1A1A1]"
+          className="mt-3 font-mono text-xs text-text-muted"
           aria-live="polite"
           aria-atomic="true"
         >

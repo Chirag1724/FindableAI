@@ -301,7 +301,7 @@ class IntentGenerator:
                     {"role": "user", "content": _build_user_prompt(cleaned_context)},
                 ],
                 max_retries=0,
-                max_tokens=1000,
+                max_tokens=4000,
             )
         except IntentGenerationError:
             raise
