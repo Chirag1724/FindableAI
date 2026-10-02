@@ -12,6 +12,8 @@
 [![Next.js: 14 App Router](https://img.shields.io/badge/Next.js-14_App_Router-black.svg?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org)
 [![PostgreSQL + pgvector](https://img.shields.io/badge/PostgreSQL-pgvector-336791.svg?style=for-the-badge&logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
 [![Status: Active Development](https://img.shields.io/badge/Status-Active_Architecture-success.svg?style=for-the-badge)](docs/)
+[![Backend CI](https://github.com/Chirag1724/FindableAI/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/Chirag1724/FindableAI/actions/workflows/backend-ci.yml)
+[![Frontend CI](https://github.com/Chirag1724/FindableAI/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/Chirag1724/FindableAI/actions/workflows/frontend-ci.yml)
 
 <p align="center">
   <b>Bridging the gap between the modern web and AI search engines.</b><br/>
@@ -21,7 +23,8 @@
 [Architecture Deep Dive](docs/01_ARCHITECTURE_AND_SYSTEM_DESIGN.md) •
 [Tech Stack & Implementation](docs/02_TECH_STACK_AND_IMPLEMENTATION.md) •
 [Execution Playbook](docs/03_EXECUTION_PLAYBOOK.md) •
-[Team Task Allocation](docs/04_TEAM_TASK_ALLOCATION.md)
+[Team Task Allocation](docs/04_TEAM_TASK_ALLOCATION.md) •
+[Security Policy](SECURITY.md)
 
 </div>
 
