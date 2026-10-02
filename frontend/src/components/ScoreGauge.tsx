@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   RadialBarChart,
   RadialBar,
@@ -17,6 +18,7 @@ import {
   BarChart3,
   ShieldCheck,
   AlertTriangle,
+  ChevronDown,
 } from "lucide-react";
 import type { FScoreBreakdown } from "@/types/scan";
 import { useCountUp } from "@/hooks/useCountUp";
@@ -73,6 +75,7 @@ function DarkTooltip({ active, payload }: CustomTooltipProps) {
 }
 
 export function ScoreGauge({ fScore }: ScoreGaugeProps) {
+  const [openDiagnostics, setOpenDiagnostics] = useState(false);
   const { value: animatedScore, ref: scoreRef } = useCountUp(fScore.overall_score, 1);
 
   const subScores = [
@@ -203,19 +206,19 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
 
   return (
     <div className="space-y-6 w-full">
-      {/* Upper Grid: 2 cards on left + 1 card on right */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 items-stretch">
+      {/* Upper Grid: 3 balanced analytics cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 items-stretch">
         {/* CARD 1: OVERALL F-SCORE + RADIAL BREAKDOWN */}
-        <div className="h-full rounded-xl bg-surface shadow-border p-5 sm:p-6 flex flex-col justify-between">
+        <div className="h-full rounded-2xl bg-surface shadow-border p-6 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <Activity size={14} className="text-violet-400" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-text-primary">
+              <Activity size={15} className="text-violet-400" />
+              <span className="text-xs font-bold uppercase tracking-wider text-text-primary">
                 Overall Findability Score
               </span>
             </div>
             <span
-              className={`rounded-md px-2 py-0.5 text-xs font-bold font-mono ${gradeColor(
+              className={`rounded-md px-2.5 py-0.5 text-xs font-bold font-mono ${gradeColor(
                 fScore.grade
               )}`}
             >
@@ -223,50 +226,59 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
             </span>
           </div>
 
-          <div className="relative mx-auto my-3 h-48 w-48 flex items-center justify-center">
+          <div className="relative mx-auto my-3 h-60 w-60 flex items-center justify-center">
             <ResponsiveContainer width="100%" height="100%">
               <RadialBarChart
                 cx="50%"
                 cy="50%"
-                innerRadius="48%"
-                outerRadius="100%"
-                barSize={6}
+                innerRadius="50%"
+                outerRadius="98%"
+                barSize={7}
                 data={radialData}
                 startAngle={90}
                 endAngle={-270}
               >
-                <RadialBar background={{ fill: "rgba(255,255,255,0.04)" }} dataKey="score" cornerRadius={3} />
+                <RadialBar
+                  background={{ fill: "rgba(255, 255, 255, 0.06)" }}
+                  dataKey="score"
+                  cornerRadius={4}
+                />
               </RadialBarChart>
             </ResponsiveContainer>
 
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
               <span
                 ref={scoreRef}
-                className="text-3xl sm:text-4xl font-bold tracking-tight text-white tabular-nums leading-none mb-1"
+                className="text-4xl sm:text-5xl font-extrabold text-white tracking-tight leading-none"
               >
                 {animatedScore}
               </span>
-              <span className="text-[9px] text-text-muted uppercase font-mono font-medium tracking-wider">
-                out of 100
+              <span className="text-[10px] font-mono tracking-widest text-text-muted uppercase mt-1.5 font-medium">
+                OUT OF 100
               </span>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 pt-3 border-t border-white/[0.06] text-xs">
+          <div className="grid grid-cols-2 gap-x-8 gap-y-3 pt-4 border-t border-white/[0.06] text-xs">
             {subScores.map((s) => (
-              <div key={s.name} className="flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-text-muted truncate">
-                  <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
-                  {s.shortName}
+              <div key={s.name} className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2 text-text-muted text-xs">
+                  <span
+                    className="h-2 w-2 rounded-full shrink-0"
+                    style={{ backgroundColor: s.color }}
+                  />
+                  <span>{s.shortName}</span>
                 </span>
-                <span className="font-mono font-medium text-text-primary">{s.displayScore.toFixed(0)}%</span>
+                <span className="font-mono font-bold text-white text-xs shrink-0">
+                  {s.displayScore.toFixed(0)}%
+                </span>
               </div>
             ))}
           </div>
         </div>
 
         {/* CARD 2: WEIGHTED COMPONENT CONTRIBUTION */}
-        <div className="h-full rounded-xl bg-surface shadow-border p-5 sm:p-6 flex flex-col justify-between">
+        <div className="h-full rounded-xl bg-surface/90 backdrop-blur-md shadow-border p-5 sm:p-6 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <BarChart3 size={14} className="text-sky-400" />
@@ -277,14 +289,14 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
             <span className="text-[11px] font-mono text-text-muted">Max 100 Pts</span>
           </div>
 
-          <div className="space-y-3.5 my-auto py-3">
+          <div className="space-y-3.5 my-auto py-2">
             {barData.map((item) => {
               const pct = Math.min(100, Math.round((item.earned / item.max) * 100));
               return (
                 <div key={item.name} className="space-y-1">
                   <div className="flex justify-between text-xs">
-                    <span className="text-text-primary font-medium">{item.fullName}</span>
-                    <span className="font-mono text-text-muted">
+                    <span className="text-text-primary font-medium text-[11px]">{item.fullName}</span>
+                    <span className="font-mono text-text-muted text-[11px]">
                       <span className="text-emerald-400 font-semibold">{item.earned}</span> / {item.max} pts ({pct}%)
                     </span>
                   </div>
@@ -304,8 +316,8 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
           </p>
         </div>
 
-        {/* CARD 3: RADAR INDEXABILITY PROFILE (ON THE RIGHT) */}
-        <div className="h-full rounded-xl bg-surface shadow-border p-5 sm:p-6 flex flex-col justify-between">
+        {/* CARD 3: RADAR INDEXABILITY PROFILE (NON-CLIPPED) */}
+        <div className="h-full rounded-xl bg-surface/90 backdrop-blur-md shadow-border p-5 sm:p-6 flex flex-col justify-between md:col-span-2 lg:col-span-1">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <Compass size={14} className="text-emerald-400" />
@@ -316,11 +328,20 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
             <span className="text-[11px] font-mono text-text-muted">4-Factor Web</span>
           </div>
 
-          <div className="relative mx-auto my-1 h-48 w-full flex items-center justify-center">
+          <div className="relative mx-auto my-1 h-52 w-full flex items-center justify-center">
             <ResponsiveContainer width="100%" height="100%">
-              <RadarChart data={radarData}>
+              <RadarChart
+                cx="50%"
+                cy="50%"
+                outerRadius="65%"
+                data={radarData}
+                margin={{ top: 10, right: 32, bottom: 10, left: 32 }}
+              >
                 <PolarGrid stroke="rgba(255,255,255,0.08)" />
-                <PolarAngleAxis dataKey="dimension" tick={{ fill: "#A1A1A1", fontSize: 11 }} />
+                <PolarAngleAxis
+                  dataKey="dimension"
+                  tick={{ fill: "#A1A1A1", fontSize: 11, fontWeight: 500 }}
+                />
                 <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
                 <Radar
                   name="Score"
@@ -340,69 +361,93 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
         </div>
       </div>
 
-      {/* LOWER SECTION: DETAILED SUB-SCORE DIAGNOSTICS, STRENGTHS & GAPS */}
-      <div className="rounded-xl bg-surface shadow-border p-5 sm:p-6 space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
-          <div className="flex items-center gap-2">
-            <ShieldCheck size={16} className="text-emerald-400" />
-            <h3 className="text-xs sm:text-sm font-semibold text-text-primary uppercase tracking-wider">
+      {/* LOWER SECTION: COLLAPSIBLE DETAILED SUB-SCORE DIAGNOSTICS */}
+      <div className="rounded-xl bg-surface/90 backdrop-blur-md shadow-border overflow-hidden transition-all duration-200">
+        <button
+          type="button"
+          onClick={() => setOpenDiagnostics((prev) => !prev)}
+          className="flex w-full items-center justify-between p-4 sm:p-5 text-left transition-colors duration-150 hover:bg-surface-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          aria-expanded={openDiagnostics}
+        >
+          <div className="flex items-center gap-2.5">
+            <ShieldCheck size={16} className="text-emerald-400 shrink-0" />
+            <span className="text-xs sm:text-sm font-semibold text-text-primary uppercase tracking-wider">
               Detailed Sub-Score Diagnostics, Strengths &amp; Gaps
-            </h3>
+            </span>
           </div>
-          <span className="text-[11px] font-mono text-text-muted">4 Verified Pillars</span>
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {subScores.map((s) => (
-            <div key={s.name} className="rounded-lg bg-surface-secondary shadow-border p-4 space-y-3 text-xs flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-2 truncate">
-                    <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
-                    <span className="font-semibold text-text-primary truncate">{s.shortName}</span>
-                  </div>
-                  <span className="font-mono text-text-muted shrink-0 text-[11px]">
-                    {s.weight}% &bull; {s.score.toFixed(0)}
-                  </span>
-                </div>
-                <p className="text-text-muted text-[11px] leading-relaxed">{s.details}</p>
-              </div>
-
-              <div className="space-y-2 pt-2 border-t border-white/[0.06]">
-                {s.strengths.length > 0 && (
-                  <div>
-                    <p className="font-medium text-emerald-400 flex items-center gap-1 text-[10px] uppercase tracking-wider mb-1">
-                      <ShieldCheck size={11} /> Strengths
-                    </p>
-                    <ul className="space-y-0.5 text-text-muted text-[11px]">
-                      {s.strengths.map((str, i) => (
-                        <li key={i} className="flex items-start gap-1">
-                          <span className="text-emerald-400">&bull;</span>
-                          <span>{str}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {s.gaps.length > 0 && (
-                  <div>
-                    <p className="font-medium text-rose-400 flex items-center gap-1 text-[10px] uppercase tracking-wider mb-1">
-                      <AlertTriangle size={11} /> Gaps
-                    </p>
-                    <ul className="space-y-0.5 text-text-muted text-[11px]">
-                      {s.gaps.map((gap, i) => (
-                        <li key={i} className="flex items-start gap-1">
-                          <span className="text-rose-400">&bull;</span>
-                          <span>{gap}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
+          <div className="flex items-center gap-3">
+            <span className="rounded-full bg-surface-secondary px-2.5 py-0.5 text-[11px] font-mono text-text-muted shadow-border hidden sm:inline">
+              4 Verified Pillars
+            </span>
+            <div
+              className={`flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.04] text-text-muted transition-transform duration-200 ${
+                openDiagnostics ? "rotate-180" : ""
+              }`}
+            >
+              <ChevronDown size={14} aria-hidden="true" />
             </div>
-          ))}
-        </div>
+          </div>
+        </button>
+
+        {openDiagnostics && (
+          <div className="p-4 sm:p-5 pt-0 border-t border-white/[0.06] mt-1 space-y-4 animate-fade-in">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-3">
+              {subScores.map((s) => (
+                <div
+                  key={s.name}
+                  className="rounded-lg bg-surface-secondary/80 shadow-border p-4 space-y-3 text-xs flex flex-col justify-between transition-all duration-150 hover:bg-surface-secondary hover:border-white/[0.12]"
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2 truncate">
+                        <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                        <span className="font-semibold text-text-primary truncate">{s.shortName}</span>
+                      </div>
+                      <span className="font-mono text-text-muted shrink-0 text-[11px]">
+                        {s.weight}% &bull; {s.score.toFixed(0)}
+                      </span>
+                    </div>
+                    <p className="text-text-muted text-[11px] leading-relaxed">{s.details}</p>
+                  </div>
+
+                  <div className="space-y-2 pt-2 border-t border-white/[0.06]">
+                    {s.strengths.length > 0 && (
+                      <div>
+                        <p className="font-medium text-emerald-400 flex items-center gap-1 text-[10px] uppercase tracking-wider mb-1">
+                          <ShieldCheck size={11} /> Strengths
+                        </p>
+                        <ul className="space-y-0.5 text-text-muted text-[11px]">
+                          {s.strengths.map((str, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-emerald-400">&bull;</span>
+                              <span>{str}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {s.gaps.length > 0 && (
+                      <div>
+                        <p className="font-medium text-rose-400 flex items-center gap-1 text-[10px] uppercase tracking-wider mb-1">
+                          <AlertTriangle size={11} /> Gaps
+                        </p>
+                        <ul className="space-y-0.5 text-text-muted text-[11px]">
+                          {s.gaps.map((gap, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-rose-400">&bull;</span>
+                              <span>{gap}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
