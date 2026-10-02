@@ -39,12 +39,55 @@ class AsyncCrawler:
         self.timeout = httpx.Timeout(timeout_seconds, connect=10.0)
         self.allow_private = allow_private
         self.headers = {
-            "User-Agent": "FindableAI-Crawler/1.0 (+https://findable.ai/bot)",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/128.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Cache-Control": "no-cache",
         }
 
+    async def fetch_page_playwright(self, url: str) -> CrawlResult | None:
+        """Safe browser-based rendering fallback for SPAs or client challenges."""
+        try:
+            from playwright.async_api import async_playwright
+
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+                )
+                context = await browser.new_context(
+                    user_agent=self.headers["User-Agent"],
+                    viewport={"width": 1280, "height": 800},
+                )
+                page = await context.new_page()
+                try:
+                    resp = await page.goto(
+                        url,
+                        wait_until="networkidle",
+                        timeout=12000,
+                    )
+                    html = await page.content()
+                    status_code = resp.status if resp else 200
+                    internal_links = self.extract_internal_links(html, url)
+                    return CrawlResult(
+                        url=page.url,
+                        html=html,
+                        status_code=status_code,
+                        internal_links=internal_links,
+                        is_spa=False,
+                    )
+                finally:
+                    await browser.close()
+        except Exception as pw_err:
+            logger.info("Playwright browser rendering fallback bypassed for '%s': %s", url, pw_err)
+            return None
+
     async def fetch_page(self, client: httpx.AsyncClient, url: str) -> CrawlResult | None:
-        """Fetch a single page with SSRF validation and concurrency throttling."""
+        """Fetch a single page with SSRF validation, browser headers, and SPA fallback."""
         try:
             # Validate URL against SSRF rules before attempting connection
             validate_target_url(url, allow_private=self.allow_private)
@@ -65,6 +108,15 @@ class AsyncCrawler:
                 html = response.text
                 internal_links = self.extract_internal_links(html, str(response.url))
                 is_spa = self.detect_spa(html)
+
+                # If SPA shell or challenge checkpoint detected, attempt Playwright rendering
+                if is_spa or (
+                    response.status_code in (403, 429)
+                    and any(kw in html.lower() for kw in ("checkpoint", "verifying", "challenge"))
+                ):
+                    pw_result = await self.fetch_page_playwright(url)
+                    if pw_result:
+                        return pw_result
 
                 return CrawlResult(
                     url=str(response.url),
