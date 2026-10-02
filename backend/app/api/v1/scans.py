@@ -21,7 +21,7 @@ from app.crawler.dom_chunker import ChunkData, DOMChunker
 from app.crawler.search import store_dom_chunks
 from app.db import AsyncSessionLocal
 from app.engines.patch_assembler import assemble_real_patches
-from app.engines.scorer import ScoreInputs, adapt_score_breakdown_to_api
+from app.engines.scorer import ScoreInputs, Scorer, adapt_score_breakdown_to_api
 from app.models.database import DOMChunk as DOMChunkModel
 from app.models.database import Scan as ScanModel
 from app.orchestration.dag import FindableAIDAG, ObservationInput
