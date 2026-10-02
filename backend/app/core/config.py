@@ -30,7 +30,7 @@ class Settings(BaseSettings):
 
     # LLM Providers (Groq + Qwen default)
     GROQ_API_KEY: str = ""
-    DEFAULT_LLM_MODEL: str = "groq/qwen-2.5-72b-instruct"
+    DEFAULT_LLM_MODEL: str = "groq/qwen/qwen3.8-27b"
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
     GEMINI_API_KEY: str = ""

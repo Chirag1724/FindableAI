@@ -81,6 +81,8 @@ export interface ScanResponse {
   summary?: AuditSummary;
   patches: PatchProposal[];
   error?: string;
+  execution_mode?: "real_llm" | "deterministic_fallback" | string;
+  llm_calls_made?: number;
 }
 
 // Intelligence layer types (mirrors backend schemas/intelligence.py)
