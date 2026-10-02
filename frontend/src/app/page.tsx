@@ -411,9 +411,8 @@ export default function HomePage() {
           {/* Eyebrow Pill */}
           <div
             data-hero-reveal
-            className="relative z-10 inline-flex items-center gap-2 px-3 sm:px-3.5 py-1 rounded-full bg-surface-secondary shadow-border text-[10px] sm:text-[11px] font-medium tracking-wider text-text-muted uppercase mb-5 sm:mb-6"
+            className="relative z-10 inline-flex items-center px-3.5 py-1 rounded-full bg-surface-secondary shadow-border text-[10px] sm:text-[11px] font-medium tracking-widest text-text-muted uppercase mb-5 sm:mb-6"
           >
-            <Zap className="h-3 w-3 shrink-0 text-white" />
             <span className="truncate">Machine Discoverability Optimization</span>
           </div>
 

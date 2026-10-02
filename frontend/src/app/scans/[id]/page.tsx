@@ -10,6 +10,8 @@ import {
   Clock,
   GitPullRequest,
   ChevronDown,
+  Github,
+  Plus,
 } from "lucide-react";
 import { getScan } from "@/lib/api";
 import { useScanStream } from "@/hooks/useScanStream";
@@ -224,7 +226,7 @@ export default function ScanDashboardPage() {
     return (
       <div className="min-h-screen bg-background">
         <div className="sticky top-0 z-30 h-14 w-full glass border-b border-white/[0.08]" />
-        <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6 sm:space-y-8">
+        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6 sm:space-y-8">
           <StatsSkeleton />
           <GaugeSkeleton />
           <TableSkeleton />
@@ -271,37 +273,88 @@ export default function ScanDashboardPage() {
       </div>
 
       {/* Header */}
-      <header className="sticky top-0 z-30 glass border-b border-white/[0.08] px-4 py-3 sm:px-6 sm:py-3.5 lg:px-8">
-        <div className="mx-auto flex max-w-5xl items-center gap-3 sm:gap-4">
-          <Link
-            href="/"
-            className="flex items-center gap-1.5 text-xs text-text-muted transition-colors duration-150 hover:text-text-primary focus-visible:ring-2 focus-visible:ring-blue-500 rounded-md shrink-0"
-          >
-            <Image
-              src="/logo.png"
-              alt="FindableAI"
-              width={24}
-              height={24}
-              className="h-5 w-5 sm:h-6 sm:w-6 rounded-md object-contain"
-            />
-            <ArrowLeft size={13} aria-hidden="true" />
-            <span className="hidden sm:inline">Back</span>
-          </Link>
+      <header className="sticky top-0 z-50 glass border-b border-white/[0.08] py-3 sm:py-3.5 w-full">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between">
+            {/* Brand Logo */}
+            <Link href="/" className="flex items-center gap-2 sm:gap-3 group">
+              <Image
+                src="/logo.png"
+                alt="FindableAI Logo"
+                width={32}
+                height={32}
+                className="h-7 w-7 rounded-lg object-contain transition-transform duration-150 group-hover:scale-105"
+                priority
+              />
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-base tracking-tight text-text-primary font-semibold">
+                  FindableAI
+                </span>
+                <span className="text-[10px] font-mono tracking-widest text-text-muted uppercase hidden sm:inline">
+                  MDO
+                </span>
+              </div>
+            </Link>
 
-          <div className="min-w-0 flex-1 flex items-center gap-2">
-            <Globe size={13} className="shrink-0 text-text-muted" aria-hidden="true" />
-            <span
-              className="truncate font-mono text-xs text-text-primary"
-              title={displayScan.target_url}
-            >
-              {displayScan.target_url}
-            </span>
+            {/* Right Actions */}
+            <div className="flex items-center gap-3">
+              <Link
+                href="/audit"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-black text-xs font-semibold tracking-wide uppercase transition-all duration-150 hover:bg-neutral-200 active:scale-95"
+              >
+                <Plus size={13} aria-hidden="true" />
+                <span>New Audit</span>
+              </Link>
+
+              <a
+                href="https://github.com/Chirag1724/FindableAI"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-secondary shadow-border text-xs text-text-muted hover:text-white transition-colors duration-150"
+                aria-label="GitHub Repository"
+              >
+                <Github size={13} className="text-white" />
+                <span>GitHub</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="relative z-10 mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6 sm:space-y-8">
+        {/* Page Breadcrumb & Scan Target Meta Banner */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
+          {/* Left: Breadcrumbs + Target URL */}
+          <div className="space-y-1.5 min-w-0 flex-1">
+            <div className="flex items-center gap-2 text-xs text-text-muted">
+              <Link href="/" className="hover:text-white transition-colors duration-150">
+                Overview
+              </Link>
+              <span>/</span>
+              <Link href="/audit" className="hover:text-white transition-colors duration-150">
+                Audit
+              </Link>
+              <span>/</span>
+              <span className="font-mono text-text-primary text-[11px] truncate">
+                {scanId ? (scanId.startsWith("scan_") ? scanId : `scan_${scanId.slice(0, 8)}`) : "Report"}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-secondary shadow-border text-sky-400 shrink-0">
+                <Globe size={15} aria-hidden="true" />
+              </div>
+              <h1 className="font-mono text-base sm:text-lg font-semibold text-white tracking-tight truncate">
+                {displayScan.target_url}
+              </h1>
+            </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2.5 sm:gap-3">
+          {/* Right: Badges & Status Meta */}
+          <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 shrink-0">
             {displayScan.execution_mode && (
               <span
-                className={`hidden items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-medium sm:inline-flex border ${
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border ${
                   displayScan.execution_mode === "real_llm"
                     ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
                     : "border-amber-500/20 bg-amber-500/10 text-amber-400"
@@ -320,16 +373,15 @@ export default function ScanDashboardPage() {
                 {displayScan.execution_mode === "real_llm" ? "Real LLM" : "Fallback Mode"}
               </span>
             )}
+
             <ScanStatusBadge status={currentStatus} />
-            <div className="hidden items-center gap-1 text-xs text-text-muted sm:flex">
+
+            <div className="flex items-center gap-1.5 text-xs text-text-muted rounded-lg bg-surface-secondary px-2.5 py-1 shadow-border font-mono">
               <Clock size={12} aria-hidden="true" />
-              {formatRelativeTime(displayScan.created_at)}
+              <span>{formatRelativeTime(displayScan.created_at)}</span>
             </div>
           </div>
         </div>
-      </header>
-
-      <main className="relative z-10 mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6 sm:space-y-8">
         {/* Failed state */}
         {isFailed && (
           <ErrorState
@@ -363,18 +415,9 @@ export default function ScanDashboardPage() {
           </div>
         )}
 
-        {/* Also show progress during stream even if scan is completed */}
-        {isRunning && isCompleted && (
-          <ScanProgress
-            currentStatus="completed"
-            latestEvent={latestEvent}
-            lastGoodStatus={lastGoodStatus}
-          />
-        )}
-
         {/* Completed dashboard */}
         {isCompleted && (
-          <>
+          <div className="space-y-8 sm:space-y-10 animate-fade-in">
             {/* Summary stats */}
             {scan.loading ? (
               <StatsSkeleton />
@@ -391,10 +434,15 @@ export default function ScanDashboardPage() {
             })()}
 
             {/* Intent Evaluations */}
-            <div>
-              <h2 className="mb-3 text-sm font-semibold text-text-primary">
-                Intent Evaluations
-              </h2>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between pb-1 border-b border-white/[0.06]">
+                <h2 className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-text-primary">
+                  Intent Vector Evaluations
+                </h2>
+                <span className="font-mono text-[11px] text-text-muted">
+                  {intents.data?.length ?? displayScan.summary?.intents_generated ?? 30} Simulated Vectors
+                </span>
+              </div>
               {intents.loading ? (
                 <TableSkeleton />
               ) : intents.error ? (
@@ -408,10 +456,15 @@ export default function ScanDashboardPage() {
             </div>
 
             {/* Contradictions */}
-            <div>
-              <h2 className="mb-3 text-sm font-semibold text-text-primary">
-                Contradictions
-              </h2>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between pb-1 border-b border-white/[0.06]">
+                <h2 className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-text-primary">
+                  Cross-Page Contradictions &amp; Conflicts
+                </h2>
+                <span className="font-mono text-[11px] text-text-muted">
+                  {contradictions.data?.length ?? displayScan.summary?.contradictions_detected ?? 0} Conflicts Flagged
+                </span>
+              </div>
               {contradictions.loading ? (
                 <CardSkeleton count={1} />
               ) : contradictions.error ? (
@@ -423,25 +476,25 @@ export default function ScanDashboardPage() {
                 <ContradictionCard contradictions={contradictions.data ?? []} />
               )}
             </div>
-          </>
+          </div>
         )}
       </main>
 
       {/* Sticky patches button */}
       {isCompleted && (
-        <div className="fixed bottom-0 inset-x-0 flex justify-center px-4 py-4 z-30 glass border-t border-white/[0.08]">
+        <div className="fixed bottom-0 inset-x-0 flex justify-center px-4 py-3.5 z-30 bg-background/80 backdrop-blur-lg border-t border-white/[0.08] shadow-2xl">
           <button
             type="button"
             onClick={() => setPatchModalOpen(true)}
             disabled={patchCount === 0 && !patches.loading}
-            className="flex items-center gap-2 rounded-lg bg-white text-black px-6 py-2.5 text-xs font-semibold tracking-wider uppercase shadow-lg transition-all duration-150 hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500 active:scale-95"
+            className="flex items-center gap-2 rounded-lg bg-white text-black px-6 py-2.5 text-xs font-bold tracking-wider uppercase shadow-lg transition-all duration-150 hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500 active:scale-95"
           >
             <GitPullRequest size={15} aria-hidden="true" />
             {patches.loading
               ? "Loading patches..."
               : patchCount > 0
-                ? `View ${patchCount} patch${patchCount === 1 ? "" : "es"}`
-                : "No patches available"}
+                ? `View ${patchCount} Unified Patch${patchCount === 1 ? "" : "es"}`
+                : "No patches required"}
           </button>
         </div>
       )}
