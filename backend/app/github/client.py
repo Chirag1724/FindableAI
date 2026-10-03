@@ -277,8 +277,14 @@ class PyGithubClient:
         self._fork_ready_attempts = max(1, fork_ready_attempts)
 
     def get_authenticated_login(self) -> str:
-        user = self._github.get_user()  # type: ignore[attr-defined]
-        return str(user.login)
+        try:
+            user = self._github.get_user()  # type: ignore[attr-defined]
+            return str(user.login)
+        except Exception as exc:
+            raise GitHubClientError(
+                f"GitHub authentication failure (invalid or expired token): {exc}",
+                reason="auth_failure",
+            ) from exc
 
     def get_repository(self, full_name: str) -> RepoRef:
         try:
@@ -434,6 +440,9 @@ def build_pygithub_client_from_token(token: str) -> PyGithubClient:
     """Application-boundary helper. Never log the token."""
     if not token or not token.strip():
         raise GitHubClientError("GitHub token is required", reason="auth_failure")
+    import github
     from github import Github
 
+    if hasattr(github, "Auth") and hasattr(github.Auth, "Token"):
+        return PyGithubClient(Github(auth=github.Auth.Token(token.strip())))
     return PyGithubClient(Github(token.strip()))

@@ -14,6 +14,7 @@ interface PatchModalProps {
   scanId: string;
   patches: PatchProposal[];
   currentScore: number;
+  repoUrl?: string | null;
   onClose: () => void;
 }
 
@@ -87,8 +88,10 @@ export function PatchModal({
   scanId,
   patches,
   currentScore,
+  repoUrl,
   onClose,
 }: PatchModalProps) {
+  const hasRepoUrl = Boolean(repoUrl && repoUrl.trim().length > 0);
   const [prState, setPrState] = useState<
     "idle" | "loading" | "success" | "error"
   >("idle");
@@ -361,7 +364,23 @@ export function PatchModal({
               </a>
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2.5">
+              {!hasRepoUrl && (
+                <div
+                  data-testid="no-repo-warning"
+                  className="flex items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3.5 py-2 text-xs text-amber-300/90"
+                >
+                  <p>
+                    No GitHub repository connected for this scan. Add a GitHub repo URL in Advanced options when starting a scan to enable automated PR creation.
+                  </p>
+                </div>
+              )}
+              {hasRepoUrl && repoUrl && (
+                <div className="flex items-center justify-between text-[11px] text-text-muted px-0.5">
+                  <span>Target Repository:</span>
+                  <span className="font-mono text-text-secondary">{repoUrl}</span>
+                </div>
+              )}
               {prState === "error" && prError && (
                 <p className="text-xs text-rose-400">{prError}</p>
               )}
@@ -370,8 +389,9 @@ export function PatchModal({
                 type="button"
                 data-testid="create-pr-button"
                 onClick={() => void handleCreatePr()}
-                disabled={prState === "loading" || patches.length === 0}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-white text-black px-5 py-3 text-xs font-semibold tracking-wider uppercase transition-all duration-150 hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 active:scale-[0.99]"
+                disabled={prState === "loading" || patches.length === 0 || !hasRepoUrl}
+                title={!hasRepoUrl ? "Connect a GitHub repository to enable PR creation" : undefined}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-white text-black px-5 py-3 text-xs font-semibold tracking-wider uppercase transition-all duration-150 hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 active:scale-[0.99]"
               >
                 {prState === "loading" ? (
                   <>
@@ -396,4 +416,4 @@ export function PatchModal({
       </div>
     </div>
   );
-}
+}

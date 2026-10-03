@@ -83,6 +83,8 @@ export interface ScanResponse {
   error?: string;
   execution_mode?: "real_llm" | "deterministic_fallback" | string;
   llm_calls_made?: number;
+  repo_url?: string;
+  github_repo_url?: string;
 }
 
 // Intelligence layer types (mirrors backend schemas/intelligence.py)

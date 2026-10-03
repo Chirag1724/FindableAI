@@ -22,11 +22,14 @@ from app.crawler.search import store_dom_chunks
 from app.db import AsyncSessionLocal
 from app.engines.patch_assembler import assemble_real_patches
 from app.engines.scorer import ScoreInputs, Scorer, adapt_score_breakdown_to_api
+from app.github.client import GitHubClientError, build_pygithub_client_from_token
+from app.github.pr_engine import GitHubPRService, PREngineError
 from app.models.database import DOMChunk as DOMChunkModel
 from app.models.database import Scan as ScanModel
 from app.orchestration.dag import FindableAIDAG, ObservationInput
 from app.orchestration.state import OrchestrationChunk
 from app.schemas.fscore import FScoreBreakdown, SubScoreMetric
+from app.schemas.github_pr import PREngineRequest
 from app.schemas.intelligence import (
     Contradiction,
     ContradictionSeverity,
@@ -35,6 +38,7 @@ from app.schemas.intelligence import (
     IntentEvaluation,
 )
 from app.schemas.patch import DOMSelectorAnchor, PatchProposal, PatchType, PullRequestResult
+from app.schemas.patching import FormattedPatch, PatchFormatStatus, SchemaRemediationTarget
 from app.schemas.scan import (
     AuditSummary,
     ScanRequest,
@@ -557,6 +561,8 @@ async def create_scan(request: ScanRequest, background_tasks: BackgroundTasks):
         target_url=str(request.url),
         status=ScanStatus.PENDING,
         created_at=datetime.now(UTC),
+        repo_url=request.repo_url,
+        github_repo_url=request.repo_url,
     )
     SCANS_DB[scan_id] = new_scan
     EVENT_LOGS[scan_id] = [
@@ -861,15 +867,134 @@ async def get_scan_patches(scan_id: str) -> list[PatchProposal]:
     return generate_mock_patches()
 
 
+def parse_github_repo_owner_name(url: str) -> str:
+    cleaned = url.strip().rstrip("/")
+    if cleaned.endswith(".git"):
+        cleaned = cleaned[:-4]
+    if "github.com/" in cleaned:
+        cleaned = cleaned.split("github.com/")[-1]
+    cleaned = cleaned.strip("/")
+    parts = [p for p in cleaned.split("/") if p]
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise ValueError(
+            f"Invalid GitHub repository URL format: '{url}'. Expected format: 'owner/repo' or 'https://github.com/owner/repo'"
+        )
+    return f"{parts[0]}/{parts[1]}"
+
+
 @router.post("/{scan_id}/patches/apply", response_model=PullRequestResult)
 async def apply_scan_patch(scan_id: str) -> PullRequestResult:
     """Triggers autonomous GitHub PR creation for this scan's proposed patches (Task P1-2.4)."""
-    pr_number = 42
-    branch_name = f"findable-ai/patch-{scan_id[-6:]}"
-    return PullRequestResult(
-        pr_url=f"https://github.com/FindableAI/demo-site/pull/{pr_number}",
-        pr_number=pr_number,
-        branch_name=branch_name,
-        title="fix(discoverability): resolve factual contradiction and inject JSON-LD",
-        created_at=datetime.now(UTC),
-    )
+    if scan_id not in SCANS_DB:
+        # Check DB
+        try:
+            scan_uuid = uuid.UUID(scan_id)
+            async with AsyncSessionLocal() as s:
+                db_scan = await s.get(ScanModel, scan_uuid)
+                if not db_scan:
+                    raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+        except HTTPException:
+            raise
+        except Exception as err:
+            raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found") from err
+
+    scan = SCANS_DB.get(scan_id)
+    if not scan:
+        raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+
+    repo_url = scan.repo_url or scan.github_repo_url
+    if not repo_url or not str(repo_url).strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No GitHub repository configured for this scan. Provide a repo URL when starting the scan to enable automated PR creation.",
+        )
+
+    try:
+        source_repo = parse_github_repo_owner_name(str(repo_url))
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+    if not scan.patches:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No remediation patches available to apply for this scan.",
+        )
+
+    # Required scopes for Personal Access Token (PAT):
+    # - Classic PAT: 'repo' (or 'public_repo' for public repositories)
+    # - Fine-Grained PAT: 'Pull requests' (Read & Write), 'Contents' (Read & Write), 'Metadata' (Read-only)
+    token = settings.GITHUB_TOKEN.strip() if settings.GITHUB_TOKEN else ""
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GitHub integration token is not configured on server (GITHUB_TOKEN). Add a GitHub Personal Access Token (PAT with 'repo' scope) to environment variables to enable automated PR creation.",
+        )
+
+    formatted_patches: list[FormattedPatch] = []
+    for p in scan.patches:
+        target_type = SchemaRemediationTarget.LOCAL_BUSINESS
+        title_lower = p.title.lower()
+        if "faq" in title_lower:
+            target_type = SchemaRemediationTarget.FAQ_PAGE
+        elif "menu" in title_lower:
+            target_type = SchemaRemediationTarget.MENU
+        elif "hour" in title_lower or "opening" in title_lower:
+            target_type = SchemaRemediationTarget.OPENING_HOURS
+
+        file_path = "index.html"
+        if p.unified_diff and "--- a/" in p.unified_diff:
+            first_line = p.unified_diff.splitlines()[0]
+            extracted = first_line.replace("--- a/", "").strip()
+            if extracted.endswith((".html", ".htm")):
+                file_path = extracted
+
+        formatted_patches.append(
+            FormattedPatch(
+                opportunity_id=p.patch_id,
+                schema_type=target_type,
+                file_path=file_path,
+                patch_text=p.unified_diff,
+                changed_lines=len(
+                    [line for line in p.unified_diff.splitlines() if line.startswith(("+", "-"))]
+                ),
+                status=PatchFormatStatus.APPLIED,
+                message=p.rationale,
+                patched_html=p.dom_anchor.suggested_snippet,
+            )
+        )
+
+    try:
+        gh_client = build_pygithub_client_from_token(token)
+        pr_service = GitHubPRService(gh_client)
+        pr_request = PREngineRequest(
+            source_repo=source_repo,
+            target_branch="main",
+            scan_id=scan_id,
+            patches=formatted_patches,
+            intent_evaluations=scan.intents,
+            commit_message=f"fix(discoverability): apply FindableAI remediation patches for {scan_id}",
+            pr_title=f"FindableAI: Machine Discoverability Remediation Patches ({scan_id})",
+        )
+        result = pr_service.create_remediation_pr(pr_request)
+        return PullRequestResult(
+            pr_url=result.pr_url,
+            pr_number=result.pr_number,
+            branch_name=result.generated_branch,
+            title=f"FindableAI: Machine Discoverability Remediation Patches ({scan_id})",
+            created_at=datetime.now(UTC),
+        )
+    except (PREngineError, GitHubClientError) as exc:
+        logger.error("GitHub PR creation failed for scan %s: %s", scan_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"GitHub PR creation failed: {exc}",
+        ) from exc
+    except Exception as exc:
+        logger.exception("Unexpected error during PR creation for scan %s", scan_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal error creating GitHub PR: {exc}",
+        ) from exc
