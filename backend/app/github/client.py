@@ -59,6 +59,8 @@ class GitHubClient(Protocol):
 
     def get_file(self, repo: RepoRef, path: str, *, ref: str) -> FileContent: ...
 
+    def list_files(self, repo: RepoRef, *, ref: str) -> list[str]: ...
+
     def create_or_update_file(
         self,
         repo: RepoRef,
@@ -223,6 +225,20 @@ class FakeGitHubClient:
             raise GitHubClientError(f"file not found: {path}", reason="file_not_found")
         content, sha = files[path]
         return FileContent(path=path, content=content, sha=sha)
+
+    def list_files(self, repo: RepoRef, *, ref: str) -> list[str]:
+        self.calls.append(f"list_files:{repo.full_name}:{ref}")
+        state = self._repos.get(repo.full_name)
+        if state is None:
+            raise GitHubClientError(f"repo not found: {repo.full_name}", reason="repo_not_found")
+        if ref in state.files:
+            return list(state.files[ref].keys())
+        if state.default_branch in state.files:
+            return list(state.files[state.default_branch].keys())
+        all_paths: set[str] = set()
+        for branch_files in state.files.values():
+            all_paths.update(branch_files.keys())
+        return list(all_paths)
 
     def create_or_update_file(
         self,
@@ -411,6 +427,21 @@ class PyGithubClient:
         raw = content_file.decoded_content
         text = raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
         return FileContent(path=path, content=text, sha=str(content_file.sha))
+
+    def list_files(self, repo: RepoRef, *, ref: str) -> list[str]:
+        gh_repo = self._github.get_repo(repo.full_name)  # type: ignore[attr-defined]
+        try:
+            sha = ref
+            try:
+                branch_ref = gh_repo.get_branch(ref)
+                sha = str(branch_ref.commit.sha)
+            except Exception:
+                pass
+            tree = gh_repo.get_git_tree(sha, recursive=True)
+            return [str(item.path) for item in tree.tree if item.type == "blob"]
+        except Exception as exc:
+            logger.warning("Could not retrieve git tree for %s ref %s: %s", repo.full_name, ref, exc)
+            return []
 
     def create_or_update_file(
         self,

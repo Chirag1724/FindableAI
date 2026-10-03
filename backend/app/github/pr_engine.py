@@ -243,11 +243,129 @@ def build_report_data(
     )
 
 
+def resolve_target_file(tree_files: Sequence[str], path_hint: str) -> tuple[str | None, str]:
+    """Search tree_files for target match.
+
+    Returns (resolved_path, kind) where kind is:
+      - 'html': direct HTML target found
+      - 'framework': framework component found (.tsx, .jsx, .vue, .astro, .svelte, .js, .ts)
+      - 'none': no match or ambiguous matches
+    """
+    if not tree_files:
+        return (None, "none")
+
+    # 1. Exact match
+    for f in tree_files:
+        if f.lower() == path_hint.lower():
+            if f.lower().endswith((".html", ".htm")):
+                return (f, "html")
+            return (f, "framework")
+
+    # 2. Heuristic Stem Search
+    stem = path_hint.replace("\\", "/").rsplit("/", 1)[-1].split(".")[0].lower()
+    if stem in ("index", "home", "root", "default"):
+        # Root page search
+        html_roots = [
+            f for f in tree_files
+            if f.lower() in ("public/index.html", "index.html", "index.htm", "static/index.html", "src/index.html")
+        ]
+        if html_roots:
+            return (html_roots[0], "html")
+
+        framework_roots = [
+            f for f in tree_files
+            if f.lower() in (
+                "app/page.tsx", "app/page.jsx", "app/page.js", "app/layout.tsx",
+                "src/app/page.tsx", "src/app/page.jsx", "src/app/page.js",
+                "pages/index.tsx", "pages/index.jsx", "pages/index.js",
+                "src/pages/index.tsx", "src/pages/index.jsx",
+                "src/app.vue", "src/app.tsx", "src/app.jsx",
+            )
+        ]
+        if framework_roots:
+            return (framework_roots[0], "framework")
+
+    # For other stems (e.g. 'about', 'pricing', 'contact', 'events', 'faq')
+    html_matches = [
+        f for f in tree_files
+        if f.lower().endswith((".html", ".htm")) and (
+            f.lower().endswith(f"/{stem}.html") or f.lower().endswith(f"/{stem}.htm") or f.lower() == f"{stem}.html"
+        )
+    ]
+    if len(html_matches) == 1:
+        return (html_matches[0], "html")
+
+    framework_exts = (".tsx", ".jsx", ".vue", ".astro", ".svelte", ".js", ".ts")
+    framework_matches = [
+        f for f in tree_files
+        if f.lower().endswith(framework_exts) and (
+            f"/{stem}/page." in f"/{f.lower()}"
+            or f"/{stem}." in f"/{f.lower()}"
+            or f"/{stem}/index." in f"/{f.lower()}"
+            or f.lower().endswith(f"/{stem}")
+        )
+    ]
+    if len(framework_matches) == 1:
+        return (framework_matches[0], "framework")
+
+    return (None, "none")
+
+
+def generate_remediation_guide(
+    request: PREngineRequest,
+    grouped_patches: dict[str, list[FormattedPatch]],
+    matched_files: dict[str, tuple[str | None, str]],
+) -> str:
+    lines = [
+        "# FindableAI Machine Discoverability Remediation Guidelines",
+        "",
+        f"Scan ID: `{request.scan_id}`",
+        "",
+        "> [!NOTE]",
+        "> Automated direct HTML injection was skipped because target source files are framework components (.tsx, .jsx, .vue, .astro) or require developer placement. Follow the code snippets and schema definitions below to implement the recommended enhancements in your source codebase.",
+        "",
+        "## Recommended Schema.org Microdata & Component Patches",
+        "",
+    ]
+    for path, patches in grouped_patches.items():
+        resolved_path, kind = matched_files.get(path, (None, "none"))
+        target_display = f"`{resolved_path}` ({kind})" if resolved_path else f"`{path}` (unmatched route)"
+        lines.append(f"### Target: {target_display}")
+        lines.append("")
+        for p in patches:
+            lines.append(f"#### Opportunity: {p.opportunity_id} - Schema `{p.schema_type.value}`")
+            if p.message:
+                lines.append(f"**Rationale:** {p.message}")
+                lines.append("")
+            if p.patched_html:
+                lines.append("```html")
+                lines.append(p.patched_html.strip())
+                lines.append("```")
+                lines.append("")
+            if p.patch_text:
+                lines.append("<details>")
+                lines.append("<summary>View Suggested Code Diff</summary>")
+                lines.append("")
+                lines.append("```diff")
+                lines.append(p.patch_text.strip())
+                lines.append("```")
+                lines.append("</details>")
+                lines.append("")
+    return "\n".join(lines) + "\n"
+
+
 class GitHubPRService:
     """Orchestrates fork → branch → apply validated patches → commit → PR."""
 
     def __init__(self, github_client: GitHubClient) -> None:
         self._client = github_client
+
+    def _opportunity_ids(self, grouped: dict[str, list[FormattedPatch]]) -> list[str]:
+        ids: list[str] = []
+        for patches in grouped.values():
+            for p in patches:
+                ids.append(p.opportunity_id)
+        return sorted(set(ids))
 
     def create_remediation_pr(self, request: PREngineRequest) -> PREngineResult:
         if not isinstance(request, PREngineRequest):
@@ -340,40 +458,81 @@ class GitHubPRService:
                 reason="branch_exists",
             )
 
-        # Prepare file updates against remote content BEFORE creating branch
-        prepared: list[ValidatedRepoFileUpdate] = []
-        for path, path_patches in grouped.items():
+        # Fetch repo file tree to check for exact/heuristic file matches
+        try:
+            tree_files = self._client.list_files(work_repo, ref=target_branch)
+        except GitHubClientError:
             try:
-                remote = self._client.get_file(work_repo, path, ref=target_branch)
+                tree_files = self._client.list_files(work_repo, ref=work_repo.default_branch)
             except GitHubClientError:
-                try:
-                    remote = self._client.get_file(work_repo, path, ref=work_repo.default_branch)
-                except GitHubClientError as exc:
-                    raise PREngineError(str(exc), reason=exc.reason) from exc
+                tree_files = []
 
-            # Divergence check: each patched_html should contain remote content
-            # markers (title/body) - require remote equals the base implied by patch
-            # by verifying insertion result starts from remote text.
-            new_content = combine_patches_for_file(
-                base_html=remote.content,
-                patches=path_patches,
-            )
-            if new_content == remote.content:
-                raise PREngineError(
-                    f"patch produced no content change for {path}",
-                    reason="noop_after_merge",
-                )
-            prepared.append(
+        matched_files: dict[str, tuple[str | None, str]] = {}
+        for path in grouped:
+            matched_files[path] = resolve_target_file(tree_files, path)
+
+        # Check if all patches match actual HTML files that can be directly patched
+        all_html_matches = (
+            len(tree_files) > 0
+            and all(kind == "html" and res_path is not None for res_path, kind in matched_files.values())
+        )
+
+        prepared: list[ValidatedRepoFileUpdate] = []
+        guidance_mode = not all_html_matches
+
+        if not guidance_mode:
+            try:
+                for path, path_patches in grouped.items():
+                    target_file_path = matched_files[path][0] or path
+                    try:
+                        remote = self._client.get_file(work_repo, target_file_path, ref=target_branch)
+                    except GitHubClientError:
+                        remote = self._client.get_file(work_repo, target_file_path, ref=work_repo.default_branch)
+
+                    new_content = combine_patches_for_file(
+                        base_html=remote.content,
+                        patches=path_patches,
+                    )
+                    if new_content == remote.content:
+                        raise PREngineError(
+                            f"patch produced no content change for {target_file_path}",
+                            reason="noop_after_merge",
+                        )
+                    prepared.append(
+                        ValidatedRepoFileUpdate(
+                            path=target_file_path,
+                            content=new_content,
+                            opportunity_ids=[p.opportunity_id for p in path_patches],
+                            schema_types=[p.schema_type for p in path_patches],
+                        )
+                    )
+            except (PREngineError, GitHubClientError) as prep_err:
+                logger.info("Direct HTML patch preparation failed, falling back to guidance PR: %s", prep_err)
+                guidance_mode = True
+                prepared = []
+
+        if guidance_mode:
+            guide_path = "docs/FINDABLE_AI_REMEDIATION.md"
+            guide_content = generate_remediation_guide(request, grouped, matched_files)
+            prepared = [
                 ValidatedRepoFileUpdate(
-                    path=path,
-                    content=new_content,
-                    opportunity_ids=[p.opportunity_id for p in path_patches],
-                    schema_types=[p.schema_type for p in path_patches],
+                    path=guide_path,
+                    content=guide_content,
+                    opportunity_ids=self._opportunity_ids(grouped),
+                    schema_types=[p.schema_type for patches in grouped.values() for p in patches],
                 )
+            ]
+            report = build_report_data(request, prepared)
+            body = (
+                "> [!NOTE]\n"
+                "> **Action Required:** Target source files for one or more recommendations are framework components "
+                "(.tsx, .jsx, .vue, .astro) or could not be auto-modified directly without risking syntax corruption. "
+                f"Complete remediation guidelines, Schema.org payloads, and DOM insertion points have been committed to `{guide_path}` in this branch.\n\n"
+                + generate_pr_markdown(report)
             )
-
-        report = build_report_data(request, prepared)
-        body = generate_pr_markdown(report)
+        else:
+            report = build_report_data(request, prepared)
+            body = generate_pr_markdown(report)
 
         # --- Mutations ---
         try:
@@ -383,10 +542,12 @@ class GitHubPRService:
 
         commit_sha = base_sha
         for update in prepared:
+            remote_sha = None
             try:
                 remote = self._client.get_file(work_repo, update.path, ref=branch_name)
-            except GitHubClientError as exc:
-                raise PREngineError(str(exc), reason=exc.reason) from exc
+                remote_sha = remote.sha
+            except GitHubClientError:
+                remote_sha = None
             try:
                 commit_sha = self._client.create_or_update_file(
                     work_repo,
@@ -394,7 +555,7 @@ class GitHubPRService:
                     content=update.content,
                     message=request.commit_message,
                     branch=branch_name,
-                    sha=remote.sha,
+                    sha=remote_sha,
                 )
             except GitHubClientError as exc:
                 raise PREngineError(str(exc), reason=exc.reason) from exc
@@ -411,11 +572,12 @@ class GitHubPRService:
             raise PREngineError(str(exc), reason=exc.reason) from exc
 
         logger.info(
-            "Created remediation PR %s for scan %s (files=%d, direct_push=%s)",
+            "Created remediation PR %s for scan %s (files=%d, direct_push=%s, guidance_mode=%s)",
             pull.number,
             request.scan_id,
             len(prepared),
             can_push_directly,
+            guidance_mode,
         )
         return PREngineResult(
             source_repository=source.full_name,
