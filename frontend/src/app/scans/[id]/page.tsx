@@ -507,6 +507,7 @@ export default function ScanDashboardPage() {
           currentScore={
             (displayScan.f_score?.overall_score ?? scan.data?.f_score?.overall_score) ?? 0
           }
+          repoUrl={displayScan.repo_url ?? displayScan.github_repo_url ?? scan.data?.repo_url ?? scan.data?.github_repo_url}
           onClose={() => setPatchModalOpen(false)}
         />
       )}

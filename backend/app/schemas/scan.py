@@ -71,3 +71,11 @@ class ScanResponse(BaseModel):
         default=0,
         description="Total LLM provider calls consumed via BudgetGuard",
     )
+    repo_url: str | None = Field(
+        default=None,
+        description="Optional connected GitHub repository URL for automated PR generation",
+    )
+    github_repo_url: str | None = Field(
+        default=None,
+        description="Alias for repo_url",
+    )

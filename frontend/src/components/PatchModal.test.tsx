@@ -65,12 +65,13 @@ afterEach(() => vi.restoreAllMocks());
 
 // --- Helpers ---
 
-function renderModal(patches = [PATCH_A, PATCH_B]) {
+function renderModal(patches = [PATCH_A, PATCH_B], repoUrl: string | null = "https://github.com/org/repo") {
   return render(
     <PatchModal
       scanId="scan_test"
       patches={patches}
       currentScore={78.4}
+      repoUrl={repoUrl}
       onClose={onClose}
     />
   );
@@ -100,6 +101,24 @@ describe("PatchModal - patch list rendering", () => {
     // EmptyState should be rendered
     const modal = screen.getByTestId("patch-modal");
     expect(modal).toBeInTheDocument();
+  });
+});
+
+describe("PatchModal - repository connection gating", () => {
+  it("disables Create PR button and shows warning when repoUrl is not configured", () => {
+    renderModal([PATCH_A], null);
+    const btn = screen.getByTestId("create-pr-button");
+    expect(btn).toBeDisabled();
+    expect(screen.getByTestId("no-repo-warning")).toBeInTheDocument();
+    expect(screen.getByText(/No GitHub repository connected for this scan/i)).toBeInTheDocument();
+  });
+
+  it("enables Create PR button when repoUrl is provided", () => {
+    renderModal([PATCH_A], "https://github.com/example/my-repo");
+    const btn = screen.getByTestId("create-pr-button");
+    expect(btn).not.toBeDisabled();
+    expect(screen.queryByTestId("no-repo-warning")).not.toBeInTheDocument();
+    expect(screen.getByText(/example\/my-repo/)).toBeInTheDocument();
   });
 });
 

@@ -104,12 +104,10 @@ async def test_scan_subresources_endpoints():
         assert len(patches) >= 1
         assert "unified_diff" in patches[0]
 
-        # Apply patch PR endpoint
+        # Apply patch PR endpoint should return 400 Bad Request when no repo_url is configured
         apply_resp = await client.post(f"/api/v1/scans/{scan_id}/patches/apply")
-        assert apply_resp.status_code == 200
-        pr_result = apply_resp.json()
-        assert "pr_url" in pr_result
-        assert pr_result["pr_number"] == 42
+        assert apply_resp.status_code == 400
+        assert "No GitHub repository configured" in apply_resp.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -162,3 +160,49 @@ async def test_no_hardcoded_demo_content_regression():
         assert "Bistro" not in patches_text
         assert "Bistro" not in intents_text
         assert "Bistro" not in contra_text
+
+
+@pytest.mark.asyncio
+async def test_apply_patches_validation_scenarios(monkeypatch):
+    from app.core.config import settings
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Scan with invalid repo URL format
+        resp = await client.post(
+            "/api/v1/scans",
+            json={"url": "https://example-test.com", "max_pages": 1, "repo_url": "invalid-repo-format"},
+        )
+        assert resp.status_code == 202
+        scan_id = resp.json()["scan_id"]
+
+        apply_resp = await client.post(f"/api/v1/scans/{scan_id}/patches/apply")
+        assert apply_resp.status_code == 400
+        assert "Invalid GitHub repository URL format" in apply_resp.json()["detail"]
+
+        # 2. Scan with valid repo URL but missing server GITHUB_TOKEN
+        monkeypatch.setattr(settings, "GITHUB_TOKEN", "")
+        resp_valid = await client.post(
+            "/api/v1/scans",
+            json={"url": "https://example-test.com", "max_pages": 1, "repo_url": "https://github.com/my-org/my-site"},
+        )
+        assert resp_valid.status_code == 202
+        scan_id_valid = resp_valid.json()["scan_id"]
+
+        apply_resp_valid = await client.post(f"/api/v1/scans/{scan_id_valid}/patches/apply")
+        assert apply_resp_valid.status_code == 400
+        assert "GitHub integration token is not configured" in apply_resp_valid.json()["detail"]
+
+        # 3. Scan with invalid GITHUB_TOKEN (auth failure)
+        monkeypatch.setattr(settings, "GITHUB_TOKEN", "ghp_invalid_mock_token_12345")
+        apply_resp_auth = await client.post(f"/api/v1/scans/{scan_id_valid}/patches/apply")
+        assert apply_resp_auth.status_code == 400
+        assert "GitHub PR creation failed" in apply_resp_auth.json()["detail"]
+
+        # 4. Patches apply-pr endpoint validation
+        patches_resp = await client.post(
+            "/api/v1/patches/apply-pr",
+            json={"patch_id": "p1", "github_repo_url": ""},
+        )
+        assert patches_resp.status_code == 400
+        assert "No GitHub repository configured" in patches_resp.json()["detail"]
