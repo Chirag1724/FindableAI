@@ -273,18 +273,43 @@ class GitHubPRService:
         if not target_branch:
             raise PREngineError("target_branch required", reason="invalid_branch")
 
+        can_push_directly = self._client.has_push_access(source)
+        if can_push_directly:
+            work_repo = source
+            head_label = branch_name
+            find_head_labels = [branch_name, f"{login}:{branch_name}", f"{source.owner_login}:{branch_name}"]
+        else:
+            try:
+                fork = self._client.get_or_create_fork(source)
+            except GitHubClientError as exc:
+                raise PREngineError(str(exc), reason=exc.reason) from exc
+            if fork.owner_login != login:
+                raise PREngineError(
+                    "fork owner does not match authenticated user",
+                    reason="wrong_fork",
+                )
+            if fork.full_name.split("/", 1)[1] != source.full_name.split("/", 1)[1]:
+                raise PREngineError("fork name mismatch", reason="wrong_fork")
+            work_repo = fork
+            head_label = f"{login}:{branch_name}"
+            find_head_labels = [f"{login}:{branch_name}"]
+
         # Idempotency: existing open PR for same head/base
-        head_label = f"{login}:{branch_name}"
-        try:
-            existing = self._client.find_open_pull(source, head_full=head_label, base=target_branch)
-        except GitHubClientError as exc:
-            raise PREngineError(str(exc), reason=exc.reason) from exc
+        existing = None
+        for h_label in find_head_labels:
+            try:
+                existing = self._client.find_open_pull(source, head_full=h_label, base=target_branch)
+            except GitHubClientError as exc:
+                raise PREngineError(str(exc), reason=exc.reason) from exc
+            if existing is not None:
+                break
+
         if existing is not None:
             report = self._build_report_for_existing(request, grouped)
             body = generate_pr_markdown(report)
             return PREngineResult(
                 source_repository=source.full_name,
-                fork_repository=f"{login}/{source.full_name.split('/', 1)[1]}",
+                fork_repository=work_repo.full_name,
                 target_branch=target_branch,
                 generated_branch=branch_name,
                 commit_sha="",
@@ -301,46 +326,33 @@ class GitHubPRService:
             )
 
         try:
-            fork = self._client.get_or_create_fork(source)
-        except GitHubClientError as exc:
-            raise PREngineError(str(exc), reason=exc.reason) from exc
-        if fork.owner_login != login:
-            raise PREngineError(
-                "fork owner does not match authenticated user",
-                reason="wrong_fork",
-            )
-        if fork.full_name.split("/", 1)[1] != source.full_name.split("/", 1)[1]:
-            raise PREngineError("fork name mismatch", reason="wrong_fork")
-
-        try:
-            base_sha = self._client.get_branch_sha(fork, target_branch)
+            base_sha = self._client.get_branch_sha(work_repo, target_branch)
         except GitHubClientError:
-            # Fall back to fork default branch tip when target only exists on source
+            # Fall back to work_repo default branch tip when target only exists on source
             try:
-                base_sha = self._client.get_branch_sha(fork, fork.default_branch)
+                base_sha = self._client.get_branch_sha(work_repo, work_repo.default_branch)
             except GitHubClientError as exc:
                 raise PREngineError(str(exc), reason=exc.reason) from exc
 
-        if self._client.branch_exists(fork, branch_name):
+        if self._client.branch_exists(work_repo, branch_name):
             raise PREngineError(
                 f"feature branch already exists: {branch_name}",
                 reason="branch_exists",
             )
 
-        # Prepare file updates against remote content BEFORE creating branch?
-        # We need remote files from target - read from fork at base ref first.
+        # Prepare file updates against remote content BEFORE creating branch
         prepared: list[ValidatedRepoFileUpdate] = []
         for path, path_patches in grouped.items():
             try:
-                remote = self._client.get_file(fork, path, ref=target_branch)
+                remote = self._client.get_file(work_repo, path, ref=target_branch)
             except GitHubClientError:
                 try:
-                    remote = self._client.get_file(fork, path, ref=fork.default_branch)
+                    remote = self._client.get_file(work_repo, path, ref=work_repo.default_branch)
                 except GitHubClientError as exc:
                     raise PREngineError(str(exc), reason=exc.reason) from exc
 
             # Divergence check: each patched_html should contain remote content
-            # markers (title/body) — require remote equals the base implied by patch
+            # markers (title/body) - require remote equals the base implied by patch
             # by verifying insertion result starts from remote text.
             new_content = combine_patches_for_file(
                 base_html=remote.content,
@@ -365,19 +377,19 @@ class GitHubPRService:
 
         # --- Mutations ---
         try:
-            self._client.create_branch(fork, branch_name, base_sha)
+            self._client.create_branch(work_repo, branch_name, base_sha)
         except GitHubClientError as exc:
             raise PREngineError(str(exc), reason=exc.reason) from exc
 
         commit_sha = base_sha
         for update in prepared:
             try:
-                remote = self._client.get_file(fork, update.path, ref=branch_name)
+                remote = self._client.get_file(work_repo, update.path, ref=branch_name)
             except GitHubClientError as exc:
                 raise PREngineError(str(exc), reason=exc.reason) from exc
             try:
                 commit_sha = self._client.create_or_update_file(
-                    fork,
+                    work_repo,
                     path=update.path,
                     content=update.content,
                     message=request.commit_message,
@@ -399,14 +411,15 @@ class GitHubPRService:
             raise PREngineError(str(exc), reason=exc.reason) from exc
 
         logger.info(
-            "Created remediation PR %s for scan %s (files=%d)",
+            "Created remediation PR %s for scan %s (files=%d, direct_push=%s)",
             pull.number,
             request.scan_id,
             len(prepared),
+            can_push_directly,
         )
         return PREngineResult(
             source_repository=source.full_name,
-            fork_repository=fork.full_name,
+            fork_repository=work_repo.full_name,
             target_branch=target_branch,
             generated_branch=branch_name,
             commit_sha=commit_sha,

@@ -47,6 +47,8 @@ class GitHubClient(Protocol):
 
     def get_repository(self, full_name: str) -> RepoRef: ...
 
+    def has_push_access(self, repo: RepoRef) -> bool: ...
+
     def get_or_create_fork(self, source: RepoRef) -> RepoRef: ...
 
     def get_branch_sha(self, repo: RepoRef, branch: str) -> str: ...
@@ -94,6 +96,8 @@ class FakeRepoState:
     files: dict[str, dict[str, tuple[str, str]]] = field(default_factory=dict)
     pulls: list[PullRef] = field(default_factory=list)
     fork_of: str | None = None
+    allow_push: bool | None = None
+    allow_fork: bool = True
 
 
 class FakeGitHubClient:
@@ -116,9 +120,16 @@ class FakeGitHubClient:
         default_branch: str = "main",
         files: dict[str, str] | None = None,
         fork_of: str | None = None,
+        allow_push: bool | None = None,
+        allow_fork: bool = True,
     ) -> None:
         sha = "base-sha-001"
-        state = FakeRepoState(default_branch=default_branch, fork_of=fork_of)
+        state = FakeRepoState(
+            default_branch=default_branch,
+            fork_of=fork_of,
+            allow_push=allow_push,
+            allow_fork=allow_fork,
+        )
         state.branches[default_branch] = sha
         branch_files: dict[str, tuple[str, str]] = {}
         for path, content in (files or {}).items():
@@ -142,8 +153,22 @@ class FakeGitHubClient:
             owner_login=owner,
         )
 
+    def has_push_access(self, repo: RepoRef) -> bool:
+        self.calls.append(f"has_push_access:{repo.full_name}")
+        state = self._repos.get(repo.full_name)
+        if state is not None and state.allow_push is not None:
+            return state.allow_push
+        # Fallback for API responses/tokens that omit permissions object: same-owner indicates direct push access
+        return repo.owner_login.lower() == self._login.lower()
+
     def get_or_create_fork(self, source: RepoRef) -> RepoRef:
         self.calls.append(f"get_or_create_fork:{source.full_name}")
+        source_state = self._repos.get(source.full_name)
+        if source_state is not None and not source_state.allow_fork:
+            raise GitHubClientError(
+                "Forking is disabled for this repository",
+                reason="forking_disabled",
+            )
         fork_name = f"{self._login}/{source.full_name.split('/', 1)[1]}"
         existing = self._repos.get(fork_name)
         if existing is not None:
@@ -153,7 +178,8 @@ class FakeGitHubClient:
                     reason="wrong_fork",
                 )
             return self.get_repository(fork_name)
-        source_state = self._repos[source.full_name]
+        if source_state is None:
+            raise GitHubClientError(f"repository not found: {source.full_name}", reason="not_found")
         fork_state = FakeRepoState(
             default_branch=source_state.default_branch,
             fork_of=source.full_name,
@@ -300,6 +326,18 @@ class PyGithubClient:
             owner_login=repo.owner.login,
         )
 
+    def has_push_access(self, repo: RepoRef) -> bool:
+        try:
+            gh_repo = self._github.get_repo(repo.full_name)  # type: ignore[attr-defined]
+            perms = getattr(gh_repo, "permissions", None)
+            if perms and (getattr(perms, "push", False) or getattr(perms, "admin", False)):
+                return True
+            login = self.get_authenticated_login()
+            # Fallback for API responses/tokens that omit permissions object: same-owner indicates direct push access
+            return repo.owner_login.lower() == login.lower()
+        except Exception:
+            return False
+
     def get_or_create_fork(self, source: RepoRef) -> RepoRef:
         login = self.get_authenticated_login()
         fork_name = f"{login}/{source.full_name.split('/', 1)[1]}"
@@ -319,8 +357,14 @@ class PyGithubClient:
         except GitHubClientError:
             raise
         except Exception:
-            source_repo = self._github.get_repo(source.full_name)  # type: ignore[attr-defined]
-            fork = source_repo.create_fork()
+            try:
+                source_repo = self._github.get_repo(source.full_name)  # type: ignore[attr-defined]
+                fork = source_repo.create_fork()
+            except Exception as exc:
+                raise GitHubClientError(
+                    f"failed to create repository fork (forking may be disabled or token lacks permission): {exc}",
+                    reason="forking_disabled",
+                ) from exc
             for _ in range(self._fork_ready_attempts):
                 try:
                     ready = self._github.get_repo(fork.full_name)  # type: ignore[attr-defined]

@@ -326,3 +326,54 @@ def test_absolute_path_rejected_before_mutation():
     with pytest.raises(PREngineError, match="path"):
         service.create_remediation_pr(_request(patches=[_applied_patch(file_path="../index.html")]))
     assert not any(c.startswith("create_branch:") for c in client.calls)
+
+
+def test_create_pr_direct_push_same_repo():
+    # User owns the repo (or has push access); creates branch directly on source without fork
+    client = FakeGitHubClient(login="acme-bot")
+    client.seed_repo("acme-bot/demo-site", files={"index.html": BASE_HTML}, allow_push=True)
+    service = GitHubPRService(client)
+
+    req = _request(source_repo="acme-bot/demo-site", scan_id="scan-direct-1")
+    result = service.create_remediation_pr(req)
+
+    assert result.source_repository == "acme-bot/demo-site"
+    assert result.fork_repository == "acme-bot/demo-site"  # Direct push - work repo is source repo
+    assert result.generated_branch == "findableai/remediation/scan-direct-1"
+    assert result.pr_number == 1
+    # Check no get_or_create_fork call was made
+    assert not any(c.startswith("get_or_create_fork:") for c in client.calls)
+    # Check create_pull used clean branch name as head (not owner:branch)
+    assert "create_pull:acme-bot/demo-site:findableai/remediation/scan-direct-1->main" in client.calls
+
+
+def test_create_pr_fork_fallback_when_no_push_access():
+    # User lacks direct push access to source repo; must create fork
+    client = FakeGitHubClient(login="contributor-user")
+    client.seed_repo("upstream-org/target-site", files={"index.html": BASE_HTML}, allow_push=False)
+    service = GitHubPRService(client)
+
+    req = _request(source_repo="upstream-org/target-site", scan_id="scan-fork-1")
+    result = service.create_remediation_pr(req)
+
+    assert result.source_repository == "upstream-org/target-site"
+    assert result.fork_repository == "contributor-user/target-site"
+    assert any(c.startswith("get_or_create_fork:upstream-org/target-site") for c in client.calls)
+    assert "create_pull:upstream-org/target-site:contributor-user:findableai/remediation/scan-fork-1->main" in client.calls
+
+
+def test_create_pr_forking_disabled_raises_error():
+    # User lacks direct push access AND forking is disabled on target repo
+    client = FakeGitHubClient(login="external-user")
+    client.seed_repo(
+        "private-org/secret-site",
+        files={"index.html": BASE_HTML},
+        allow_push=False,
+        allow_fork=False,
+    )
+    service = GitHubPRService(client)
+
+    req = _request(source_repo="private-org/secret-site", scan_id="scan-disabled-1")
+    with pytest.raises(PREngineError) as exc:
+        service.create_remediation_pr(req)
+    assert exc.value.reason == "forking_disabled"
