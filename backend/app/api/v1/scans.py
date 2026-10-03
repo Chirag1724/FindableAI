@@ -22,12 +22,12 @@ from app.crawler.search import store_dom_chunks
 from app.db import AsyncSessionLocal
 from app.engines.patch_assembler import assemble_real_patches
 from app.engines.scorer import ScoreInputs, Scorer, adapt_score_breakdown_to_api
+from app.github.client import GitHubClientError, build_pygithub_client_from_token
+from app.github.pr_engine import GitHubPRService, PREngineError
 from app.models.database import DOMChunk as DOMChunkModel
 from app.models.database import Scan as ScanModel
 from app.orchestration.dag import FindableAIDAG, ObservationInput
 from app.orchestration.state import OrchestrationChunk
-from app.github.client import GitHubClientError, build_pygithub_client_from_token
-from app.github.pr_engine import GitHubPRService, PREngineError
 from app.schemas.fscore import FScoreBreakdown, SubScoreMetric
 from app.schemas.github_pr import PREngineRequest
 from app.schemas.intelligence import (
@@ -895,8 +895,8 @@ async def apply_scan_patch(scan_id: str) -> PullRequestResult:
                     raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
         except HTTPException:
             raise
-        except Exception:
-            raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+        except Exception as err:
+            raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found") from err
 
     scan = SCANS_DB.get(scan_id)
     if not scan:
