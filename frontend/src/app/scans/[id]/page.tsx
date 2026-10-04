@@ -51,10 +51,10 @@ function ScanStatusBadge({ status }: { status: ScanStatus }) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border ${meta.bgColor} ${meta.color} ${meta.borderColor}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border border-white/[0.08] ${meta.classes}`}
     >
       <span
-        className={`h-1.5 w-1.5 rounded-full ${meta.dotColor} ${isRunning ? "animate-pulse" : ""}`}
+        className={`h-1.5 w-1.5 rounded-full ${meta.dotClass} ${isRunning ? "animate-pulse" : ""}`}
       />
       {meta.label}
     </span>

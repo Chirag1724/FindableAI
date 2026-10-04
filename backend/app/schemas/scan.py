@@ -49,6 +49,7 @@ class CrawledPageDetail(BaseModel):
     chunks_count: int = 0
     load_time_ms: int = 0
     is_spa: bool = False
+    title: str | None = None
 
 
 class AuditSummary(BaseModel):

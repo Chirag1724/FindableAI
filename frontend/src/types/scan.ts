@@ -80,6 +80,7 @@ export interface CrawledPageDetail {
   chunks_count: number;
   load_time_ms?: number;
   is_spa?: boolean;
+  title?: string;
 }
 
 export interface AuditSummary {
