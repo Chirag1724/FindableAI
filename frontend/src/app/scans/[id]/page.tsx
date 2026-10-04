@@ -491,16 +491,17 @@ export default function ScanDashboardPage() {
                   Cross-Page Contradictions &amp; Conflicts
                 </h2>
                 <span className="font-mono text-[11px] text-text-muted">
-                  {contradictions.error ? (
-                    <ErrorState
-                      message={contradictions.error}
-                      onRetry={contradictions.retry}
-                    />
-                  ) : (
-                    <ContradictionCard contradictions={contradictions.data ?? []} />
-                  )}
+                  {contradictions.data?.length ?? displayScan.summary?.contradictions_detected ?? 0} Detected
                 </span>
               </div>
+              {contradictions.error ? (
+                <ErrorState
+                  message={contradictions.error}
+                  onRetry={contradictions.retry}
+                />
+              ) : (
+                <ContradictionCard contradictions={contradictions.data ?? []} />
+              )}
             </div>
           </div>
         )}

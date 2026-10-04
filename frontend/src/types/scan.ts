@@ -149,6 +149,7 @@ export interface IntentEvaluation {
   evidence: EvidenceReference[];
   confidence: number;
   difficulty?: "easy" | "medium" | "hard";
+  persona?: "cto" | "developer" | "procurement" | string;
 }
 
 export type ContradictionSeverity = "HARD_CONTRADICTION" | "SOFT_INCONSISTENCY";

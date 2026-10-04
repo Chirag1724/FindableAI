@@ -49,6 +49,7 @@ class IntentQuery(BaseModel):
         min_length=1,
         description="Where the answer should appear, e.g. menu table, FAQ section",
     )
+    persona: str | None = Field(default=None, description="Originating persona: cto, developer, or procurement")
 
 
 class IntentBatch(BaseModel):
@@ -79,6 +80,8 @@ class IntentEvaluation(BaseModel):
     reasoning: str = Field(..., min_length=1)
     evidence: list[EvidenceReference] = Field(default_factory=list)
     confidence: float = Field(..., ge=0.0, le=1.0)
+    category: IntentCategory | None = Field(default=None, description="Intent taxonomy category")
+    persona: str | None = Field(default=None, description="Originating persona: cto, developer, or procurement")
 
     @property
     def evidence_chunk_ids(self) -> list[str]:
