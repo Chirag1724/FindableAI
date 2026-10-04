@@ -1251,6 +1251,12 @@ async def apply_scan_patch(
         ) from exc
     except Exception as exc:
         logger.exception("Unexpected error during PR creation for scan %s", scan_id)
+        msg = str(exc)
+        if "timed out" in msg.lower() or "timeout" in msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="GitHub API timed out while communicating with repository. Please retry.",
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal error creating GitHub PR: {exc}",

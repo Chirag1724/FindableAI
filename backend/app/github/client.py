@@ -476,18 +476,29 @@ class PyGithubClient:
         head_full: str,
         base: str,
     ) -> PullRef | None:
-        gh_repo = self._github.get_repo(source.full_name)  # type: ignore[attr-defined]
-        pulls = gh_repo.get_pulls(state="open", base=base)
-        for pull in pulls:
-            label = f"{pull.head.repo.owner.login}:{pull.head.ref}"
-            if pull.head.label == head_full or label == head_full:
-                return PullRef(
-                    number=int(pull.number),
-                    url=str(pull.html_url),
-                    head_ref=head_full,
-                    base_ref=base,
-                    title=str(pull.title),
-                )
+        try:
+            gh_repo = self._github.get_repo(source.full_name)  # type: ignore[attr-defined]
+            # Use GitHub server-side head filter to avoid N+1 queries and lazy-loading timeouts
+            pulls = gh_repo.get_pulls(state="open", base=base, head=head_full)
+            target_branch = head_full.split(":", 1)[1] if ":" in head_full else head_full
+            for pull in pulls:
+                h_label = getattr(pull.head, "label", None) or ""
+                h_ref = getattr(pull.head, "ref", None) or ""
+                if h_label == head_full or h_ref == target_branch or h_ref == head_full:
+                    return PullRef(
+                        number=int(pull.number),
+                        url=str(pull.html_url),
+                        head_ref=head_full,
+                        base_ref=base,
+                        title=str(pull.title),
+                    )
+        except Exception as exc:
+            logger.warning(
+                "Could not query open PRs for %s head %s: %s",
+                source.full_name,
+                head_full,
+                exc,
+            )
         return None
 
     def create_pull(
@@ -531,5 +542,5 @@ def build_pygithub_client_from_token(token: str) -> PyGithubClient:
         from github import Github
 
     if hasattr(github, "Auth") and hasattr(github.Auth, "Token"):
-        return PyGithubClient(Github(auth=github.Auth.Token(token.strip())))
-    return PyGithubClient(Github(token.strip()))
+        return PyGithubClient(Github(auth=github.Auth.Token(token.strip()), timeout=60, retry=3))
+    return PyGithubClient(Github(token.strip(), timeout=60, retry=3))

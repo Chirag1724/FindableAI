@@ -684,10 +684,11 @@ class GitHubPRService:
             work_repo = source
             head_label = branch_name
             find_head_labels = [
-                branch_name,
-                f"{login}:{branch_name}",
                 f"{source.owner_login}:{branch_name}",
+                f"{login}:{branch_name}",
+                branch_name,
             ]
+
         else:
             try:
                 fork = self._client.get_or_create_fork(source)
