@@ -206,3 +206,32 @@ async def test_apply_patches_validation_scenarios(monkeypatch):
         )
         assert patches_resp.status_code == 400
         assert "No GitHub repository configured" in patches_resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_unknown_scan_returns_404_no_mock_data():
+    """
+    Ensure the API returns HTTP 404 for non-existent scans instead of
+    fabricating mock scans or simulated SSE progressions.
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Non-existent scan should return 404 Not Found
+        missing_id = "scan_00000000000000000000000000000000"
+        resp = await client.get(f"/api/v1/scans/{missing_id}")
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"].lower()
+
+        # Stream endpoint for non-existent scan should also return 404
+        stream_resp = await client.get(f"/api/v1/scans/{missing_id}/stream")
+        assert stream_resp.status_code == 404
+
+        # Non-existent scan sub-resources should return empty lists, not mocks
+        patches_resp = await client.get(f"/api/v1/scans/{missing_id}/patches")
+        assert patches_resp.status_code == 200
+        assert patches_resp.json() == []
+
+        intents_resp = await client.get(f"/api/v1/scans/{missing_id}/intents")
+        assert intents_resp.status_code == 200
+        assert intents_resp.json() == []
+

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Computed, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, Computed, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -168,7 +168,9 @@ class Contradiction(Base):
     )
     entity: Mapped[str] = mapped_column(String(255), nullable=False)
     conflict: Mapped[str] = mapped_column(Text, nullable=False)
-    values: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    values: Mapped[list[Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
+    )
     severity: Mapped[str] = mapped_column(
         String(50), nullable=False, default="HARD_CONTRADICTION"
     )  # HARD_CONTRADICTION | SOFT_INCONSISTENCY
