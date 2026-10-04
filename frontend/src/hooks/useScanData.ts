@@ -100,11 +100,12 @@ export function useScanData(
       setContradictions((s) => ({ ...s, loading: true, error: null }));
       setPatches((s) => ({ ...s, loading: true, error: null }));
 
+      const scanRepo = scanData?.repo_url || scanData?.github_repo_url || undefined;
       const [intentsResult, contradictionsResult, patchesResult] =
         await Promise.allSettled([
           getIntents(id, ac.signal),
           getContradictions(id, ac.signal),
-          getPatches(id, ac.signal),
+          scanRepo ? getPatches(id, scanRepo, ac.signal) : getPatches(id, ac.signal),
         ]);
 
       if (!isMountedRef.current) return;

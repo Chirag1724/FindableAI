@@ -52,6 +52,12 @@ export type PatchType =
   | "heading_structure"
   | "factual_conflict_resolution";
 
+export interface AuxiliaryFile {
+  file_path: string;
+  content: string;
+  action: "create" | "modify" | "delete";
+}
+
 export interface PatchProposal {
   patch_id: string;
   patch_type: PatchType;
@@ -61,7 +67,12 @@ export interface PatchProposal {
   dom_anchor: DOMSelectorAnchor;
   unified_diff: string;
   applied: boolean;
+  target_file?: string | null;
+  code_diff?: string | null;
+  auxiliary_files?: AuxiliaryFile[];
+  framework?: string | null;
 }
+
 
 export interface AuditSummary {
   pages_crawled: number;

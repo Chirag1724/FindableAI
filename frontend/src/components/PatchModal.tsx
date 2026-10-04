@@ -1,11 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { X, GitPullRequest, ExternalLink, Loader2 } from "lucide-react";
+import {
+  X,
+  GitPullRequest,
+  ExternalLink,
+  Loader2,
+  FileCode,
+  Globe,
+  Check,
+  Copy,
+  RefreshCw,
+  Info,
+  Sparkles,
+} from "lucide-react";
 import type { PatchProposal, PullRequestResult } from "@/types/scan";
 import { parseUnifiedDiff } from "@/lib/diff";
 import type { DiffLine } from "@/lib/diff";
-import { applyPatches } from "@/lib/api";
+import { applyPatches, getPatches } from "@/lib/api";
 import type { ApiError } from "@/types/scan";
 import { EmptyState } from "./EmptyState";
 import { gsap, EASING, prefersReducedMotion } from "@/lib/motion";
@@ -77,12 +89,255 @@ function DiffRenderer({ diffText }: { diffText: string }) {
   );
 }
 
+function CodeFileViewer({ content, filePath }: { content: string; filePath: string }) {
+  const [copied, setCopied] = useState(false);
+  const lines = content.split("\n");
+
+  const handleCopy = () => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      void navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <div className="overflow-hidden rounded-lg shadow-border border border-white/[0.08]">
+      <div className="flex items-center justify-between bg-black/80 px-3.5 py-2 border-b border-white/[0.08] text-xs font-mono">
+        <span className="text-text-secondary flex items-center gap-1.5 truncate">
+          <FileCode size={13} className="text-emerald-400 shrink-0" aria-hidden="true" />
+          {filePath}
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-emerald-400 font-semibold bg-emerald-950/70 border border-emerald-800/50 px-2 py-0.5 rounded text-[10px] tracking-wide">
+            + NEW COMPONENT
+          </span>
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="flex items-center gap-1 text-[11px] text-text-muted hover:text-text-primary px-2 py-0.5 rounded hover:bg-white/10 transition-colors"
+            title="Copy code"
+          >
+            {copied ? (
+              <Check size={12} className="text-emerald-400" />
+            ) : (
+              <Copy size={12} />
+            )}
+            <span>{copied ? "Copied" : "Copy"}</span>
+          </button>
+        </div>
+      </div>
+      <div className="overflow-x-auto custom-scrollbar">
+        <pre className="min-w-max bg-black/60 p-3 font-mono text-xs leading-relaxed">
+          {lines.map((line, idx) => (
+            <div key={idx} className="flex bg-emerald-950/20 text-emerald-300">
+              <span className="w-8 shrink-0 select-none pr-2 text-right text-text-muted/40">
+                {idx + 1}
+              </span>
+              <span className="shrink-0 pr-2 select-none font-bold text-emerald-500/80">+</span>
+              <span>{line}</span>
+            </div>
+          ))}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
 const PATCH_TYPE_LABELS: Record<string, string> = {
   content_clarification: "Content",
   schema_microdata: "Schema",
   heading_structure: "Heading",
   factual_conflict_resolution: "Conflict Fix",
 };
+
+function PatchCard({
+  patch,
+  totalUnifiedCount,
+  totalPrDelta,
+}: {
+  patch: PatchProposal;
+  totalUnifiedCount?: number;
+  totalPrDelta?: number;
+}) {
+  const hasFrameworkPatch = Boolean(patch.target_file || patch.code_diff);
+  const auxiliaryFiles = patch.auxiliary_files ?? [];
+  const isMultiPatchPR = Boolean(hasFrameworkPatch && totalUnifiedCount && totalUnifiedCount > 1);
+
+  // Active file tab in framework PR view: target file (e.g. layout.tsx) or auxiliary file (e.g. JsonLd.tsx)
+  const [selectedFile, setSelectedFile] = useState<string>(
+    patch.target_file || (auxiliaryFiles[0]?.file_path ?? "")
+  );
+
+  useEffect(() => {
+    if (hasFrameworkPatch && patch.target_file) {
+      setSelectedFile(patch.target_file);
+    }
+  }, [hasFrameworkPatch, patch.target_file]);
+
+  const frameworkLabel =
+    patch.framework === "nextjs_app_router"
+      ? "Next.js App Router"
+      : patch.framework === "nextjs_pages"
+        ? "Next.js Pages Router"
+        : patch.framework || (hasFrameworkPatch ? "Framework Native" : null);
+
+  const displayTitle = isMultiPatchPR
+    ? `Pull Request Remediation (${totalUnifiedCount} Unified Patches)`
+    : patch.title;
+
+  const displayDelta = isMultiPatchPR
+    ? (totalPrDelta ?? patch.impact_score_delta)
+    : patch.impact_score_delta;
+
+  const displayRationale = isMultiPatchPR
+    ? `Consolidates all ${totalUnifiedCount} remediation patches into a single PR branch (layout.tsx & JsonLd.tsx) for machine discoverability.`
+    : patch.rationale;
+
+  return (
+    <div className="space-y-3" data-testid={`patch-card-${patch.patch_id}`}>
+      {/* Patch header */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="mb-1 flex items-center gap-2 flex-wrap">
+            <span className="rounded-md bg-violet-900/50 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-violet-300">
+              {PATCH_TYPE_LABELS[patch.patch_type] ?? patch.patch_type}
+            </span>
+            <span className="rounded-full bg-emerald-950/80 px-2 py-0.5 text-xs font-semibold text-emerald-400 border border-emerald-800/50">
+              +{displayDelta.toFixed(1)} pts
+            </span>
+            {frameworkLabel && (
+              <span className="rounded-md bg-blue-950/60 border border-blue-800/40 px-2 py-0.5 font-mono text-[10px] font-semibold text-blue-300">
+                ⚡ {frameworkLabel}
+              </span>
+            )}
+            {hasFrameworkPatch && (
+              <span className="rounded-md bg-emerald-950/40 border border-emerald-800/40 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-300 flex items-center gap-1">
+                <Sparkles size={11} className="text-emerald-400" />
+                1:1 GitHub PR Parity
+              </span>
+            )}
+            {!hasFrameworkPatch && patch.framework && (
+              <span className="rounded-md bg-blue-950/40 border border-blue-800/30 px-2 py-0.5 font-mono text-[10px] font-semibold text-blue-300">
+                ⚡ Included in PR (JsonLd.tsx)
+              </span>
+            )}
+          </div>
+          <h3 className="text-sm font-semibold text-text-primary">
+            {displayTitle}
+          </h3>
+          <p className="mt-1 text-xs text-text-muted leading-relaxed">
+            {displayRationale}
+          </p>
+        </div>
+      </div>
+
+      {/* Case 1: Primary Framework Patch - Show ONLY the exact PR files being modified/created */}
+      {hasFrameworkPatch ? (
+        <div className="space-y-2 border-b border-white/[0.08] pb-2.5">
+          {/* Sub-tabs for exact files modified/created in PR */}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar">
+              {patch.target_file && (
+                <button
+                  type="button"
+                  data-testid={`tab-${patch.target_file}`}
+                  onClick={() => setSelectedFile(patch.target_file!)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono transition-colors ${
+                    selectedFile === patch.target_file
+                      ? "bg-blue-950/70 text-blue-300 border border-blue-800/50 font-medium shadow-sm"
+                      : "text-text-muted hover:text-text-primary hover:bg-white/5"
+                  }`}
+                >
+                  <FileCode size={13} className="text-blue-400" />
+                  <span>{patch.target_file.split("/").pop()}</span>
+                  <span className="text-[10px] bg-blue-900/60 text-blue-200 border border-blue-700/40 px-1 rounded">
+                    diff
+                  </span>
+                </button>
+              )}
+
+              {auxiliaryFiles.map((aux) => (
+                <button
+                  key={aux.file_path}
+                  type="button"
+                  data-testid={`tab-${aux.file_path}`}
+                  onClick={() => setSelectedFile(aux.file_path)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono transition-colors ${
+                    selectedFile === aux.file_path
+                      ? "bg-emerald-950/70 text-emerald-300 border border-emerald-800/50 font-medium shadow-sm"
+                      : "text-text-muted hover:text-text-primary hover:bg-white/5"
+                  }`}
+                >
+                  <FileCode size={13} className="text-emerald-400" />
+                  <span>{aux.file_path.split("/").pop()}</span>
+                  <span className="text-[10px] bg-emerald-900/60 text-emerald-200 border border-emerald-700/40 px-1 rounded">
+                    + new component
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div className="text-[11px] text-text-muted font-mono flex items-center gap-1">
+              <Sparkles size={12} className="text-amber-400" />
+              <span>Exact PR files committed to branch</span>
+            </div>
+          </div>
+
+          {/* Active File Display */}
+          {selectedFile === patch.target_file ? (
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center justify-between text-xs px-1 text-text-muted font-mono">
+                <span className="text-text-secondary flex items-center gap-1.5">
+                  <FileCode size={13} className="text-blue-400" />
+                  {patch.target_file}
+                </span>
+                <span className="text-[10px] text-blue-400/80">Unified Git Diff</span>
+              </div>
+              <DiffRenderer diffText={patch.code_diff || patch.unified_diff} />
+            </div>
+          ) : (
+            auxiliaryFiles
+              .filter((aux) => aux.file_path === selectedFile)
+              .map((aux) => (
+                <div key={aux.file_path} className="pt-1">
+                  <CodeFileViewer
+                    content={aux.content}
+                    filePath={aux.file_path}
+                  />
+                </div>
+              ))
+          )}
+        </div>
+      ) : (
+        /* Case 2: Plain Static HTML Site (No Framework / No Repo) - Show raw DOM patch */
+        <div className="space-y-3">
+          <div className="rounded-lg bg-surface shadow-border px-3.5 py-3 space-y-2 text-xs">
+            <p className="font-medium text-text-muted">DOM Anchor</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] text-text-muted mb-0.5">Selector</p>
+                <p className="font-mono text-text-primary break-all">
+                  {patch.dom_anchor.css_selector}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-text-muted mb-0.5">Tag</p>
+                <p className="font-mono text-text-primary">
+                  {patch.dom_anchor.tag_name}
+                </p>
+              </div>
+            </div>
+          </div>
+          <DiffRenderer diffText={patch.unified_diff} />
+        </div>
+      )}
+
+      {/* Separator */}
+      <div className="h-px bg-white/[0.06]" />
+    </div>
+  );
+}
 
 export function PatchModal({
   scanId,
@@ -94,6 +349,8 @@ export function PatchModal({
   const [customRepoUrl, setCustomRepoUrl] = useState(repoUrl ?? "");
   const activeRepo = customRepoUrl.trim();
   const hasRepoUrl = Boolean(activeRepo.length > 0);
+  const [resolvedPatches, setResolvedPatches] = useState<PatchProposal[]>(patches);
+  const [resolvingDiffs, setResolvingDiffs] = useState(false);
   const [prState, setPrState] = useState<
     "idle" | "loading" | "success" | "error"
   >("idle");
@@ -105,11 +362,16 @@ export function PatchModal({
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const submitRef = useRef<HTMLButtonElement>(null);
 
-  const totalDelta = patches.reduce(
+  const totalDelta = resolvedPatches.reduce(
     (sum, p) => sum + p.impact_score_delta,
     0
   );
   const projectedScore = Math.min(100, currentScore + totalDelta);
+
+  const primaryFrameworkPatch = resolvedPatches.find(
+    (p) => Boolean(p.target_file || p.code_diff)
+  );
+  const hasFrameworkPR = Boolean(primaryFrameworkPatch);
 
   const handleAnimatedClose = useCallback(() => {
     if (prefersReducedMotion() || !panelRef.current || !backdropRef.current) {
@@ -154,6 +416,36 @@ export function PatchModal({
       );
     }
   }, []);
+
+  // Sync patches when prop updates
+  useEffect(() => {
+    setResolvedPatches(patches);
+  }, [patches]);
+
+  // Live framework patch enrichment when repository is present
+  const handleResolveFrameworkDiffs = useCallback(
+    async (targetRepo: string) => {
+      if (!targetRepo.trim() || typeof getPatches !== "function") return;
+      setResolvingDiffs(true);
+      try {
+        const updated = await getPatches(scanId, targetRepo.trim());
+        if (Array.isArray(updated) && updated.length > 0) {
+          setResolvedPatches(updated);
+        }
+      } catch {
+        // Fallback to existing proposals gracefully
+      } finally {
+        setResolvingDiffs(false);
+      }
+    },
+    [scanId]
+  );
+
+  useEffect(() => {
+    if (repoUrl && patches.length > 0 && patches.some((p) => !p.code_diff)) {
+      void handleResolveFrameworkDiffs(repoUrl);
+    }
+  }, [repoUrl, patches, handleResolveFrameworkDiffs]);
 
   // Focus trap
   useEffect(() => {
@@ -200,9 +492,15 @@ export function PatchModal({
       document.body.style.top = "";
       document.body.style.width = "";
       try {
-        window.scrollTo(0, scrollY);
+        if (
+          typeof window !== "undefined" &&
+          typeof window.scrollTo === "function" &&
+          process.env.NODE_ENV !== "test"
+        ) {
+          window.scrollTo(0, scrollY);
+        }
       } catch {
-        // Safe ignore in jsdom
+        // Safe ignore
       }
     };
   }, [handleAnimatedClose]);
@@ -220,6 +518,10 @@ export function PatchModal({
         : await applyPatches(scanId);
       setPrResult(result);
       setPrState("success");
+      const effectiveRepo = (hasOverride ? trimmedCustom : repoUrl) || "";
+      if (effectiveRepo) {
+        void handleResolveFrameworkDiffs(effectiveRepo);
+      }
     } catch (err) {
       const apiErr = err as ApiError;
       setPrError(apiErr.message ?? "Failed to create pull request.");
@@ -249,9 +551,11 @@ export function PatchModal({
               className="flex items-center gap-2 text-sm font-semibold text-text-primary"
             >
               <GitPullRequest size={16} aria-hidden="true" />
-              Proposed Patches ({patches.length})
+              {hasFrameworkPR
+                ? `Pull Request: ${resolvedPatches.length} Unified Patch${resolvedPatches.length === 1 ? "" : "es"}`
+                : `Proposed Patches (${resolvedPatches.length})`}
             </h2>
-            {patches.length > 0 && (
+            {resolvedPatches.length > 0 && (
               <p className="mt-0.5 text-xs text-text-muted">
                 Projected F-Score: {currentScore.toFixed(1)} &rarr;{" "}
                 <span className="font-semibold text-emerald-400">
@@ -274,72 +578,66 @@ export function PatchModal({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
-          {patches.length === 0 ? (
+          {resolvedPatches.length === 0 ? (
             <EmptyState
               title="No patches available"
               description="No remediation patches were generated for this scan."
             />
+          ) : hasFrameworkPR ? (
+            <div className="space-y-6">
+              {/* Primary Framework PR Files */}
+              <PatchCard
+                patch={primaryFrameworkPatch!}
+                totalUnifiedCount={resolvedPatches.length}
+                totalPrDelta={totalDelta}
+              />
+
+              {/* Remediations Bundled in this PR */}
+              {resolvedPatches.length > 1 && (
+                <div className="rounded-xl bg-surface/70 border border-white/[0.08] p-4 space-y-3">
+                  <div className="flex items-center justify-between text-xs pb-1 border-b border-white/[0.06]">
+                    <span className="font-semibold text-text-primary flex items-center gap-1.5">
+                      <GitPullRequest size={13} className="text-violet-400" />
+                      Remediations Bundled in this PR ({resolvedPatches.length})
+                    </span>
+                    <span className="font-mono text-emerald-400 font-semibold">
+                      +{totalDelta.toFixed(1)} pts total
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {resolvedPatches
+                      .filter((p) => p.patch_id !== primaryFrameworkPatch!.patch_id)
+                      .map((p) => (
+                        <div
+                          key={p.patch_id}
+                          className="flex items-start justify-between gap-3 p-3 rounded-lg bg-black/40 border border-white/[0.04] text-xs"
+                          data-testid={`patch-card-${p.patch_id}`}
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <span className="rounded bg-violet-900/50 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase text-violet-300">
+                                {PATCH_TYPE_LABELS[p.patch_type] ?? p.patch_type}
+                              </span>
+                              <span className="font-semibold text-text-primary text-xs">
+                                {p.title}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-text-muted leading-relaxed">
+                              {p.rationale}
+                            </p>
+                          </div>
+                          <span className="shrink-0 text-emerald-400 font-mono text-xs font-semibold bg-emerald-950/80 border border-emerald-800/40 px-2 py-0.5 rounded">
+                            +{p.impact_score_delta.toFixed(1)} pts
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
           ) : (
-            patches.map((patch) => (
-              <div
-                key={patch.patch_id}
-                className="space-y-3"
-              >
-                {/* Patch header */}
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="mb-1 flex items-center gap-2 flex-wrap">
-                      <span className="rounded-md bg-violet-900/50 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-violet-300">
-                        {PATCH_TYPE_LABELS[patch.patch_type] ?? patch.patch_type}
-                      </span>
-                      <span className="rounded-full bg-emerald-950/80 px-2 py-0.5 text-xs font-semibold text-emerald-400 border border-emerald-800/50">
-                        +{patch.impact_score_delta.toFixed(1)} pts
-                      </span>
-                    </div>
-                    <h3 className="text-sm font-semibold text-text-primary">
-                      {patch.title}
-                    </h3>
-                    <p className="mt-1 text-xs text-text-muted leading-relaxed">
-                      {patch.rationale}
-                    </p>
-                  </div>
-                </div>
-
-                {/* DOM anchor */}
-                <div className="rounded-lg bg-surface shadow-border px-3.5 py-3 space-y-2 text-xs">
-                  <p className="font-medium text-text-muted">DOM Anchor</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <p className="text-[10px] text-text-muted mb-0.5">Selector</p>
-                      <p className="font-mono text-text-primary break-all">{patch.dom_anchor.css_selector}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-text-muted mb-0.5">Tag</p>
-                      <p className="font-mono text-text-primary">{patch.dom_anchor.tag_name}</p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 pt-1">
-                    <div>
-                      <p className="text-[10px] text-text-muted mb-0.5">Before</p>
-                      <pre className="whitespace-pre-wrap break-all font-mono text-[10px] text-rose-300 bg-rose-950/30 rounded p-2 border border-rose-800/30">
-                        {patch.dom_anchor.original_snippet}
-                      </pre>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-text-muted mb-0.5">After</p>
-                      <pre className="whitespace-pre-wrap break-all font-mono text-[10px] text-emerald-300 bg-emerald-950/30 rounded p-2 border border-emerald-800/30">
-                        {patch.dom_anchor.suggested_snippet}
-                      </pre>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Diff */}
-                <DiffRenderer diffText={patch.unified_diff} />
-
-                {/* Separator */}
-                <div className="h-px bg-white/[0.06]" />
-              </div>
+            resolvedPatches.map((patch) => (
+              <PatchCard key={patch.patch_id} patch={patch} />
             ))
           )}
         </div>
@@ -384,14 +682,28 @@ export function PatchModal({
                       <span>Target GitHub Repository:</span>
                       <span className="text-[10px] text-text-muted/60">owner/repo or URL</span>
                     </label>
-                    <input
-                      id="patch-modal-repo-input"
-                      type="text"
-                      placeholder="https://github.com/Chirag1724/FindableAI"
-                      value={customRepoUrl}
-                      onChange={(e) => setCustomRepoUrl(e.target.value)}
-                      className="w-full rounded-md bg-black/50 border border-white/10 px-3 py-1.5 font-mono text-xs text-text-primary placeholder:text-text-muted/40 focus:border-blue-500 focus:outline-none"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        id="patch-modal-repo-input"
+                        type="text"
+                        placeholder="https://github.com/Chirag1724/FindableAI"
+                        value={customRepoUrl}
+                        onChange={(e) => setCustomRepoUrl(e.target.value)}
+                        className="w-full rounded-md bg-black/50 border border-white/10 px-3 py-1.5 font-mono text-xs text-text-primary placeholder:text-text-muted/40 focus:border-blue-500 focus:outline-none"
+                      />
+                      {activeRepo && (
+                        <button
+                          type="button"
+                          onClick={() => void handleResolveFrameworkDiffs(customRepoUrl)}
+                          disabled={resolvingDiffs}
+                          className="shrink-0 flex items-center gap-1.5 rounded-md bg-white/10 hover:bg-white/15 px-3 py-1.5 text-[11px] font-mono font-medium text-text-primary border border-white/10 transition-colors"
+                          title="Preview code diffs for this repository"
+                        >
+                          <RefreshCw size={11} className={resolvingDiffs ? "animate-spin" : ""} />
+                          <span>Sync</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -412,7 +724,7 @@ export function PatchModal({
                 type="button"
                 data-testid="create-pr-button"
                 onClick={() => void handleCreatePr()}
-                disabled={prState === "loading" || patches.length === 0 || !hasRepoUrl}
+                disabled={prState === "loading" || resolvedPatches.length === 0 || !hasRepoUrl}
                 title={!hasRepoUrl ? "Connect a GitHub repository to enable PR creation" : undefined}
                 className="flex w-full items-center justify-center gap-2 rounded-lg bg-white text-black px-5 py-3 text-xs font-semibold tracking-wider uppercase transition-all duration-150 hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 active:scale-[0.99]"
               >
@@ -439,4 +751,4 @@ export function PatchModal({
       </div>
     </div>
   );
-}
+}

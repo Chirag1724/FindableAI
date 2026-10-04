@@ -6,12 +6,16 @@ Uses P2-3.6 for PR body Markdown. Performs no intelligence decisions.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from collections import defaultdict
 from collections.abc import Sequence
 
+from app.engines.framework_adapter import (
+    inject_component_into_layout,
+    locate_framework_layout,
+    synthesize_framework_component,
+)
 from app.github.client import GitHubClient, GitHubClientError
 from app.github.pr_markdown import generate_pr_markdown
 from app.schemas.github_pr import (
@@ -457,196 +461,6 @@ def generate_remediation_guide(
                 lines.append("</details>")
                 lines.append("")
     return "\n".join(lines) + "\n"
-
-
-def locate_framework_layout(tree_files: Sequence[str]) -> tuple[str, str, str] | None:
-    """Finds root framework layout file in tree_files.
-    Returns (layout_file, component_file, import_path) or None.
-    """
-    if not tree_files:
-        return None
-
-    search_files = [
-        f
-        for f in tree_files
-        if not any(
-            f.lower().startswith(pfx) or f"/{pfx}" in f.lower() for pfx in _IGNORED_PATH_PREFIXES
-        )
-    ]
-
-    layout_candidates = [
-        "frontend/src/app/layout.tsx",
-        "frontend/src/app/layout.jsx",
-        "frontend/src/app/layout.js",
-        "src/app/layout.tsx",
-        "src/app/layout.jsx",
-        "src/app/layout.js",
-        "frontend/app/layout.tsx",
-        "frontend/app/layout.jsx",
-        "frontend/app/layout.js",
-        "app/layout.tsx",
-        "app/layout.jsx",
-        "app/layout.js",
-        "frontend/src/pages/_app.tsx",
-        "src/pages/_app.tsx",
-        "pages/_app.tsx",
-    ]
-
-    found_layout = None
-    for cand in layout_candidates:
-        for f in search_files:
-            if f.lower() == cand.lower():
-                found_layout = f
-                break
-        if found_layout:
-            break
-
-    if not found_layout:
-        for f in search_files:
-            if f.lower().endswith(("/app/layout.tsx", "/app/layout.jsx", "/app/layout.js")):
-                found_layout = f
-                break
-
-    if not found_layout:
-        return None
-
-    norm = found_layout.replace("\\", "/")
-    ext = ".tsx" if norm.endswith((".tsx", ".ts")) else ".jsx"
-
-    if "/app/" in norm:
-        prefix = norm.split("/app/")[0]
-        component_file = f"{prefix}/components/JsonLd{ext}" if prefix else f"components/JsonLd{ext}"
-    elif norm.startswith("app/"):
-        component_file = f"components/JsonLd{ext}"
-        prefix = ""
-    elif "/pages/" in norm:
-        prefix = norm.split("/pages/")[0]
-        component_file = f"{prefix}/components/JsonLd{ext}" if prefix else f"components/JsonLd{ext}"
-    elif norm.startswith("pages/"):
-        component_file = f"components/JsonLd{ext}"
-        prefix = ""
-    else:
-        prefix = norm.rsplit("/", 1)[0]
-        component_file = f"{prefix}/JsonLd{ext}"
-
-    if "src/" in norm:
-        import_path = "@/components/JsonLd"
-    elif prefix:
-        import_path = "../components/JsonLd"
-    else:
-        import_path = "@/components/JsonLd"
-
-    return (found_layout, component_file, import_path)
-
-
-def synthesize_framework_component(patches: Sequence[FormattedPatch]) -> str:
-    """Generates a type-safe React / Next.js JsonLd component with Schema.org payloads."""
-    schema_objs: list[dict[str, object]] = []
-
-    for p in patches:
-        if p.patched_html:
-            for script in _extract_ldjson_scripts(p.patched_html):
-                inner = re.sub(r"^<script\b[^>]*>", "", script, flags=re.IGNORECASE)
-                inner = re.sub(r"</script>$", "", inner.strip(), flags=re.IGNORECASE).strip()
-                try:
-                    parsed = json.loads(inner)
-                    if parsed not in schema_objs:
-                        schema_objs.append(parsed)
-                except Exception:
-                    pass
-
-        if p.patch_text and not schema_objs:
-            lines = []
-            capturing = False
-            for line in p.patch_text.splitlines():
-                if "<script" in line and "application/ld+json" in line:
-                    capturing = True
-                    continue
-                if capturing and "</script>" in line:
-                    capturing = False
-                    continue
-                if capturing:
-                    clean = line.lstrip("+").rstrip()
-                    lines.append(clean)
-            if lines:
-                try:
-                    parsed = json.loads("\n".join(lines))
-                    if parsed not in schema_objs:
-                        schema_objs.append(parsed)
-                except Exception:
-                    pass
-
-    if not schema_objs:
-        return ""
-
-    if len(schema_objs) == 1:
-        final_schema = schema_objs[0]
-    else:
-        final_schema = {
-            "@context": "https://schema.org",
-            "@graph": schema_objs,
-        }
-
-    schema_json = json.dumps(final_schema, indent=2)
-    indented_schema = "\n".join(
-        "  " + line if i > 0 else line for i, line in enumerate(schema_json.splitlines())
-    )
-
-    return (
-        "/**\n"
-        " * Machine-generated Schema.org JSON-LD component by FindableAI.\n"
-        " * Enhances discoverability for LLMs and AI Search Engines (SearchGPT, Perplexity, Google AI Overviews).\n"
-        " */\n"
-        "export function JsonLd() {\n"
-        f"  const schema = {indented_schema};\n\n"
-        "  return (\n"
-        "    <script\n"
-        '      type="application/ld+json"\n'
-        "      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}\n"
-        "    />\n"
-        "  );\n"
-        "}\n\n"
-        "export default JsonLd;\n"
-    )
-
-
-def inject_component_into_layout(
-    layout_content: str,
-    component_name: str = "JsonLd",
-    import_path: str = "@/components/JsonLd",
-) -> str:
-    """Safely injects import and JSX tag into framework layout file."""
-    if not layout_content or not layout_content.strip():
-        return layout_content
-
-    if f"<{component_name}" in layout_content or f'from "{import_path}"' in layout_content:
-        return layout_content
-
-    content = layout_content
-
-    import_stmt = f'import {{ {component_name} }} from "{import_path}";'
-    import_matches = list(re.finditer(r"^import\s+.*?(?:;|\n)", content, re.MULTILINE))
-    if import_matches:
-        last_import = import_matches[-1]
-        insert_idx = last_import.end()
-        prefix = content[:insert_idx]
-        if not prefix.endswith("\n"):
-            import_stmt = "\n" + import_stmt
-        import_stmt = import_stmt + "\n"
-        content = prefix + import_stmt + content[insert_idx:]
-    else:
-        content = import_stmt + "\n\n" + content
-
-    tag = f"<{component_name} />"
-    body_match = re.search(r"(<body\b[^>]*>)", content, re.IGNORECASE)
-    if body_match:
-        idx = body_match.end()
-        content = content[:idx] + f"\n        {tag}" + content[idx:]
-    elif "{children}" in content:
-        idx = content.find("{children}")
-        content = content[:idx] + f"{tag}\n        " + content[idx:]
-
-    return content
 
 
 class GitHubPRService:
