@@ -147,6 +147,7 @@ async def hybrid_search(
         lookup_keys = [str(scan_id)]
         if hasattr(scan_id, "hex"):
             lookup_keys.append(scan_id.hex)
+            lookup_keys.append(f"scan_{scan_id.hex}")
             lookup_keys.append(f"scan_{scan_id.hex[:12]}")
         raw_chunks = []
         for key in lookup_keys:
