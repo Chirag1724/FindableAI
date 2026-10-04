@@ -13,7 +13,10 @@ from app.github.pr_engine import (
     PREngineError,
     build_feature_branch_name,
     combine_patches_for_file,
+    inject_component_into_layout,
+    locate_framework_layout,
     normalize_repo_path,
+    synthesize_framework_component,
     validate_and_prepare_updates,
 )
 from app.schemas.github_pr import PREngineRequest
@@ -282,7 +285,9 @@ def test_branch_collision_rejected():
 
 def test_missing_file_produces_guidance_pr():
     service, _client = _service()
-    result = service.create_remediation_pr(_request(patches=[_applied_patch(file_path="missing.html")]))
+    result = service.create_remediation_pr(
+        _request(patches=[_applied_patch(file_path="missing.html")])
+    )
     assert result.pr_number == 1
     assert result.changed_files == ["docs/FINDABLE_AI_REMEDIATION.md"]
     assert "docs/FINDABLE_AI_REMEDIATION.md" in result.pr_body
@@ -345,7 +350,9 @@ def test_create_pr_direct_push_same_repo():
     # Check no get_or_create_fork call was made
     assert not any(c.startswith("get_or_create_fork:") for c in client.calls)
     # Check create_pull used clean branch name as head (not owner:branch)
-    assert "create_pull:acme-bot/demo-site:findableai/remediation/scan-direct-1->main" in client.calls
+    assert (
+        "create_pull:acme-bot/demo-site:findableai/remediation/scan-direct-1->main" in client.calls
+    )
 
 
 def test_create_pr_fork_fallback_when_no_push_access():
@@ -360,7 +367,10 @@ def test_create_pr_fork_fallback_when_no_push_access():
     assert result.source_repository == "upstream-org/target-site"
     assert result.fork_repository == "contributor-user/target-site"
     assert any(c.startswith("get_or_create_fork:upstream-org/target-site") for c in client.calls)
-    assert "create_pull:upstream-org/target-site:contributor-user:findableai/remediation/scan-fork-1->main" in client.calls
+    assert (
+        "create_pull:upstream-org/target-site:contributor-user:findableai/remediation/scan-fork-1->main"
+        in client.calls
+    )
 
 
 def test_create_pr_forking_disabled_raises_error():
@@ -467,3 +477,92 @@ def test_create_pr_without_any_scores_defaults_gracefully():
     assert result.delta == 0.0
     assert result.pr_number == 1
 
+
+def test_locate_framework_layout():
+    # Detects nested and top-level layouts with correct component paths and import aliases
+    tree_nested = ["frontend/src/app/layout.tsx", "frontend/src/app/page.tsx"]
+    layout, comp, imp = locate_framework_layout(tree_nested)
+    assert layout == "frontend/src/app/layout.tsx"
+    assert comp == "frontend/src/components/JsonLd.tsx"
+    assert imp == "@/components/JsonLd"
+
+    tree_root = ["app/layout.jsx", "app/page.jsx"]
+    layout, comp, imp = locate_framework_layout(tree_root)
+    assert layout == "app/layout.jsx"
+    assert comp == "components/JsonLd.jsx"
+    assert imp == "@/components/JsonLd"
+
+    assert locate_framework_layout(["index.html", "about.html"]) is None
+
+
+def test_synthesize_framework_component():
+    patch1 = _applied_patch(
+        opportunity_id="opp_site",
+        patched='<html><head><script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"Test"}</script></head><body></body></html>',
+    )
+    code = synthesize_framework_component([patch1])
+    assert "export function JsonLd()" in code
+    assert '"@type": "WebSite"' in code
+    assert "dangerouslySetInnerHTML" in code
+
+
+def test_inject_component_into_layout():
+    layout = 'import "./globals.css";\n\nexport default function RootLayout({ children }) {\n  return (\n    <html>\n      <body>\n        {children}\n      </body>\n    </html>\n  );\n}'
+    injected = inject_component_into_layout(layout, "JsonLd", "@/components/JsonLd")
+    assert 'import { JsonLd } from "@/components/JsonLd";' in injected
+    assert "<JsonLd />" in injected
+    # Idempotency
+    injected_twice = inject_component_into_layout(injected, "JsonLd", "@/components/JsonLd")
+    assert injected == injected_twice
+
+
+def test_create_pr_framework_layout_generates_component_and_layout_diff():
+    # Seeds a Next.js App Router repository with layout.tsx
+    layout_content = 'import type { Metadata } from "next";\nimport "./globals.css";\n\nexport default function RootLayout({ children }: { children: React.ReactNode }) {\n  return (\n    <html lang="en">\n      <body className="bg-background">\n        {children}\n      </body>\n    </html>\n  );\n}'
+    client = FakeGitHubClient(login="acme-bot")
+    client.seed_repo(
+        "acme-bot/nextjs-app",
+        files={
+            "frontend/src/app/layout.tsx": layout_content,
+            "frontend/src/app/page.tsx": "export default function Home() { return <h1>Home</h1>; }",
+        },
+        allow_push=True,
+    )
+    service = GitHubPRService(client)
+
+    patch = _applied_patch(
+        opportunity_id="opp-site-1",
+        file_path="index.html",
+        patched='<html><head><script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"Acme"}</script></head><body></body></html>',
+    )
+    req = _request(
+        source_repo="acme-bot/nextjs-app",
+        scan_id="scan-nextjs-real-1",
+        patches=[patch],
+    )
+    result = service.create_remediation_pr(req)
+
+    assert result.source_repository == "acme-bot/nextjs-app"
+    assert result.pr_number == 1
+    # Verify exact code files changed in PR instead of docs/FINDABLE_AI_REMEDIATION.md
+    assert result.changed_files == [
+        "frontend/src/components/JsonLd.tsx",
+        "frontend/src/app/layout.tsx",
+    ]
+    assert "docs/FINDABLE_AI_REMEDIATION.md" not in result.changed_files
+    # Verify layout.tsx was committed with <JsonLd />
+    updated_layout = client.get_file(
+        client.get_repository("acme-bot/nextjs-app"),
+        "frontend/src/app/layout.tsx",
+        ref=result.generated_branch,
+    )
+    assert "<JsonLd />" in updated_layout.content
+    assert 'import { JsonLd } from "@/components/JsonLd";' in updated_layout.content
+    # Verify JsonLd.tsx was created with the Schema.org JSON
+    created_comp = client.get_file(
+        client.get_repository("acme-bot/nextjs-app"),
+        "frontend/src/components/JsonLd.tsx",
+        ref=result.generated_branch,
+    )
+    assert '"@type": "WebSite"' in created_comp.content
+    assert "export function JsonLd()" in created_comp.content

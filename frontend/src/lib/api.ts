@@ -111,10 +111,12 @@ export async function getPatches(
 
 export async function applyPatches(
   scanId: string,
+  payload?: { repo_url?: string | null; target_branch?: string },
   signal?: AbortSignal
 ): Promise<PullRequestResult> {
   return request<PullRequestResult>(`/scans/${scanId}/patches/apply`, {
     method: "POST",
+    body: payload ? JSON.stringify(payload) : undefined,
     signal,
   });
 }

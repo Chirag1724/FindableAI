@@ -25,7 +25,9 @@ async def verify_api_key(
     configured_key = settings.API_KEY.strip()
     if not configured_key:
         if settings.ENVIRONMENT == "production":
-            logger.warning("API_KEY is not configured in production environment; mutating requests are open.")
+            logger.warning(
+                "API_KEY is not configured in production environment; mutating requests are open."
+            )
         return True
 
     provided_key = None

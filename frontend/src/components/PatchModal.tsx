@@ -91,7 +91,9 @@ export function PatchModal({
   repoUrl,
   onClose,
 }: PatchModalProps) {
-  const hasRepoUrl = Boolean(repoUrl && repoUrl.trim().length > 0);
+  const [customRepoUrl, setCustomRepoUrl] = useState(repoUrl ?? "");
+  const activeRepo = customRepoUrl.trim();
+  const hasRepoUrl = Boolean(activeRepo.length > 0);
   const [prState, setPrState] = useState<
     "idle" | "loading" | "success" | "error"
   >("idle");
@@ -211,7 +213,11 @@ export function PatchModal({
     setPrError(null);
 
     try {
-      const result = await applyPatches(scanId);
+      const trimmedCustom = customRepoUrl.trim();
+      const hasOverride = trimmedCustom.length > 0 && trimmedCustom !== (repoUrl ?? "").trim();
+      const result = hasOverride
+        ? await applyPatches(scanId, { repo_url: trimmedCustom })
+        : await applyPatches(scanId);
       setPrResult(result);
       setPrState("success");
     } catch (err) {
@@ -365,24 +371,41 @@ export function PatchModal({
             </div>
           ) : (
             <div className="flex flex-col gap-2.5">
-              {!hasRepoUrl && (
+              {!repoUrl && (
                 <div
                   data-testid="no-repo-warning"
-                  className="flex items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3.5 py-2 text-xs text-amber-300/90"
+                  className="flex flex-col gap-2 rounded-lg bg-surface/80 border border-amber-500/20 p-3 text-xs"
                 >
-                  <p>
-                    No GitHub repository connected for this scan. Add a GitHub repo URL in Advanced options when starting a scan to enable automated PR creation.
+                  <p className="text-amber-400/90 leading-relaxed">
+                    No GitHub repository connected for this scan. Add a GitHub repo URL in Advanced options when starting a scan to enable automated PR creation, or enter one below:
                   </p>
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="patch-modal-repo-input" className="text-text-muted font-medium flex items-center justify-between">
+                      <span>Target GitHub Repository:</span>
+                      <span className="text-[10px] text-text-muted/60">owner/repo or URL</span>
+                    </label>
+                    <input
+                      id="patch-modal-repo-input"
+                      type="text"
+                      placeholder="https://github.com/Chirag1724/FindableAI"
+                      value={customRepoUrl}
+                      onChange={(e) => setCustomRepoUrl(e.target.value)}
+                      className="w-full rounded-md bg-black/50 border border-white/10 px-3 py-1.5 font-mono text-xs text-text-primary placeholder:text-text-muted/40 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
                 </div>
               )}
-              {hasRepoUrl && repoUrl && (
+              {repoUrl && (
                 <div className="flex items-center justify-between text-[11px] text-text-muted px-0.5">
                   <span>Target Repository:</span>
-                  <span className="font-mono text-text-secondary">{repoUrl}</span>
+                  <span className="font-mono text-text-secondary">{activeRepo}</span>
                 </div>
               )}
               {prState === "error" && prError && (
-                <p className="text-xs text-rose-400">{prError}</p>
+                <div className="rounded-md bg-rose-950/40 border border-rose-800/40 px-3 py-2 text-xs text-rose-300">
+                  <p className="font-medium">PR Creation Failed</p>
+                  <p className="text-[11px] text-rose-400/90 mt-0.5">{prError}</p>
+                </div>
               )}
               <button
                 ref={submitRef}

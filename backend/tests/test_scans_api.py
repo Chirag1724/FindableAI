@@ -171,7 +171,11 @@ async def test_apply_patches_validation_scenarios(monkeypatch):
         # 1. Scan with invalid repo URL format
         resp = await client.post(
             "/api/v1/scans",
-            json={"url": "https://example-test.com", "max_pages": 1, "repo_url": "invalid-repo-format"},
+            json={
+                "url": "https://example-test.com",
+                "max_pages": 1,
+                "repo_url": "invalid-repo-format",
+            },
         )
         assert resp.status_code == 202
         scan_id = resp.json()["scan_id"]
@@ -184,7 +188,11 @@ async def test_apply_patches_validation_scenarios(monkeypatch):
         monkeypatch.setattr(settings, "GITHUB_TOKEN", "")
         resp_valid = await client.post(
             "/api/v1/scans",
-            json={"url": "https://example-test.com", "max_pages": 1, "repo_url": "https://github.com/my-org/my-site"},
+            json={
+                "url": "https://example-test.com",
+                "max_pages": 1,
+                "repo_url": "https://github.com/my-org/my-site",
+            },
         )
         assert resp_valid.status_code == 202
         scan_id_valid = resp_valid.json()["scan_id"]
@@ -234,4 +242,3 @@ async def test_unknown_scan_returns_404_no_mock_data():
         intents_resp = await client.get(f"/api/v1/scans/{missing_id}/intents")
         assert intents_resp.status_code == 200
         assert intents_resp.json() == []
-
