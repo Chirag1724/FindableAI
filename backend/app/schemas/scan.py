@@ -67,6 +67,10 @@ class ScanResponse(BaseModel):
         default=None,
         description="Execution mode: 'real_llm' or 'deterministic_fallback'",
     )
+    data_source: str = Field(
+        default="live_pipeline",
+        description="Data provenance: 'live_pipeline' or 'synthetic_fallback'",
+    )
     llm_calls_made: int | None = Field(
         default=0,
         description="Total LLM provider calls consumed via BudgetGuard",

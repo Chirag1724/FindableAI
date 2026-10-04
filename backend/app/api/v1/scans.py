@@ -8,13 +8,15 @@ from typing import Any
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
+from app.core.auth import verify_api_key
 from app.core.budget import BudgetGuard
 from app.core.config import settings
 from app.core.llm import LLMClient
+from app.core.rate_limiter import rate_limit_mutating, rate_limit_scans
 from app.core.security import SSRFSecurityException, validate_target_url
 from app.crawler.crawler import AsyncCrawler
 from app.crawler.dom_chunker import ChunkData, DOMChunker
@@ -408,13 +410,23 @@ async def run_scan_pipeline(
         contradictions: list[Contradiction] = list(orch_result.contradictions)
         score_breakdown = orch_result.score
 
-        execution_mode = "real_llm" if evaluations and llm_client.calls_made > 0 else "deterministic_fallback"
+        is_prod = settings.ENVIRONMENT.lower() == "production"
+        execution_mode = "real_llm" if evaluations and llm_client.calls_made > 0 else ("deterministic" if is_prod else "synthetic_fallback")
+        data_source = "live_pipeline" if (evaluations and llm_client.calls_made > 0) or is_prod else "synthetic_fallback"
 
         if not evaluations:
-            evaluations = _generate_fallback_evaluations(url, extracted_chunks)
+            if is_prod:
+                logger.warning("Production mode: Zero synthetic evaluations injected for scan %s", scan_id)
+                evaluations = []
+            else:
+                evaluations = _generate_fallback_evaluations(url, extracted_chunks)
 
         if not contradictions and orch_result.error:
-            contradictions = _generate_fallback_contradictions(url)
+            if is_prod:
+                logger.warning("Production mode: Zero synthetic contradictions injected for scan %s", scan_id)
+                contradictions = []
+            else:
+                contradictions = _generate_fallback_contradictions(url)
 
         # Build complete ScoreInputs
         score_inputs = ScoreInputs(
@@ -424,8 +436,8 @@ async def run_scan_pipeline(
             chunks=extracted_chunks,
         )
 
-        # Ensure score_breakdown is ALWAYS calculated via deterministic Scorer if DAG was in fallback
-        if score_breakdown is None:
+        # Ensure score_breakdown is calculated via deterministic Scorer if available
+        if score_breakdown is None and evaluations:
             try:
                 score_breakdown = Scorer().score(score_inputs)
             except Exception as scorer_err:
@@ -440,11 +452,15 @@ async def run_scan_pipeline(
             "Calculating weighted Findability metrics (Coverage, Entailment, Contradiction, Structure)...",
         )
 
+        f_score: FScoreBreakdown | None = None
         if score_breakdown is not None:
             f_score = adapt_score_breakdown_to_api(score_breakdown)
-        else:
-            logger.warning("Scorer execution returned None; using fallback F-score for %s", scan_id)
+        elif not is_prod:
+            logger.warning("Scorer execution returned None; using fallback F-score for %s in dev mode", scan_id)
             f_score = generate_mock_fscore(url)
+        else:
+            logger.warning("Scorer execution returned None; zero mock F-score in production for %s", scan_id)
+            f_score = None
 
         # Phase 8: GENERATING_PATCHES
         await _emit_event(
@@ -471,25 +487,35 @@ async def run_scan_pipeline(
                 patches = None
 
         if patches is None:
-            patches = generate_mock_patches(url=url, html=html_docs[0] if html_docs else "")
+            if is_prod:
+                patches = []
+            else:
+                patches = generate_mock_patches(url=url, html=html_docs[0] if html_docs else "")
 
         # Phase 9: COMPLETED
         end_time = datetime.now(UTC)
         exec_duration = (end_time - start_time).total_seconds()
 
+        final_status = ScanStatus.COMPLETED
+        final_error = None
+        if is_prod and orch_result.error and not evaluations:
+            final_status = ScanStatus.FAILED
+            final_error = orch_result.error
+
         summary = AuditSummary(
             pages_crawled=pages_crawled,
             dom_chunks_extracted=len(extracted_chunks),
-            intents_generated=len(evaluations) if evaluations else 30,
+            intents_generated=len(evaluations),
             contradictions_detected=len(contradictions),
             execution_time_seconds=round(exec_duration, 2),
         )
 
         llm_calls_made = llm_client.calls_made
         logger.info(
-            "Scan %s execution complete: execution_mode=%s, llm_calls_made=%d/%d, budget_remaining=%d",
+            "Scan %s execution complete: execution_mode=%s, data_source=%s, llm_calls_made=%d/%d, budget_remaining=%d",
             scan_id,
             execution_mode,
+            data_source,
             llm_calls_made,
             budget_guard.limit,
             budget_guard.remaining,
@@ -497,7 +523,7 @@ async def run_scan_pipeline(
 
         if scan_id in SCANS_DB:
             record = SCANS_DB[scan_id]
-            record.status = ScanStatus.COMPLETED
+            record.status = final_status
             record.completed_at = end_time
             record.f_score = f_score
             record.summary = summary
@@ -505,7 +531,10 @@ async def run_scan_pipeline(
             record.intents = evaluations
             record.contradictions = contradictions
             record.execution_mode = execution_mode
+            record.data_source = data_source
             record.llm_calls_made = llm_calls_made
+            if final_error:
+                record.error = final_error
 
         # Persist status to database if connected
         try:
@@ -610,7 +639,12 @@ async def run_scan_pipeline(
             await q.put(None)
 
 
-@router.post("", response_model=ScanResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "",
+    response_model=ScanResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(verify_api_key), Depends(rate_limit_scans)],
+)
 async def create_scan(request: ScanRequest, background_tasks: BackgroundTasks):
     """
     Initiates an asynchronous machine discoverability scan.
@@ -1037,7 +1071,11 @@ def parse_github_repo_owner_name(url: str) -> str:
     return f"{parts[0]}/{parts[1]}"
 
 
-@router.post("/{scan_id}/patches/apply", response_model=PullRequestResult)
+@router.post(
+    "/{scan_id}/patches/apply",
+    response_model=PullRequestResult,
+    dependencies=[Depends(verify_api_key), Depends(rate_limit_mutating)],
+)
 async def apply_scan_patch(scan_id: str) -> PullRequestResult:
     """Triggers autonomous GitHub PR creation for this scan's proposed patches (Task P1-2.4)."""
     if scan_id not in SCANS_DB:
