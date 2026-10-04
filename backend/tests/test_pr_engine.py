@@ -421,3 +421,49 @@ def test_create_pr_fuzzy_html_match_in_public_dir():
     assert result.source_repository == "acme-bot/static-app"
     assert result.changed_files == ["public/index.html"]
     assert result.pr_number == 1
+
+
+def test_create_pr_without_projections_succeeds():
+    # When projections list is omitted/empty, PR engine must not crash and should use request scores
+    client = FakeGitHubClient(login="acme-bot")
+    client.seed_repo("acme-bot/demo-site", files={"index.html": BASE_HTML}, allow_push=True)
+    service = GitHubPRService(client)
+
+    req = _request(
+        source_repo="acme-bot/demo-site",
+        scan_id="scan-no-proj-1",
+        projections=[],
+        current_score=75.0,
+        projected_score=82.5,
+    )
+    result = service.create_remediation_pr(req)
+
+    assert result.source_repository == "acme-bot/demo-site"
+    assert result.current_score == 75.0
+    assert result.projected_score == 82.5
+    assert result.delta == 7.5
+    assert "| Current | 75.0 |" in result.pr_body
+    assert "| Projected | 82.5 |" in result.pr_body
+    assert "| Improvement | +7.5 |" in result.pr_body
+
+
+def test_create_pr_without_any_scores_defaults_gracefully():
+    # When no projections or scores are provided, PR engine defaults gracefully to 0.0
+    client = FakeGitHubClient(login="acme-bot")
+    client.seed_repo("acme-bot/demo-site", files={"index.html": BASE_HTML}, allow_push=True)
+    service = GitHubPRService(client)
+
+    req = _request(
+        source_repo="acme-bot/demo-site",
+        scan_id="scan-no-scores-1",
+        projections=[],
+        opportunities=[],
+    )
+    result = service.create_remediation_pr(req)
+
+    assert result.source_repository == "acme-bot/demo-site"
+    assert result.current_score == 0.0
+    assert result.projected_score == 0.0
+    assert result.delta == 0.0
+    assert result.pr_number == 1
+

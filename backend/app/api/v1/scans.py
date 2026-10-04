@@ -966,6 +966,10 @@ async def apply_scan_patch(scan_id: str) -> PullRequestResult:
             )
         )
 
+    current_score = scan.f_score.overall_score if scan.f_score else 0.0
+    total_delta = sum(p.impact_score_delta for p in scan.patches)
+    projected_score = min(100.0, max(0.0, current_score + total_delta))
+
     try:
         gh_client = build_pygithub_client_from_token(token)
         pr_service = GitHubPRService(gh_client)
@@ -975,6 +979,8 @@ async def apply_scan_patch(scan_id: str) -> PullRequestResult:
             scan_id=scan_id,
             patches=formatted_patches,
             intent_evaluations=scan.intents,
+            current_score=current_score,
+            projected_score=projected_score,
             commit_message=f"fix(discoverability): apply FindableAI remediation patches for {scan_id}",
             pr_title=f"FindableAI: Machine Discoverability Remediation Patches ({scan_id})",
         )
