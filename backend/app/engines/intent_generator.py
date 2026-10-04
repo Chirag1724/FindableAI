@@ -6,7 +6,7 @@ import logging
 import re
 import time
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from app.core.llm import BudgetExhausted, LLMClient
 from app.schemas.intelligence import IntentBatch, IntentCategory, IntentQuery

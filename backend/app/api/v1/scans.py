@@ -614,11 +614,7 @@ async def run_scan_pipeline(
                             if hasattr(eval_item.status, "value")
                             else str(eval_item.status)
                         )
-                        cat_val = (
-                            eval_item.category.value
-                            if hasattr(eval_item.category, "value")
-                            else str(eval_item.category or "general")
-                        )
+                        cat_val = eval_item.category.value if eval_item.category else "general"
                         s.add(
                             IntentModel(
                                 id=uuid.uuid4(),

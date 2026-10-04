@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from app.api.v1.scans import _generate_fallback_evaluations
 from app.engines.intent_generator import resolve_query_persona, validate_intent_batch
 from app.schemas.intelligence import IntentBatch, IntentCategory, IntentQuery
