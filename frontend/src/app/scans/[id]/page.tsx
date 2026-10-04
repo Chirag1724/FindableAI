@@ -518,10 +518,10 @@ export default function ScanDashboardPage() {
           >
             <GitPullRequest size={15} aria-hidden="true" />
             {patches.loading
-              ? "Loading patches..."
+              ? "Loading fixes..."
               : patchCount > 0
-                ? `View ${patchCount} Unified Patch${patchCount === 1 ? "" : "es"}`
-                : "No patches required"}
+                ? "Review Suggested Fixes"
+                : "No fixes required"}
           </button>
         </div>
       )}
