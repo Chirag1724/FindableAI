@@ -186,8 +186,19 @@ def build_report_data(
         best = max(request.projections, key=lambda p: p.projected_score)
         projected = best.projected_score
         delta = projected - current
+    elif request.current_score is not None and request.projected_score is not None:
+        current = request.current_score
+        projected = request.projected_score
+        delta = projected - current
+    elif request.opportunities:
+        current = request.current_score or 0.0
+        opp_delta = sum(o.impact for o in request.opportunities)
+        projected = min(100.0, current + opp_delta)
+        delta = projected - current
     else:
-        raise PREngineError("projections required for PR report", reason="missing_scores")
+        current = 0.0
+        projected = 0.0
+        delta = 0.0
 
     gaps: list[str] = []
     for opp in request.opportunities:
@@ -195,6 +206,9 @@ def build_report_data(
             gaps.append(f"Missing {opp.schema_target.value}")
         else:
             gaps.append(opp.title)
+    if not gaps and request.patches:
+        for p in request.patches:
+            gaps.append(f"Missing {p.schema_type.value}")
     # Stable unique
     seen_gaps: set[str] = set()
     ordered_gaps: list[str] = []
@@ -230,6 +244,10 @@ def build_report_data(
         for update in file_updates
     ]
 
+    opp_titles = [o.title for o in request.opportunities]
+    if not opp_titles and request.patches:
+        opp_titles = [p.message for p in request.patches if p.message]
+
     return PRReportData(
         scan_id=request.scan_id,
         current_score=current,
@@ -239,7 +257,7 @@ def build_report_data(
         intent_evaluations=list(request.intent_evaluations),
         evidence_items=evidence,
         file_changes=file_changes,
-        opportunity_titles=[o.title for o in request.opportunities],
+        opportunity_titles=opp_titles,
     )
 
 
