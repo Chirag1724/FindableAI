@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "info"
 
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://findable:findable_secret@localhost:5432/findable_db"
+    DATABASE_URL: str = "postgresql+asyncpg://findable:findable_secret@localhost:5433/findable_db"
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"

@@ -51,6 +51,7 @@ class Scan(Base):
         index=True,
     )
     url: Mapped[str] = mapped_column(String(1024), nullable=False, index=True)
+    repo_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     status: Mapped[str] = mapped_column(
         String(50), nullable=False, default="in_progress", index=True
     )

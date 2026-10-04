@@ -37,6 +37,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
 # Request-ID & Structured Access Logging Middleware
 @app.middleware("http")
 async def request_id_and_logging_middleware(request: Request, call_next):

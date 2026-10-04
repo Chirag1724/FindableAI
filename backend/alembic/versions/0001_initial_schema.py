@@ -49,6 +49,7 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.Column("url", sa.String(length=1024), nullable=False),
+        sa.Column("repo_url", sa.String(length=1024), nullable=True),
         sa.Column("status", sa.String(length=50), server_default="in_progress", nullable=False),
         sa.Column("f_score", sa.Float(), nullable=True),
         sa.Column("s_ans", sa.Float(), nullable=True),

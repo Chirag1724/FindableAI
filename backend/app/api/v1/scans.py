@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.core.auth import verify_api_key
@@ -83,7 +84,6 @@ def resolve_scan_uuid(scan_id: str) -> uuid.UUID | None:
         return None
 
 
-
 def _generate_fallback_evaluations(url: str, chunks: Sequence[Any]) -> list[IntentEvaluation]:
     parsed = urlparse(url)
     domain = parsed.netloc or "Target Business"
@@ -106,14 +106,13 @@ def _generate_fallback_evaluations(url: str, chunks: Sequence[Any]) -> list[Inte
         status = (
             EntailmentStatus.SUPPORTED
             if i % 4 != 0
-            else (
-                EntailmentStatus.PARTIALLY_SUPPORTED
-                if i % 2 == 0
-                else EntailmentStatus.UNKNOWN
-            )
+            else (EntailmentStatus.PARTIALLY_SUPPORTED if i % 2 == 0 else EntailmentStatus.UNKNOWN)
         )
         evidence = []
-        if status in (EntailmentStatus.SUPPORTED, EntailmentStatus.PARTIALLY_SUPPORTED) and chunk_ids:
+        if (
+            status in (EntailmentStatus.SUPPORTED, EntailmentStatus.PARTIALLY_SUPPORTED)
+            and chunk_ids
+        ):
             cid = chunk_ids[(i - 1) % len(chunk_ids)]
             evidence.append(
                 EvidenceReference(
@@ -228,8 +227,8 @@ def generate_mock_patches(url: str = "https://example.com", html: str = "") -> l
             ),
             unified_diff=(
                 f"--- a/index.html\n+++ b/index.html\n@@ -2,3 +2,6 @@\n{head_snippet}\n"
-                f"+  <script type=\"application/ld+json\">\n"
-                f"+  {{\"@context\": \"https://schema.org\", \"@type\": \"Organization\", \"name\": \"{clean_name}\", \"url\": \"{url}\"}}\n"
+                f'+  <script type="application/ld+json">\n'
+                f'+  {{"@context": "https://schema.org", "@type": "Organization", "name": "{clean_name}", "url": "{url}"}}\n'
                 f"+  </script>\n</head>"
             ),
             applied=False,
@@ -315,12 +314,16 @@ async def run_scan_pipeline(
                 if page.html:
                     html_docs.append(page.html)
         else:
-            default_html = "<html><body><main><h1>Welcome</h1><p>Findable content</p></main></body></html>"
+            default_html = (
+                "<html><body><main><h1>Welcome</h1><p>Findable content</p></main></body></html>"
+            )
             extracted_chunks = chunker.chunk(default_html, url)
             html_docs = [default_html]
 
         if not html_docs:
-            html_docs = ["<html><body><main><h1>Welcome</h1><p>Findable content</p></main></body></html>"]
+            html_docs = [
+                "<html><body><main><h1>Welcome</h1><p>Findable content</p></main></body></html>"
+            ]
 
         CHUNKS_DB[scan_id] = extracted_chunks
         CHUNKS_DB[str(scan_uuid)] = extracted_chunks
@@ -411,19 +414,31 @@ async def run_scan_pipeline(
         score_breakdown = orch_result.score
 
         is_prod = settings.ENVIRONMENT.lower() == "production"
-        execution_mode = "real_llm" if evaluations and llm_client.calls_made > 0 else ("deterministic" if is_prod else "synthetic_fallback")
-        data_source = "live_pipeline" if (evaluations and llm_client.calls_made > 0) or is_prod else "synthetic_fallback"
+        execution_mode = (
+            "real_llm"
+            if evaluations and llm_client.calls_made > 0
+            else ("deterministic" if is_prod else "synthetic_fallback")
+        )
+        data_source = (
+            "live_pipeline"
+            if (evaluations and llm_client.calls_made > 0) or is_prod
+            else "synthetic_fallback"
+        )
 
         if not evaluations:
             if is_prod:
-                logger.warning("Production mode: Zero synthetic evaluations injected for scan %s", scan_id)
+                logger.warning(
+                    "Production mode: Zero synthetic evaluations injected for scan %s", scan_id
+                )
                 evaluations = []
             else:
                 evaluations = _generate_fallback_evaluations(url, extracted_chunks)
 
         if not contradictions and orch_result.error:
             if is_prod:
-                logger.warning("Production mode: Zero synthetic contradictions injected for scan %s", scan_id)
+                logger.warning(
+                    "Production mode: Zero synthetic contradictions injected for scan %s", scan_id
+                )
                 contradictions = []
             else:
                 contradictions = _generate_fallback_contradictions(url)
@@ -456,10 +471,14 @@ async def run_scan_pipeline(
         if score_breakdown is not None:
             f_score = adapt_score_breakdown_to_api(score_breakdown)
         elif not is_prod:
-            logger.warning("Scorer execution returned None; using fallback F-score for %s in dev mode", scan_id)
+            logger.warning(
+                "Scorer execution returned None; using fallback F-score for %s in dev mode", scan_id
+            )
             f_score = generate_mock_fscore(url)
         else:
-            logger.warning("Scorer execution returned None; zero mock F-score in production for %s", scan_id)
+            logger.warning(
+                "Scorer execution returned None; zero mock F-score in production for %s", scan_id
+            )
             f_score = None
 
         # Phase 8: GENERATING_PATCHES
@@ -700,6 +719,7 @@ async def create_scan(request: ScanRequest, background_tasks: BackgroundTasks):
                 db_scan = ScanModel(
                     id=scan_uuid,
                     url=str(request.url),
+                    repo_url=str(request.repo_url) if request.repo_url else None,
                     status="in_progress",
                 )
                 s.add(db_scan)
@@ -737,7 +757,9 @@ async def get_scan(scan_id: str) -> ScanResponse:
                     res_intents = await s.execute(stmt_intents)
                     db_intents = res_intents.scalars().all()
 
-                    stmt_cons = select(ContradictionModel).where(ContradictionModel.scan_id == scan_uuid)
+                    stmt_cons = select(ContradictionModel).where(
+                        ContradictionModel.scan_id == scan_uuid
+                    )
                     res_cons = await s.execute(stmt_cons)
                     db_cons = res_cons.scalars().all()
 
@@ -855,6 +877,8 @@ async def get_scan(scan_id: str) -> ScanResponse:
                         patches=converted_patches,
                         intents=converted_intents,
                         contradictions=converted_cons,
+                        repo_url=db_scan.repo_url,
+                        github_repo_url=db_scan.repo_url,
                     )
                     SCANS_DB[scan_id] = scan_resp
                     return scan_resp
@@ -1071,29 +1095,35 @@ def parse_github_repo_owner_name(url: str) -> str:
     return f"{parts[0]}/{parts[1]}"
 
 
+class ApplyScanPatchRequest(BaseModel):
+    repo_url: str | None = None
+    target_branch: str = "main"
+
+
 @router.post(
     "/{scan_id}/patches/apply",
     response_model=PullRequestResult,
     dependencies=[Depends(verify_api_key), Depends(rate_limit_mutating)],
 )
-async def apply_scan_patch(scan_id: str) -> PullRequestResult:
+async def apply_scan_patch(
+    scan_id: str,
+    payload: ApplyScanPatchRequest | None = None,
+) -> PullRequestResult:
     """Triggers autonomous GitHub PR creation for this scan's proposed patches (Task P1-2.4)."""
-    if scan_id not in SCANS_DB:
-        # Check DB
+    scan = SCANS_DB.get(scan_id)
+    if not scan:
         try:
-            scan_uuid = uuid.UUID(scan_id)
-            async with AsyncSessionLocal() as s:
-                db_scan = await s.get(ScanModel, scan_uuid)
-                if not db_scan:
-                    raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+            scan = await get_scan(scan_id)
+            SCANS_DB[scan_id] = scan
         except HTTPException:
             raise
         except Exception as err:
             raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found") from err
 
-    scan = SCANS_DB.get(scan_id)
-    if not scan:
-        raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+    # Check payload repo_url override
+    if payload and payload.repo_url and payload.repo_url.strip():
+        scan.repo_url = payload.repo_url.strip()
+        scan.github_repo_url = payload.repo_url.strip()
 
     repo_url = scan.repo_url or scan.github_repo_url
     if not repo_url or not str(repo_url).strip():
@@ -1109,6 +1139,18 @@ async def apply_scan_patch(scan_id: str) -> PullRequestResult:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+
+    # Persist repo_url back to DB if scan_uuid is valid
+    scan_uuid = resolve_scan_uuid(scan_id)
+    if scan_uuid:
+        try:
+            async with AsyncSessionLocal() as s:
+                async with s.begin():
+                    db_s = await s.get(ScanModel, scan_uuid)
+                    if db_s:
+                        db_s.repo_url = str(repo_url)
+        except Exception as db_e:
+            logger.debug("Failed saving updated repo_url in database: %s", db_e)
 
     if not scan.patches:
         raise HTTPException(
@@ -1136,6 +1178,8 @@ async def apply_scan_patch(scan_id: str) -> PullRequestResult:
             target_type = SchemaRemediationTarget.MENU
         elif "hour" in title_lower or "opening" in title_lower:
             target_type = SchemaRemediationTarget.OPENING_HOURS
+        elif "website" in title_lower or "organization" in title_lower:
+            target_type = SchemaRemediationTarget.LOCAL_BUSINESS
 
         file_path = "index.html"
         if p.unified_diff and "--- a/" in p.unified_diff:
@@ -1162,13 +1206,18 @@ async def apply_scan_patch(scan_id: str) -> PullRequestResult:
     current_score = scan.f_score.overall_score if scan.f_score else 0.0
     total_delta = sum(p.impact_score_delta for p in scan.patches)
     projected_score = min(100.0, max(0.0, current_score + total_delta))
+    target_branch = (
+        payload.target_branch.strip()
+        if payload and payload.target_branch and payload.target_branch.strip()
+        else "main"
+    )
 
     try:
         gh_client = build_pygithub_client_from_token(token)
         pr_service = GitHubPRService(gh_client)
         pr_request = PREngineRequest(
             source_repo=source_repo,
-            target_branch="main",
+            target_branch=target_branch,
             scan_id=scan_id,
             patches=formatted_patches,
             intent_evaluations=scan.intents,
@@ -1177,7 +1226,16 @@ async def apply_scan_patch(scan_id: str) -> PullRequestResult:
             commit_message=f"fix(discoverability): apply FindableAI remediation patches for {scan_id}",
             pr_title=f"FindableAI: Machine Discoverability Remediation Patches ({scan_id})",
         )
-        result = pr_service.create_remediation_pr(pr_request)
+        try:
+            result = pr_service.create_remediation_pr(pr_request)
+        except PREngineError as p_err:
+            if p_err.reason == "branch_exists":
+                suffix = datetime.now(UTC).strftime("%m%d%H%M")
+                pr_request.scan_id = f"{scan_id}-{suffix}"
+                result = pr_service.create_remediation_pr(pr_request)
+            else:
+                raise
+        logger.info("GitHub PR created successfully: PR #%s at %s", result.pr_number, result.pr_url)
         return PullRequestResult(
             pr_url=result.pr_url,
             pr_number=result.pr_number,

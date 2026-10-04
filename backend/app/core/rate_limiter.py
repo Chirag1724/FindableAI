@@ -18,7 +18,9 @@ class SlidingWindowRateLimiter:
         self._requests: dict[str, list[float]] = defaultdict(list)
         self._lock = asyncio.Lock()
 
-    async def is_allowed(self, key: str, max_requests: int, window_seconds: int = 60) -> tuple[bool, int]:
+    async def is_allowed(
+        self, key: str, max_requests: int, window_seconds: int = 60
+    ) -> tuple[bool, int]:
         """
         Checks if the given key has exceeded max_requests in the trailing window_seconds.
         Returns (allowed: bool, retry_after_seconds: int).
@@ -48,6 +50,7 @@ def rate_limit(max_requests: int, window_seconds: int = 60, bucket: str = "gener
     """
     FastAPI dependency factory enforcing rate limits per client IP.
     """
+
     async def dependency(request: Request) -> None:
         if not settings.RATE_LIMIT_ENABLED or settings.ENVIRONMENT == "test":
             return

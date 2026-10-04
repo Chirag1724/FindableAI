@@ -440,7 +440,9 @@ class PyGithubClient:
             tree = gh_repo.get_git_tree(sha, recursive=True)
             return [str(item.path) for item in tree.tree if item.type == "blob"]
         except Exception as exc:
-            logger.warning("Could not retrieve git tree for %s ref %s: %s", repo.full_name, ref, exc)
+            logger.warning(
+                "Could not retrieve git tree for %s ref %s: %s", repo.full_name, ref, exc
+            )
             return []
 
     def create_or_update_file(
@@ -515,8 +517,18 @@ def build_pygithub_client_from_token(token: str) -> PyGithubClient:
     """Application-boundary helper. Never log the token."""
     if not token or not token.strip():
         raise GitHubClientError("GitHub token is required", reason="auth_failure")
-    import github
-    from github import Github
+    try:
+        import github
+        from github import Github
+    except ImportError:
+        import sys
+        from pathlib import Path
+
+        venv_pkg = Path(__file__).resolve().parents[2] / ".venv" / "Lib" / "site-packages"
+        if venv_pkg.exists() and str(venv_pkg) not in sys.path:
+            sys.path.insert(0, str(venv_pkg))
+        import github
+        from github import Github
 
     if hasattr(github, "Auth") and hasattr(github.Auth, "Token"):
         return PyGithubClient(Github(auth=github.Auth.Token(token.strip())))

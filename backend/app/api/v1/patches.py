@@ -4,7 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from app.api.v1.scans import SCANS_DB, apply_scan_patch, get_scan, parse_github_repo_owner_name
+from app.api.v1.scans import (
+    SCANS_DB,
+    ApplyScanPatchRequest,
+    apply_scan_patch,
+    get_scan,
+    parse_github_repo_owner_name,
+)
 from app.core.auth import verify_api_key
 from app.core.rate_limiter import rate_limit_mutating
 from app.db import AsyncSessionLocal
@@ -74,13 +80,21 @@ async def apply_patch_as_pr(request: ApplyPatchRequest) -> PullRequestResult:
                         matching_scan = await get_scan(scan_id_str)
                         break
         except Exception as db_err:
-            logger.warning("Database fallback lookup for patch '%s' failed: %s", request.patch_id, db_err)
+            logger.warning(
+                "Database fallback lookup for patch '%s' failed: %s", request.patch_id, db_err
+            )
 
     if matching_scan:
         matching_scan.repo_url = request.github_repo_url
         matching_scan.github_repo_url = request.github_repo_url
         SCANS_DB[matching_scan.scan_id] = matching_scan
-        return await apply_scan_patch(matching_scan.scan_id)
+        return await apply_scan_patch(
+            matching_scan.scan_id,
+            payload=ApplyScanPatchRequest(
+                repo_url=request.github_repo_url,
+                target_branch=request.target_branch,
+            ),
+        )
 
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,

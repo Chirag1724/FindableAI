@@ -142,8 +142,11 @@ async def hybrid_search(
         async with AsyncSessionLocal() as s:
             return await _execute_search(s)
     except Exception as exc:
-        logger.debug("Database hybrid_search unavailable (%s); using in-memory candidate scoring", exc)
+        logger.debug(
+            "Database hybrid_search unavailable (%s); using in-memory candidate scoring", exc
+        )
         from app.api.v1 import scans as scans_module
+
         lookup_keys = [str(scan_id)]
         if hasattr(scan_id, "hex"):
             lookup_keys.append(scan_id.hex)

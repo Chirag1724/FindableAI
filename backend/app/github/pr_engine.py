@@ -6,6 +6,7 @@ Uses P2-3.6 for PR body Markdown. Performs no intelligence decisions.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections import defaultdict
@@ -234,15 +235,26 @@ def build_report_data(
             seen_ev.add(key)
             evidence.append(ref)
 
-    file_changes = [
-        PRFileChange(
-            path=update.path,
-            summary="Added Schema.org JSON-LD: " + ", ".join(t.value for t in update.schema_types),
-            opportunity_ids=list(update.opportunity_ids),
-            schema_types=[t.value for t in update.schema_types],
+    file_changes = []
+    for update in file_updates:
+        if "JsonLd" in update.path:
+            summary = "Created Schema.org JSON-LD component: " + ", ".join(
+                t.value for t in update.schema_types
+            )
+        elif "layout." in update.path or "_app." in update.path:
+            summary = "Mounted <JsonLd /> in application root layout"
+        elif update.path.endswith((".html", ".htm")):
+            summary = "Added Schema.org JSON-LD: " + ", ".join(t.value for t in update.schema_types)
+        else:
+            summary = "Remediation update: " + ", ".join(t.value for t in update.schema_types)
+        file_changes.append(
+            PRFileChange(
+                path=update.path,
+                summary=summary,
+                opportunity_ids=list(update.opportunity_ids),
+                schema_types=[t.value for t in update.schema_types],
+            )
         )
-        for update in file_updates
-    ]
 
     opp_titles = [o.title for o in request.opportunities]
     if not opp_titles and request.patches:
@@ -261,6 +273,22 @@ def build_report_data(
     )
 
 
+_IGNORED_PATH_PREFIXES = (
+    "demo/",
+    "demo-site/",
+    "test/",
+    "tests/",
+    "fixture/",
+    "fixtures/",
+    "example/",
+    "examples/",
+    "dist/",
+    "build/",
+    "out/",
+    ".next/",
+)
+
+
 def resolve_target_file(tree_files: Sequence[str], path_hint: str) -> tuple[str | None, str]:
     """Search tree_files for target match.
 
@@ -272,8 +300,18 @@ def resolve_target_file(tree_files: Sequence[str], path_hint: str) -> tuple[str 
     if not tree_files:
         return (None, "none")
 
+    # Filter out demo/test/build files to avoid false positives
+    filtered_files = [
+        f
+        for f in tree_files
+        if not any(
+            f.lower().startswith(pfx) or f"/{pfx}" in f.lower() for pfx in _IGNORED_PATH_PREFIXES
+        )
+    ]
+    search_files = filtered_files if filtered_files else list(tree_files)
+
     # 1. Exact match
-    for f in tree_files:
+    for f in search_files:
         if f.lower() == path_hint.lower():
             if f.lower().endswith((".html", ".htm")):
                 return (f, "html")
@@ -284,20 +322,61 @@ def resolve_target_file(tree_files: Sequence[str], path_hint: str) -> tuple[str 
     if stem in ("index", "home", "root", "default"):
         # Root page search
         html_roots = [
-            f for f in tree_files
-            if f.lower() in ("public/index.html", "index.html", "index.htm", "static/index.html", "src/index.html")
+            f
+            for f in search_files
+            if f.lower()
+            in (
+                "public/index.html",
+                "index.html",
+                "index.htm",
+                "static/index.html",
+                "src/index.html",
+            )
         ]
         if html_roots:
             return (html_roots[0], "html")
 
         framework_roots = [
-            f for f in tree_files
-            if f.lower() in (
-                "app/page.tsx", "app/page.jsx", "app/page.js", "app/layout.tsx",
-                "src/app/page.tsx", "src/app/page.jsx", "src/app/page.js",
-                "pages/index.tsx", "pages/index.jsx", "pages/index.js",
-                "src/pages/index.tsx", "src/pages/index.jsx",
-                "src/app.vue", "src/app.tsx", "src/app.jsx",
+            f
+            for f in search_files
+            if f.lower()
+            in (
+                "app/page.tsx",
+                "app/page.jsx",
+                "app/page.js",
+                "app/layout.tsx",
+                "app/layout.jsx",
+                "src/app/page.tsx",
+                "src/app/page.jsx",
+                "src/app/page.js",
+                "src/app/layout.tsx",
+                "src/app/layout.jsx",
+                "pages/index.tsx",
+                "pages/index.jsx",
+                "pages/index.js",
+                "src/pages/index.tsx",
+                "src/pages/index.jsx",
+                "src/app.vue",
+                "src/app.tsx",
+                "src/app.jsx",
+                "frontend/src/app/page.tsx",
+                "frontend/src/app/layout.tsx",
+                "frontend/src/pages/index.tsx",
+                "frontend/pages/index.tsx",
+                "frontend/app/page.tsx",
+                "frontend/app/layout.tsx",
+                "client/src/app/page.tsx",
+                "client/src/pages/index.tsx",
+            )
+            or any(
+                f.lower().endswith(sub)
+                for sub in (
+                    "/layout.tsx",
+                    "/layout.jsx",
+                    "/layout.vue",
+                    "/app/page.tsx",
+                    "/src/app/page.tsx",
+                )
             )
         ]
         if framework_roots:
@@ -305,9 +384,13 @@ def resolve_target_file(tree_files: Sequence[str], path_hint: str) -> tuple[str 
 
     # For other stems (e.g. 'about', 'pricing', 'contact', 'events', 'faq')
     html_matches = [
-        f for f in tree_files
-        if f.lower().endswith((".html", ".htm")) and (
-            f.lower().endswith(f"/{stem}.html") or f.lower().endswith(f"/{stem}.htm") or f.lower() == f"{stem}.html"
+        f
+        for f in search_files
+        if f.lower().endswith((".html", ".htm"))
+        and (
+            f.lower().endswith(f"/{stem}.html")
+            or f.lower().endswith(f"/{stem}.htm")
+            or f.lower() == f"{stem}.html"
         )
     ]
     if len(html_matches) == 1:
@@ -315,8 +398,10 @@ def resolve_target_file(tree_files: Sequence[str], path_hint: str) -> tuple[str 
 
     framework_exts = (".tsx", ".jsx", ".vue", ".astro", ".svelte", ".js", ".ts")
     framework_matches = [
-        f for f in tree_files
-        if f.lower().endswith(framework_exts) and (
+        f
+        for f in search_files
+        if f.lower().endswith(framework_exts)
+        and (
             f"/{stem}/page." in f"/{f.lower()}"
             or f"/{stem}." in f"/{f.lower()}"
             or f"/{stem}/index." in f"/{f.lower()}"
@@ -347,7 +432,9 @@ def generate_remediation_guide(
     ]
     for path, patches in grouped_patches.items():
         resolved_path, kind = matched_files.get(path, (None, "none"))
-        target_display = f"`{resolved_path}` ({kind})" if resolved_path else f"`{path}` (unmatched route)"
+        target_display = (
+            f"`{resolved_path}` ({kind})" if resolved_path else f"`{path}` (unmatched route)"
+        )
         lines.append(f"### Target: {target_display}")
         lines.append("")
         for p in patches:
@@ -370,6 +457,196 @@ def generate_remediation_guide(
                 lines.append("</details>")
                 lines.append("")
     return "\n".join(lines) + "\n"
+
+
+def locate_framework_layout(tree_files: Sequence[str]) -> tuple[str, str, str] | None:
+    """Finds root framework layout file in tree_files.
+    Returns (layout_file, component_file, import_path) or None.
+    """
+    if not tree_files:
+        return None
+
+    search_files = [
+        f
+        for f in tree_files
+        if not any(
+            f.lower().startswith(pfx) or f"/{pfx}" in f.lower() for pfx in _IGNORED_PATH_PREFIXES
+        )
+    ]
+
+    layout_candidates = [
+        "frontend/src/app/layout.tsx",
+        "frontend/src/app/layout.jsx",
+        "frontend/src/app/layout.js",
+        "src/app/layout.tsx",
+        "src/app/layout.jsx",
+        "src/app/layout.js",
+        "frontend/app/layout.tsx",
+        "frontend/app/layout.jsx",
+        "frontend/app/layout.js",
+        "app/layout.tsx",
+        "app/layout.jsx",
+        "app/layout.js",
+        "frontend/src/pages/_app.tsx",
+        "src/pages/_app.tsx",
+        "pages/_app.tsx",
+    ]
+
+    found_layout = None
+    for cand in layout_candidates:
+        for f in search_files:
+            if f.lower() == cand.lower():
+                found_layout = f
+                break
+        if found_layout:
+            break
+
+    if not found_layout:
+        for f in search_files:
+            if f.lower().endswith(("/app/layout.tsx", "/app/layout.jsx", "/app/layout.js")):
+                found_layout = f
+                break
+
+    if not found_layout:
+        return None
+
+    norm = found_layout.replace("\\", "/")
+    ext = ".tsx" if norm.endswith((".tsx", ".ts")) else ".jsx"
+
+    if "/app/" in norm:
+        prefix = norm.split("/app/")[0]
+        component_file = f"{prefix}/components/JsonLd{ext}" if prefix else f"components/JsonLd{ext}"
+    elif norm.startswith("app/"):
+        component_file = f"components/JsonLd{ext}"
+        prefix = ""
+    elif "/pages/" in norm:
+        prefix = norm.split("/pages/")[0]
+        component_file = f"{prefix}/components/JsonLd{ext}" if prefix else f"components/JsonLd{ext}"
+    elif norm.startswith("pages/"):
+        component_file = f"components/JsonLd{ext}"
+        prefix = ""
+    else:
+        prefix = norm.rsplit("/", 1)[0]
+        component_file = f"{prefix}/JsonLd{ext}"
+
+    if "src/" in norm:
+        import_path = "@/components/JsonLd"
+    elif prefix:
+        import_path = "../components/JsonLd"
+    else:
+        import_path = "@/components/JsonLd"
+
+    return (found_layout, component_file, import_path)
+
+
+def synthesize_framework_component(patches: Sequence[FormattedPatch]) -> str:
+    """Generates a type-safe React / Next.js JsonLd component with Schema.org payloads."""
+    schema_objs: list[dict[str, object]] = []
+
+    for p in patches:
+        if p.patched_html:
+            for script in _extract_ldjson_scripts(p.patched_html):
+                inner = re.sub(r"^<script\b[^>]*>", "", script, flags=re.IGNORECASE)
+                inner = re.sub(r"</script>$", "", inner.strip(), flags=re.IGNORECASE).strip()
+                try:
+                    parsed = json.loads(inner)
+                    if parsed not in schema_objs:
+                        schema_objs.append(parsed)
+                except Exception:
+                    pass
+
+        if p.patch_text and not schema_objs:
+            lines = []
+            capturing = False
+            for line in p.patch_text.splitlines():
+                if "<script" in line and "application/ld+json" in line:
+                    capturing = True
+                    continue
+                if capturing and "</script>" in line:
+                    capturing = False
+                    continue
+                if capturing:
+                    clean = line.lstrip("+").rstrip()
+                    lines.append(clean)
+            if lines:
+                try:
+                    parsed = json.loads("\n".join(lines))
+                    if parsed not in schema_objs:
+                        schema_objs.append(parsed)
+                except Exception:
+                    pass
+
+    if not schema_objs:
+        return ""
+
+    if len(schema_objs) == 1:
+        final_schema = schema_objs[0]
+    else:
+        final_schema = {
+            "@context": "https://schema.org",
+            "@graph": schema_objs,
+        }
+
+    schema_json = json.dumps(final_schema, indent=2)
+    indented_schema = "\n".join(
+        "  " + line if i > 0 else line for i, line in enumerate(schema_json.splitlines())
+    )
+
+    return (
+        "/**\n"
+        " * Machine-generated Schema.org JSON-LD component by FindableAI.\n"
+        " * Enhances discoverability for LLMs and AI Search Engines (SearchGPT, Perplexity, Google AI Overviews).\n"
+        " */\n"
+        "export function JsonLd() {\n"
+        f"  const schema = {indented_schema};\n\n"
+        "  return (\n"
+        "    <script\n"
+        '      type="application/ld+json"\n'
+        "      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}\n"
+        "    />\n"
+        "  );\n"
+        "}\n\n"
+        "export default JsonLd;\n"
+    )
+
+
+def inject_component_into_layout(
+    layout_content: str,
+    component_name: str = "JsonLd",
+    import_path: str = "@/components/JsonLd",
+) -> str:
+    """Safely injects import and JSX tag into framework layout file."""
+    if not layout_content or not layout_content.strip():
+        return layout_content
+
+    if f"<{component_name}" in layout_content or f'from "{import_path}"' in layout_content:
+        return layout_content
+
+    content = layout_content
+
+    import_stmt = f'import {{ {component_name} }} from "{import_path}";'
+    import_matches = list(re.finditer(r"^import\s+.*?(?:;|\n)", content, re.MULTILINE))
+    if import_matches:
+        last_import = import_matches[-1]
+        insert_idx = last_import.end()
+        prefix = content[:insert_idx]
+        if not prefix.endswith("\n"):
+            import_stmt = "\n" + import_stmt
+        import_stmt = import_stmt + "\n"
+        content = prefix + import_stmt + content[insert_idx:]
+    else:
+        content = import_stmt + "\n\n" + content
+
+    tag = f"<{component_name} />"
+    body_match = re.search(r"(<body\b[^>]*>)", content, re.IGNORECASE)
+    if body_match:
+        idx = body_match.end()
+        content = content[:idx] + f"\n        {tag}" + content[idx:]
+    elif "{children}" in content:
+        idx = content.find("{children}")
+        content = content[:idx] + f"{tag}\n        " + content[idx:]
+
+    return content
 
 
 class GitHubPRService:
@@ -406,7 +683,11 @@ class GitHubPRService:
         if can_push_directly:
             work_repo = source
             head_label = branch_name
-            find_head_labels = [branch_name, f"{login}:{branch_name}", f"{source.owner_login}:{branch_name}"]
+            find_head_labels = [
+                branch_name,
+                f"{login}:{branch_name}",
+                f"{source.owner_login}:{branch_name}",
+            ]
         else:
             try:
                 fork = self._client.get_or_create_fork(source)
@@ -427,7 +708,9 @@ class GitHubPRService:
         existing = None
         for h_label in find_head_labels:
             try:
-                existing = self._client.find_open_pull(source, head_full=h_label, base=target_branch)
+                existing = self._client.find_open_pull(
+                    source, head_full=h_label, base=target_branch
+                )
             except GitHubClientError as exc:
                 raise PREngineError(str(exc), reason=exc.reason) from exc
             if existing is not None:
@@ -483,9 +766,8 @@ class GitHubPRService:
             matched_files[path] = resolve_target_file(tree_files, path)
 
         # Check if all patches match actual HTML files that can be directly patched
-        all_html_matches = (
-            len(tree_files) > 0
-            and all(kind == "html" and res_path is not None for res_path, kind in matched_files.values())
+        all_html_matches = len(tree_files) > 0 and all(
+            kind == "html" and res_path is not None for res_path, kind in matched_files.values()
         )
 
         prepared: list[ValidatedRepoFileUpdate] = []
@@ -496,9 +778,13 @@ class GitHubPRService:
                 for path, path_patches in grouped.items():
                     target_file_path = matched_files[path][0] or path
                     try:
-                        remote = self._client.get_file(work_repo, target_file_path, ref=target_branch)
+                        remote = self._client.get_file(
+                            work_repo, target_file_path, ref=target_branch
+                        )
                     except GitHubClientError:
-                        remote = self._client.get_file(work_repo, target_file_path, ref=work_repo.default_branch)
+                        remote = self._client.get_file(
+                            work_repo, target_file_path, ref=work_repo.default_branch
+                        )
 
                     new_content = combine_patches_for_file(
                         base_html=remote.content,
@@ -518,9 +804,69 @@ class GitHubPRService:
                         )
                     )
             except (PREngineError, GitHubClientError) as prep_err:
-                logger.info("Direct HTML patch preparation failed, falling back to guidance PR: %s", prep_err)
+                logger.info(
+                    "Direct HTML patch preparation failed, falling back to guidance PR: %s",
+                    prep_err,
+                )
                 guidance_mode = True
                 prepared = []
+
+        # Tier 2: If HTML direct patching did not apply, check for modern framework layout (Next.js / React)
+        if guidance_mode:
+            framework_target = locate_framework_layout(tree_files)
+            if framework_target:
+                layout_file, component_file, import_path = framework_target
+                try:
+                    try:
+                        remote_layout = self._client.get_file(
+                            work_repo, layout_file, ref=target_branch
+                        )
+                    except GitHubClientError:
+                        remote_layout = self._client.get_file(
+                            work_repo, layout_file, ref=work_repo.default_branch
+                        )
+
+                    all_patches = [p for patches in grouped.values() for p in patches]
+                    component_content = synthesize_framework_component(all_patches)
+                    patched_layout = inject_component_into_layout(
+                        remote_layout.content,
+                        component_name="JsonLd",
+                        import_path=import_path,
+                    )
+
+                    if component_content:
+                        framework_updates = [
+                            ValidatedRepoFileUpdate(
+                                path=component_file,
+                                content=component_content,
+                                opportunity_ids=self._opportunity_ids(grouped),
+                                schema_types=[
+                                    p.schema_type for patches in grouped.values() for p in patches
+                                ],
+                            )
+                        ]
+                        if patched_layout != remote_layout.content:
+                            framework_updates.append(
+                                ValidatedRepoFileUpdate(
+                                    path=layout_file,
+                                    content=patched_layout,
+                                    opportunity_ids=self._opportunity_ids(grouped),
+                                    schema_types=[
+                                        p.schema_type
+                                        for patches in grouped.values()
+                                        for p in patches
+                                    ],
+                                )
+                            )
+                        prepared = framework_updates
+                        guidance_mode = False
+                except Exception as framework_err:
+                    logger.info(
+                        "Framework component generation failed, falling back to guidance PR: %s",
+                        framework_err,
+                    )
+                    guidance_mode = True
+                    prepared = []
 
         if guidance_mode:
             guide_path = "docs/FINDABLE_AI_REMEDIATION.md"
