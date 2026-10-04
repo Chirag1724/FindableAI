@@ -64,10 +64,10 @@ FindableAI is the first autonomous engine designed to diagnose, score, and remed
     ┌───────────────────────┴───────────────────────┐
     ▼                                               ▼
 [ F-Score Engine (0-100) ]              [ Autonomous Patch Generator ]
-  • Coverage Score (40%)                  • DOM-anchored diffs
-  • Entailment Score (35%)                • Schema.org JSON-LD microdata
-  • Contradiction Penalty (15%)           • Zero-hallucination guarantee
-  • Structural Clarity (10%)                        │
+  • Query Coverage Score (40%)            • DOM-anchored diffs
+  • Consistency Score (30%)               • Schema.org JSON-LD microdata
+  • Structural Clarity (20%)              • Evidence-grounded entailment checks
+  • Machine Extractability (10%)                    │
                                                     ▼
                                       [ GitHub PR Automated Engine ]
 ```
