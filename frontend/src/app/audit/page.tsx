@@ -15,10 +15,11 @@ import {
   Shield,
   Code2,
   Scale,
-  Sparkles,
   Zap,
   Globe,
   Lock,
+  Minus,
+  Plus,
 } from "lucide-react";
 import { createScan, getHealth } from "@/lib/api";
 import type { ApiError } from "@/types/scan";
@@ -48,10 +49,36 @@ const PERSONAS = [
   },
 ];
 
-const SAMPLE_URLS = [
-  { label: "Stripe", url: "https://stripe.com" },
-  { label: "Linear", url: "https://linear.app" },
-  { label: "Resend", url: "https://resend.com" },
+const DEMO_TARGET = {
+  url: "https://findableai.vercel.app/",
+  repoUrl: "https://github.com/Chirag1724/FindableAI",
+};
+
+const CRAWL_PRESETS = [
+  {
+    pages: 1,
+    title: "1 Page",
+    badge: "Homepage",
+    desc: "Single-page audit",
+  },
+  {
+    pages: 5,
+    title: "5 Pages",
+    badge: "Recommended",
+    desc: "Core conversion flow",
+  },
+  {
+    pages: 10,
+    title: "10 Pages",
+    badge: "Extended",
+    desc: "Key routes & docs",
+  },
+  {
+    pages: 25,
+    title: "25 Pages",
+    badge: "Deep",
+    desc: "Full site traversal",
+  },
 ];
 
 function HealthIndicator() {
@@ -216,58 +243,43 @@ export default function AuditPage() {
       {/* Top Navigation Bar */}
       <header className="sticky top-0 z-50 glass border-b border-white/[0.08] py-3 sm:py-3.5 w-full">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
-            {/* Logo */}
-            <Link href="/" className="flex items-center gap-2 sm:gap-3 group">
-              <Image
-                src="/logo.png"
-                alt="FindableAI Logo"
-                width={32}
-                height={32}
-                className="h-7 w-7 rounded-lg object-contain transition-transform duration-150 group-hover:scale-105"
-                priority
-              />
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-base tracking-tight text-text-primary font-semibold">
-                  FindableAI
-                </span>
-                <span className="text-[10px] font-mono tracking-widest text-text-muted uppercase hidden sm:inline">
-                  MDO
-                </span>
-              </div>
-            </Link>
-
-            {/* Navigation links & Breadcrumbs */}
-            <nav className="hidden md:flex items-center gap-6 text-xs font-medium tracking-wide">
+          <div className="grid grid-cols-3 items-center">
+            {/* Left: Back / Overview button */}
+            <div className="justify-self-start">
               <Link
                 href="/"
-                className="inline-flex items-center gap-1.5 text-text-muted hover:text-white transition-colors duration-150"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-text-muted hover:text-white transition-colors duration-150 py-1 px-2.5 rounded-lg bg-surface-secondary/50 border border-white/[0.06] hover:bg-surface-secondary"
+                aria-label="Back to overview"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
                 <span>Overview</span>
               </Link>
-              <Link
-                href="/#crawl"
-                className="text-text-muted hover:text-white transition-colors duration-150"
-              >
-                Extraction
-              </Link>
-              <Link
-                href="/#intent"
-                className="text-text-muted hover:text-white transition-colors duration-150"
-              >
-                Intent
-              </Link>
-              <Link
-                href="/#fscore"
-                className="text-text-muted hover:text-white transition-colors duration-150"
-              >
-                F-Score
-              </Link>
-            </nav>
+            </div>
 
-            {/* Right Status */}
-            <div className="flex items-center gap-3">
+            {/* Center: Brand Logo & Project Name */}
+            <div className="justify-self-center">
+              <Link href="/" className="flex items-center gap-2 sm:gap-2.5 group">
+                <Image
+                  src="/logo.png"
+                  alt="FindableAI Logo"
+                  width={32}
+                  height={32}
+                  className="h-7 w-7 rounded-lg object-contain transition-transform duration-150 group-hover:scale-105"
+                  priority
+                />
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-base tracking-tight text-text-primary font-semibold">
+                    FindableAI
+                  </span>
+                  <span className="text-[10px] font-mono tracking-widest text-text-muted uppercase hidden sm:inline">
+                    MDO
+                  </span>
+                </div>
+              </Link>
+            </div>
+
+            {/* Right: Status & GitHub */}
+            <div className="justify-self-end flex items-center gap-3">
               <HealthIndicator />
               <a
                 href="https://github.com/Chirag1724/FindableAI"
@@ -316,19 +328,20 @@ export default function AuditPage() {
                   Target Website URL <span className="text-rose-400">*</span>
                 </label>
 
-                {/* Quick Fill Sample Links */}
+                {/* Quick Fill */}
                 <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-mono text-text-muted">
                   <span>Quick test:</span>
-                  {SAMPLE_URLS.map((s) => (
-                    <button
-                      key={s.label}
-                      type="button"
-                      onClick={() => handleUrlChange(s.url)}
-                      className="px-2 py-0.5 rounded bg-surface-secondary text-text-muted hover:text-white hover:bg-white/[0.08] transition-colors duration-150 border border-white/[0.06]"
-                    >
-                      {s.label}
-                    </button>
-                  ))}
+                  <button
+                    type="button"
+                    data-testid="demo-fill-btn"
+                    onClick={() => {
+                      handleUrlChange(DEMO_TARGET.url);
+                      setRepoUrl(DEMO_TARGET.repoUrl);
+                    }}
+                    className="px-2 py-0.5 rounded bg-surface-secondary text-text-muted hover:text-white hover:bg-white/[0.08] transition-colors duration-150 border border-white/[0.06]"
+                  >
+                    FindableAI
+                  </button>
                 </div>
               </div>
 
@@ -413,38 +426,138 @@ export default function AuditPage() {
               </div>
             </div>
 
-            {/* Field 3: Crawl Scope Slider */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label
-                  htmlFor="max-pages-slider"
-                  className="block text-xs font-mono tracking-wider uppercase text-text-muted font-medium"
-                >
-                  Crawl Scope (Pages)
-                </label>
+            {/* Field 3: Crawl Scope (Production-grade) */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label
+                    htmlFor="max-pages-slider"
+                    className="block text-xs font-mono tracking-wider uppercase text-text-muted font-medium"
+                  >
+                    Crawl Scope (Pages)
+                  </label>
+                  <p className="text-[11px] text-text-muted mt-0.5">
+                    Select a preset or fine-tune page crawling depth with the slider.
+                  </p>
+                </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-text-muted">
-                    Est. {maxPages * 350}ms
+                  <span className="text-[11px] font-mono text-text-muted hidden sm:inline">
+                    Est. {maxPages <= 1 ? "~1.2s" : maxPages <= 5 ? `~${Math.round(maxPages * 0.7)}s` : `~${Math.round(maxPages * 0.55)}s`}
                   </span>
-                  <span className="font-mono text-xs text-text-primary bg-surface-secondary px-2.5 py-0.5 rounded-md shadow-border">
-                    {maxPages} {maxPages === 1 ? "page" : "pages"}
-                  </span>
+                  <div className="flex items-center bg-surface-secondary border border-white/[0.08] rounded-lg p-0.5 shadow-sm">
+                    <button
+                      type="button"
+                      aria-label="Decrease crawl pages"
+                      onClick={() => setMaxPages((p) => Math.max(1, p - 1))}
+                      disabled={maxPages <= 1}
+                      className="p-1 rounded text-text-muted hover:text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/[0.06] transition-colors"
+                    >
+                      <Minus className="h-3 w-3" />
+                    </button>
+                    <span
+                      data-testid="max-pages-count"
+                      className="font-mono text-xs font-semibold text-text-primary px-2.5 min-w-[70px] text-center"
+                    >
+                      {maxPages} {maxPages === 1 ? "page" : "pages"}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Increase crawl pages"
+                      onClick={() => setMaxPages((p) => Math.min(25, p + 1))}
+                      disabled={maxPages >= 25}
+                      className="p-1 rounded text-text-muted hover:text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/[0.06] transition-colors"
+                    >
+                      <Plus className="h-3 w-3" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <input
-                id="max-pages-slider"
-                type="range"
-                min={1}
-                max={25}
-                value={maxPages}
-                onChange={(e) => setMaxPages(parseInt(e.target.value, 10))}
-                className="w-full accent-white cursor-pointer bg-surface-secondary h-1.5 rounded-lg appearance-none"
-              />
-              <div className="flex justify-between text-[10px] font-mono text-text-muted mt-1.5">
-                <span>1 page (Homepage)</span>
-                <span>5 pages (Recommended)</span>
-                <span>25 pages (Deep)</span>
+              {/* Clickable Preset Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {CRAWL_PRESETS.map((preset) => {
+                  const isSelected = maxPages === preset.pages;
+                  return (
+                    <button
+                      key={preset.pages}
+                      type="button"
+                      data-testid={`preset-pages-${preset.pages}`}
+                      onClick={() => setMaxPages(preset.pages)}
+                      className={`relative flex flex-col items-start p-2.5 rounded-lg border text-left transition-all duration-150 focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 ${
+                        isSelected
+                          ? "bg-white/[0.08] border-white/30 text-white shadow-sm ring-1 ring-white/20"
+                          : "bg-surface-secondary/70 border-white/[0.06] hover:border-white/20 hover:bg-surface-secondary"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between w-full mb-1">
+                        <span className={`font-mono text-xs font-semibold ${isSelected ? "text-white" : "text-text-primary"}`}>
+                          {preset.title}
+                        </span>
+                        <span
+                          className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                            isSelected
+                              ? "bg-white/10 text-white border-white/20"
+                              : "bg-white/[0.04] text-text-muted border-white/[0.06]"
+                          }`}
+                        >
+                          {preset.badge}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-text-muted leading-tight">
+                        {preset.desc}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Slider Track with Dynamic Gradient Fill - Soft Minimalist Tone */}
+              <div className="pt-1.5">
+                <input
+                  id="max-pages-slider"
+                  type="range"
+                  min={1}
+                  max={25}
+                  value={maxPages}
+                  onChange={(e) => setMaxPages(parseInt(e.target.value, 10))}
+                  className="custom-range-slider"
+                  style={{
+                    background: `linear-gradient(to right, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.45) ${((maxPages - 1) / 24) * 100}%, rgba(255,255,255,0.08) ${((maxPages - 1) / 24) * 100}%, rgba(255,255,255,0.08) 100%)`,
+                  }}
+                />
+                <div className="flex justify-between text-[10px] font-mono text-text-muted mt-2 px-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setMaxPages(1)}
+                    className="hover:text-text-primary transition-colors cursor-pointer text-left"
+                  >
+                    1 page (Homepage)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMaxPages(5)}
+                    className="hover:text-text-primary transition-colors cursor-pointer text-center"
+                  >
+                    5 pages (Recommended)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMaxPages(25)}
+                    className="hover:text-text-primary transition-colors cursor-pointer text-right"
+                  >
+                    25 pages (Deep)
+                  </button>
+                </div>
+              </div>
+
+              {/* Engine Specs Bar */}
+              <div className="flex items-center justify-between text-[11px] font-mono text-text-muted bg-surface-secondary/40 border border-white/[0.04] px-3 py-1.5 rounded-md">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  <span>5 async workers</span>
+                </span>
+                <span>BFS domain traversal</span>
+                <span className="hidden sm:inline">SSRF protected</span>
               </div>
             </div>
 

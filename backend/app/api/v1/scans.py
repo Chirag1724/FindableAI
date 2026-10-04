@@ -57,6 +57,7 @@ from app.schemas.patch import DOMSelectorAnchor, PatchProposal, PatchType, PullR
 from app.schemas.patching import FormattedPatch, PatchFormatStatus, SchemaRemediationTarget
 from app.schemas.scan import (
     AuditSummary,
+    CrawledPageDetail,
     ScanRequest,
     ScanResponse,
     ScanStatus,
@@ -307,18 +308,35 @@ async def run_scan_pipeline(
         chunker = DOMChunker()
         extracted_chunks: list[ChunkData] = []
         html_docs: list[str] = []
+        crawled_pages_detail: list[CrawledPageDetail] = []
         if crawl_results:
             for page in crawl_results:
-                chunks = chunker.chunk(page.html, page.url)
+                chunks = chunker.chunk(page.html, page.url) if page.html else []
                 extracted_chunks.extend(chunks)
                 if page.html:
                     html_docs.append(page.html)
+                crawled_pages_detail.append(
+                    CrawledPageDetail(
+                        url=page.url,
+                        status_code=page.status_code,
+                        chunks_count=len(chunks),
+                        is_spa=page.is_spa,
+                    )
+                )
         else:
             default_html = (
                 "<html><body><main><h1>Welcome</h1><p>Findable content</p></main></body></html>"
             )
             extracted_chunks = chunker.chunk(default_html, url)
             html_docs = [default_html]
+            crawled_pages_detail = [
+                CrawledPageDetail(
+                    url=url,
+                    status_code=200,
+                    chunks_count=len(extracted_chunks),
+                    is_spa=False,
+                )
+            ]
 
         if not html_docs:
             html_docs = [
@@ -527,6 +545,8 @@ async def run_scan_pipeline(
             intents_generated=len(evaluations),
             contradictions_detected=len(contradictions),
             execution_time_seconds=round(exec_duration, 2),
+            max_pages_requested=max_pages,
+            crawled_pages=crawled_pages_detail,
         )
 
         llm_calls_made = llm_client.calls_made
@@ -546,6 +566,7 @@ async def run_scan_pipeline(
             record.completed_at = end_time
             record.f_score = f_score
             record.summary = summary
+            record.crawled_pages = crawled_pages_detail
             record.patches = patches
             record.intents = evaluations
             record.contradictions = contradictions
@@ -890,6 +911,13 @@ async def get_scan(scan_id: str) -> ScanResponse:
                         if db_scan.status in [e.value for e in ScanStatus]
                         else ScanStatus.COMPLETED
                     )
+                    crawled_fallback = [
+                        CrawledPageDetail(
+                            url=db_scan.url,
+                            status_code=200,
+                            chunks_count=len(converted_intents),
+                        )
+                    ]
                     scan_resp = ScanResponse(
                         scan_id=scan_id,
                         target_url=db_scan.url,
@@ -902,9 +930,12 @@ async def get_scan(scan_id: str) -> ScanResponse:
                             intents_generated=len(converted_intents),
                             contradictions_detected=len(converted_cons),
                             execution_time_seconds=0.0,
+                            max_pages_requested=1,
+                            crawled_pages=crawled_fallback,
                         )
                         if db_scan.status == "completed"
                         else None,
+                        crawled_pages=crawled_fallback,
                         patches=enrich_patches_with_framework(converted_patches, db_scan.repo_url),
                         intents=converted_intents,
                         contradictions=converted_cons,

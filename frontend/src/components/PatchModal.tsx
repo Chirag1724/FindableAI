@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import {
   X,
   GitPullRequest,
+  GitCommit,
   ExternalLink,
   Loader2,
   FileCode,
@@ -12,7 +13,7 @@ import {
   Copy,
   RefreshCw,
   Info,
-  Sparkles,
+  Code2,
 } from "lucide-react";
 import type { PatchProposal, PullRequestResult } from "@/types/scan";
 import { parseUnifiedDiff } from "@/lib/diff";
@@ -207,19 +208,21 @@ function PatchCard({
               +{displayDelta.toFixed(1)} pts
             </span>
             {frameworkLabel && (
-              <span className="rounded-md bg-blue-950/60 border border-blue-800/40 px-2 py-0.5 font-mono text-[10px] font-semibold text-blue-300">
-                ⚡ {frameworkLabel}
+              <span className="rounded-md bg-blue-950/60 border border-blue-800/40 px-2 py-0.5 font-mono text-[10px] font-semibold text-blue-300 flex items-center gap-1">
+                <Code2 size={11} className="text-blue-400" />
+                {frameworkLabel}
               </span>
             )}
             {hasFrameworkPatch && (
               <span className="rounded-md bg-emerald-950/40 border border-emerald-800/40 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-300 flex items-center gap-1">
-                <Sparkles size={11} className="text-emerald-400" />
+                <GitPullRequest size={11} className="text-emerald-400" />
                 1:1 GitHub PR Parity
               </span>
             )}
             {!hasFrameworkPatch && patch.framework && (
-              <span className="rounded-md bg-blue-950/40 border border-blue-800/30 px-2 py-0.5 font-mono text-[10px] font-semibold text-blue-300">
-                ⚡ Included in PR (JsonLd.tsx)
+              <span className="rounded-md bg-blue-950/40 border border-blue-800/30 px-2 py-0.5 font-mono text-[10px] font-semibold text-blue-300 flex items-center gap-1">
+                <Code2 size={11} className="text-blue-400" />
+                Included in PR (JsonLd.tsx)
               </span>
             )}
           </div>
@@ -278,8 +281,8 @@ function PatchCard({
               ))}
             </div>
 
-            <div className="text-[11px] text-text-muted font-mono flex items-center gap-1">
-              <Sparkles size={12} className="text-amber-400" />
+            <div className="text-[11px] text-text-muted font-mono flex items-center gap-1.5">
+              <GitCommit size={12} className="text-text-muted" />
               <span>Exact PR files committed to branch</span>
             </div>
           </div>
