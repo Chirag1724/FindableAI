@@ -280,11 +280,12 @@ def test_branch_collision_rejected():
         service.create_remediation_pr(_request(scan_id="scan-dup"))
 
 
-def test_missing_file_rejected():
+def test_missing_file_produces_guidance_pr():
     service, _client = _service()
-    with pytest.raises(PREngineError) as exc:
-        service.create_remediation_pr(_request(patches=[_applied_patch(file_path="missing.html")]))
-    assert exc.value.reason == "file_not_found"
+    result = service.create_remediation_pr(_request(patches=[_applied_patch(file_path="missing.html")]))
+    assert result.pr_number == 1
+    assert result.changed_files == ["docs/FINDABLE_AI_REMEDIATION.md"]
+    assert "docs/FINDABLE_AI_REMEDIATION.md" in result.pr_body
 
 
 def test_repo_not_found():
@@ -377,3 +378,46 @@ def test_create_pr_forking_disabled_raises_error():
     with pytest.raises(PREngineError) as exc:
         service.create_remediation_pr(req)
     assert exc.value.reason == "forking_disabled"
+
+
+def test_create_pr_framework_source_file_produces_guidance_pr():
+    # When a framework file like app/about/page.tsx is found, engine produces guidance PR instead of direct JSX injection
+    client = FakeGitHubClient(login="acme-bot")
+    client.seed_repo(
+        "acme-bot/nextjs-app",
+        files={"app/about/page.tsx": "export default function Page() { return <div>About</div>; }"},
+        allow_push=True,
+    )
+    service = GitHubPRService(client)
+
+    req = _request(
+        source_repo="acme-bot/nextjs-app",
+        scan_id="scan-nextjs-1",
+        patches=[_applied_patch(file_path="about.html")],
+    )
+    result = service.create_remediation_pr(req)
+
+    assert result.source_repository == "acme-bot/nextjs-app"
+    assert result.changed_files == ["docs/FINDABLE_AI_REMEDIATION.md"]
+    assert result.pr_number == 1
+    assert "docs/FINDABLE_AI_REMEDIATION.md" in result.pr_body
+    # Verify no direct update was attempted on app/about/page.tsx
+    assert not any("update_file:acme-bot/nextjs-app:app/about/page.tsx" in c for c in client.calls)
+
+
+def test_create_pr_fuzzy_html_match_in_public_dir():
+    # When HTML file is in public/index.html instead of root index.html, it auto-locates and commits direct diff to public/index.html
+    client = FakeGitHubClient(login="acme-bot")
+    client.seed_repo("acme-bot/static-app", files={"public/index.html": BASE_HTML}, allow_push=True)
+    service = GitHubPRService(client)
+
+    req = _request(
+        source_repo="acme-bot/static-app",
+        scan_id="scan-public-1",
+        patches=[_applied_patch(file_path="index.html")],
+    )
+    result = service.create_remediation_pr(req)
+
+    assert result.source_repository == "acme-bot/static-app"
+    assert result.changed_files == ["public/index.html"]
+    assert result.pr_number == 1
