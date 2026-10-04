@@ -614,11 +614,17 @@ async def run_scan_pipeline(
                             if hasattr(eval_item.status, "value")
                             else str(eval_item.status)
                         )
+                        cat_val = (
+                            eval_item.category.value
+                            if hasattr(eval_item.category, "value")
+                            else str(eval_item.category or "general")
+                        )
                         s.add(
                             IntentModel(
                                 id=uuid.uuid4(),
                                 scan_id=scan_uuid,
-                                category="general",
+                                category=cat_val,
+                                persona=eval_item.persona,
                                 query=eval_item.query,
                                 status=status_str,
                                 reasoning=eval_item.reasoning,
@@ -852,6 +858,14 @@ async def get_scan(scan_id: str) -> ScanResponse:
                         IntentEvaluation(
                             intent_id=f"intent_{it.id.hex[:8]}",
                             query=it.query,
+                            category=IntentCategory(it.category)
+                            if it.category in [c.value for c in IntentCategory]
+                            else None,
+                            persona=getattr(it, "persona", None) or resolve_query_persona(
+                                IntentCategory(it.category)
+                                if it.category in [c.value for c in IntentCategory]
+                                else IntentCategory.POLICY
+                            ),
                             status=EntailmentStatus(it.status)
                             if it.status in [e.value for e in EntailmentStatus]
                             else EntailmentStatus.UNKNOWN,
@@ -1069,6 +1083,12 @@ async def get_scan_intents(scan_id: str) -> list[dict[str, Any]]:
                         {
                             "intent_id": f"intent_{it.id.hex[:8]}",
                             "query": it.query,
+                            "category": it.category,
+                            "persona": getattr(it, "persona", None) or resolve_query_persona(
+                                IntentCategory(it.category)
+                                if it.category in [c.value for c in IntentCategory]
+                                else IntentCategory.POLICY
+                            ),
                             "status": it.status,
                             "reasoning": it.reasoning,
                             "evidence": [],
