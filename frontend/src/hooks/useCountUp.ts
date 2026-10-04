@@ -27,10 +27,11 @@ export function useCountUp(
     if (!el) return;
 
     // Respect reduced motion
-    const prefersReduced = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
-    ).matches;
-    if (prefersReduced) {
+    const prefersReduced =
+      typeof window !== "undefined" && typeof window.matchMedia === "function"
+        ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        : false;
+    if (prefersReduced || typeof IntersectionObserver === "undefined") {
       setDisplayValue(target.toFixed(decimals));
       return;
     }

@@ -74,12 +74,23 @@ export interface PatchProposal {
 }
 
 
+export interface CrawledPageDetail {
+  url: string;
+  status_code: number;
+  chunks_count: number;
+  load_time_ms?: number;
+  is_spa?: boolean;
+  title?: string;
+}
+
 export interface AuditSummary {
   pages_crawled: number;
   dom_chunks_extracted: number;
   intents_generated: number;
   contradictions_detected: number;
   execution_time_seconds: number;
+  max_pages_requested?: number;
+  crawled_pages?: CrawledPageDetail[];
 }
 
 export interface ScanResponse {
@@ -90,6 +101,7 @@ export interface ScanResponse {
   completed_at?: string;
   f_score?: FScoreBreakdown;
   summary?: AuditSummary;
+  crawled_pages?: CrawledPageDetail[];
   patches: PatchProposal[];
   error?: string;
   execution_mode?: "real_llm" | "deterministic_fallback" | string;

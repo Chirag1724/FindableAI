@@ -185,12 +185,27 @@ export function EvidenceViewer({ evidence, onClose, triggerRef }: EvidenceViewer
             </p>
           </section>
 
-          {/* Source URL */}
+          {/* Source URL & Route */}
           {evidence.url && (
             <section>
-              <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
-                Source URL
-              </h3>
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+                  Source URL
+                </h3>
+                {(() => {
+                  try {
+                    const parsed = new URL(evidence.url);
+                    const path = parsed.pathname || "/";
+                    return (
+                      <span className="inline-flex items-center gap-1 rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-text-secondary border border-white/[0.08]">
+                        Route: {path === "/" ? "/" : path}
+                      </span>
+                    );
+                  } catch {
+                    return null;
+                  }
+                })()}
+              </div>
               <a
                 href={evidence.url}
                 target="_blank"
