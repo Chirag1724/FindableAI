@@ -1,13 +1,19 @@
 import asyncio
+import logging
 import sys
+import time
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.requests import Request
 
 from .api.v1 import api_v1_router
 from .api.v1.scans import router as scans_router
 from .core.config import settings
+
+logger = logging.getLogger("findable.access")
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -31,13 +37,55 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Request-ID & Structured Access Logging Middleware
+@app.middleware("http")
+async def request_id_and_logging_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    start_time = time.perf_counter()
+
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        logger.error(
+            "HTTP request failed: method=%s path=%s duration=%.2fms error=%s request_id=%s",
+            request.method,
+            request.url.path,
+            duration_ms,
+            exc,
+            request_id,
+        )
+        raise
+
+    duration_ms = (time.perf_counter() - start_time) * 1000
+    response.headers["X-Request-ID"] = request_id
+
+    # Security headers
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+    logger.info(
+        "HTTP request: method=%s path=%s status=%d duration=%.2fms request_id=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+        request_id,
+    )
+    return response
+
+
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID", "Retry-After"],
 )
 
 # Mount API routes

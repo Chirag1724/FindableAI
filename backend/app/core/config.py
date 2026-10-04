@@ -45,6 +45,20 @@ class Settings(BaseSettings):
     # Hard global LLM provider-call cap per scan (P2-4.2). Not per-engine.
     MAX_LLM_CALLS_PER_SCAN: int = 35
 
+    # Security & Authentication
+    API_KEY: str = ""
+
+    # Rate Limiting
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_REQUESTS_PER_MINUTE: int = 60
+    RATE_LIMIT_SCANS_PER_MINUTE: int = 10
+
+    # Database Pool Settings
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+    DB_POOL_TIMEOUT: int = 30
+    DB_POOL_RECYCLE: int = 1800
+
     @field_validator("MAX_LLM_CALLS_PER_SCAN")
     @classmethod
     def _max_llm_calls_non_negative(cls, value: int) -> int:
