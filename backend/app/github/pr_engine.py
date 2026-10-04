@@ -360,13 +360,6 @@ class GitHubPRService:
     def __init__(self, github_client: GitHubClient) -> None:
         self._client = github_client
 
-    def _opportunity_ids(self, grouped: dict[str, list[FormattedPatch]]) -> list[str]:
-        ids: list[str] = []
-        for patches in grouped.values():
-            for p in patches:
-                ids.append(p.opportunity_id)
-        return sorted(set(ids))
-
     def create_remediation_pr(self, request: PREngineRequest) -> PREngineResult:
         if not isinstance(request, PREngineRequest):
             raise PREngineError("request must be PREngineRequest", reason="invalid_input")
