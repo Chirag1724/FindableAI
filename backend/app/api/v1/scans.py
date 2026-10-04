@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -736,11 +736,42 @@ async def create_scan(request: ScanRequest, background_tasks: BackgroundTasks):
     return new_scan
 
 
+def enrich_patches_with_framework(
+    patches: list[PatchProposal], repo_url: str | None
+) -> list[PatchProposal]:
+    """Enriches patches with framework-native diffs and auxiliary files when repo is connected."""
+    if not repo_url or not isinstance(repo_url, str) or not repo_url.strip() or not patches:
+        return patches
+    if any(p.target_file for p in patches):
+        return patches
+    try:
+        from app.engines.framework_adapter import resolve_framework_patches
+
+        token = settings.GITHUB_TOKEN
+        if token:
+            gh_client = build_pygithub_client_from_token(token)
+            source_repo = parse_github_repo_owner_name(repo_url.strip())
+            repo_ref = gh_client.get_repository(source_repo)
+            tree_files = gh_client.list_files(repo_ref, ref=repo_ref.default_branch)
+
+            def get_file_content(path: str) -> str:
+                return gh_client.get_file(repo_ref, path, ref=repo_ref.default_branch).content
+
+            return resolve_framework_patches(patches, tree_files, get_file_content)
+    except Exception as fw_err:
+        logger.debug("Framework patch resolution skipped: %s", fw_err)
+    return patches
+
+
 @router.get("/{scan_id}", response_model=ScanResponse)
 async def get_scan(scan_id: str) -> ScanResponse:
     """Fetches status and results of a scan."""
     if scan_id in SCANS_DB:
-        return SCANS_DB[scan_id]
+        record = SCANS_DB[scan_id]
+        target_repo = record.repo_url or record.github_repo_url
+        if target_repo and not any(p.target_file for p in record.patches):
+            record.patches = enrich_patches_with_framework(record.patches, target_repo)
+        return record
 
     # Query persistent PostgreSQL database
     scan_uuid = resolve_scan_uuid(scan_id)
@@ -874,7 +905,7 @@ async def get_scan(scan_id: str) -> ScanResponse:
                         )
                         if db_scan.status == "completed"
                         else None,
-                        patches=converted_patches,
+                        patches=enrich_patches_with_framework(converted_patches, db_scan.repo_url),
                         intents=converted_intents,
                         contradictions=converted_cons,
                         repo_url=db_scan.repo_url,
@@ -1041,20 +1072,47 @@ async def get_scan_contradictions(scan_id: str) -> list[dict[str, Any]]:
 
 
 @router.get("/{scan_id}/patches", response_model=list[PatchProposal])
-async def get_scan_patches(scan_id: str) -> list[PatchProposal]:
-    """Returns remediation code patches for this scan."""
+async def get_scan_patches(
+    scan_id: str,
+    repo_url: str | None = Query(
+        default=None, description="GitHub repository URL for framework-native diffs"
+    ),
+) -> list[PatchProposal]:
+    """Returns remediation code patches for this scan.
+
+    When ``repo_url`` is provided (or stored on the scan), patches are enriched
+    with framework-native code diffs so the UI preview matches the GitHub PR exactly.
+    """
+    patches: list[PatchProposal] = []
+    scan_repo_url: str | None = repo_url if isinstance(repo_url, str) else None
+
     if scan_id in SCANS_DB and SCANS_DB[scan_id].patches:
-        return SCANS_DB[scan_id].patches
+        patches = SCANS_DB[scan_id].patches
+        if not scan_repo_url:
+            scan_repo_url = getattr(SCANS_DB[scan_id], "repo_url", None) or getattr(
+                SCANS_DB[scan_id], "github_repo_url", None
+            )
 
     scan_uuid = resolve_scan_uuid(scan_id)
-    if scan_uuid:
+    if not scan_repo_url and scan_uuid:
+        try:
+            async with AsyncSessionLocal() as s:
+                scan_stmt = select(ScanModel).where(ScanModel.id == scan_uuid)
+                scan_result = await s.execute(scan_stmt)
+                db_scan = scan_result.scalar_one_or_none()
+                if db_scan:
+                    scan_repo_url = db_scan.repo_url
+        except Exception as e:
+            logger.debug("DB scan repo_url lookup error: %s", e)
+
+    if not patches and scan_uuid:
         try:
             async with AsyncSessionLocal() as s:
                 stmt = select(PatchModel).where(PatchModel.scan_id == scan_uuid)
                 result = await s.execute(stmt)
                 db_patches = result.scalars().all()
                 if db_patches:
-                    return [
+                    patches = [
                         PatchProposal(
                             patch_id=f"patch_{p.id.hex[:8]}",
                             patch_type=PatchType(p.patch_type)
@@ -1077,7 +1135,10 @@ async def get_scan_patches(scan_id: str) -> list[PatchProposal]:
         except Exception as e:
             logger.debug("DB patches lookup error: %s", e)
 
-    return []
+    if not patches:
+        return []
+
+    return enrich_patches_with_framework(patches, scan_repo_url)
 
 
 def parse_github_repo_owner_name(url: str) -> str:
@@ -1251,6 +1312,12 @@ async def apply_scan_patch(
         ) from exc
     except Exception as exc:
         logger.exception("Unexpected error during PR creation for scan %s", scan_id)
+        msg = str(exc)
+        if "timed out" in msg.lower() or "timeout" in msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="GitHub API timed out while communicating with repository. Please retry.",
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal error creating GitHub PR: {exc}",

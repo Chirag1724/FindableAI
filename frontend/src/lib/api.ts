@@ -104,9 +104,22 @@ export async function getContradictions(
 
 export async function getPatches(
   scanId: string,
-  signal?: AbortSignal
+  repoUrlOrSignal?: string | null | AbortSignal,
+  maybeSignal?: AbortSignal
 ): Promise<PatchProposal[]> {
-  return request<PatchProposal[]>(`/scans/${scanId}/patches`, { signal });
+  let repoUrl: string | null | undefined;
+  let signal: AbortSignal | undefined;
+
+  if (repoUrlOrSignal instanceof AbortSignal) {
+    signal = repoUrlOrSignal;
+    repoUrl = undefined;
+  } else {
+    repoUrl = repoUrlOrSignal;
+    signal = maybeSignal;
+  }
+
+  const query = repoUrl ? `?repo_url=${encodeURIComponent(repoUrl)}` : "";
+  return request<PatchProposal[]>(`/scans/${scanId}/patches${query}`, { signal });
 }
 
 export async function applyPatches(
