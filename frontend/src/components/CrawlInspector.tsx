@@ -255,6 +255,9 @@ export function CrawlInspector() {
               HEADLESS CHROMIUM v124
             </span>
           </div>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface shadow-border text-[10px] font-mono text-text-muted">
+            Sample Preview
+          </span>
           <span className="hidden sm:inline text-white/[0.2]">&bull;</span>
           <span className="hidden sm:inline font-mono text-[11px] text-text-muted">
             DOM Extraction Engine Active
@@ -270,7 +273,7 @@ export function CrawlInspector() {
                 setSelectedRouteId(r.id);
                 setSelectedNodeIndex(0);
               }}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-mono tracking-tight transition-all duration-150 shrink-0 ${
+              className={`px-2.5 py-1 rounded-md text-[11px] font-mono tracking-tight transition-all duration-150 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
                 selectedRouteId === r.id
                   ? "bg-white text-black font-semibold shadow-sm"
                   : "bg-surface-secondary text-text-muted hover:text-white hover:bg-white/[0.06]"
@@ -352,7 +355,7 @@ export function CrawlInspector() {
                   <button
                     key={idx}
                     onClick={() => setSelectedNodeIndex(idx)}
-                    className={`w-full text-left p-3 rounded-lg transition-all duration-150 flex items-center justify-between gap-3 ${
+                    className={`w-full text-left p-3 rounded-lg transition-all duration-150 flex items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
                       isSelected
                         ? "bg-surface-secondary ring-1 ring-emerald-500/40 shadow-sm"
                         : "bg-surface-secondary/50 hover:bg-surface-secondary hover:ring-1 hover:ring-white/10"

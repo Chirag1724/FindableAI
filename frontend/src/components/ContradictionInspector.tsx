@@ -72,6 +72,9 @@ export function ContradictionInspector() {
           <span className="font-mono text-xs font-semibold text-white tracking-wide">
             CROSS-PAGE NLI INFERENCE ENGINE
           </span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface shadow-border text-[10px] font-mono text-text-muted">
+            Sample Preview
+          </span>
           <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-950/50 text-rose-400 border border-rose-800/60">
             {CONTRADICTIONS_DATA.length} Conflicts Detected
           </span>
@@ -83,7 +86,7 @@ export function ContradictionInspector() {
             <button
               key={c.id}
               onClick={() => setActiveConflictId(c.id)}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-mono tracking-tight transition-all duration-150 shrink-0 ${
+              className={`px-2.5 py-1 rounded-md text-[11px] font-mono tracking-tight transition-all duration-150 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${
                 activeConflictId === c.id
                   ? "bg-white text-black font-semibold shadow-sm"
                   : "bg-surface-secondary text-text-muted hover:text-white hover:bg-white/[0.06]"

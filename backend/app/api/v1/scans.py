@@ -138,17 +138,9 @@ def generate_mock_fscore(url: str) -> FScoreBreakdown:
             strengths=["Clear brand identification", "Extractable capabilities"],
             gaps=["Missing security compliance details (SOC2 / GDPR)"],
         ),
-        entailment=SubScoreMetric(
-            name="Evidence Grounding & Entailment",
-            weight=0.35,
-            score=76.5,
-            details="Claims show high factual entailment in LLM answer extraction.",
-            strengths=["Key product and service specifications present"],
-            gaps=["Vague enterprise SLA claims lacking exact numbers"],
-        ),
         contradiction_penalty=SubScoreMetric(
             name="Contradiction Penalty",
-            weight=0.15,
+            weight=0.30,
             score=10.0,
             details=f"Minor claim variation detected across {domain} sections.",
             strengths=["Consistent product positioning"],
@@ -156,11 +148,19 @@ def generate_mock_fscore(url: str) -> FScoreBreakdown:
         ),
         structural_clarity=SubScoreMetric(
             name="DOM & Schema Structure",
-            weight=0.10,
+            weight=0.20,
             score=85.0,
             details=f"Semantic HTML elements present for {domain}, missing Schema.org JSON-LD.",
             strengths=["Clean H1-H3 heading hierarchy", "Proper HTML5 semantic elements"],
             gaps=["Missing Schema.org WebSite or Organization JSON-LD microdata"],
+        ),
+        entailment=SubScoreMetric(
+            name="Extractability & Accessibility",
+            weight=0.10,
+            score=76.5,
+            details="Machine accessibility of core business metadata (hours, address, phone).",
+            strengths=["Key product and service specifications present"],
+            gaps=["Vague enterprise SLA claims lacking exact numbers"],
         ),
     )
 

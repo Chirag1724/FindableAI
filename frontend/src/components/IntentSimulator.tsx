@@ -92,6 +92,9 @@ export function IntentSimulator() {
           <span className="font-mono text-xs font-semibold text-white tracking-wide">
             SYNTHETIC BUYER INTENT SIMULATION
           </span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface shadow-border text-[10px] font-mono text-text-muted">
+            Sample Preview
+          </span>
           <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface text-text-muted border border-white/[0.08]">
             30 Queries Generated
           </span>
@@ -102,7 +105,7 @@ export function IntentSimulator() {
             <button
               key={p}
               onClick={() => setSelectedPersona(p)}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-mono tracking-tight transition-all duration-150 shrink-0 ${
+              className={`px-2.5 py-1 rounded-md text-[11px] font-mono tracking-tight transition-all duration-150 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
                 selectedPersona === p
                   ? "bg-white text-black font-semibold shadow-sm"
                   : "bg-surface-secondary text-text-muted hover:text-white hover:bg-white/[0.06]"

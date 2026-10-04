@@ -21,13 +21,13 @@ class FScoreBreakdown(BaseModel):
     coverage: SubScoreMetric = Field(
         ..., description="Weight: 40% - Ratio of synthetic user queries answered by content"
     )
-    entailment: SubScoreMetric = Field(
-        ...,
-        description="Weight: 35% - Proportion of claims that strictly entail unambiguous factual grounding",
-    )
     contradiction_penalty: SubScoreMetric = Field(
-        ..., description="Weight: 15% - Penalty for conflicting facts across DOM chunks"
+        ..., description="Weight: 30% - Penalty for conflicting facts across DOM chunks"
     )
     structural_clarity: SubScoreMetric = Field(
-        ..., description="Weight: 10% - Schema.org JSON-LD microdata & semantic DOM completeness"
+        ..., description="Weight: 20% - Schema.org JSON-LD microdata & semantic DOM completeness"
+    )
+    entailment: SubScoreMetric = Field(
+        ...,
+        description="Weight: 10% - Machine accessibility & factual extractability of core business metadata",
     )
