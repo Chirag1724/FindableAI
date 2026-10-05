@@ -97,8 +97,7 @@ ehthumbs.db
 Thumbs.db
 Desktop.ini
 
-# AI tooling caches (local, machine-specific)
-graphify-out/cache/
+# AI tooling caches & visualization artifacts
+graphify-out/
 *.tsbuildinfo
 /package-lock.json
-graphify-out/.graphify_*.json
