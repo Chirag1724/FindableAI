@@ -6,7 +6,7 @@ import logging
 import re
 import time
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from app.core.llm import BudgetExhausted, LLMClient
 from app.schemas.intelligence import IntentBatch, IntentCategory, IntentQuery
@@ -90,16 +90,47 @@ def _category_distribution(queries: list[IntentQuery]) -> dict[str, int]:
     return {category.value: counts.get(category.value, 0) for category in TAXONOMY_CATEGORIES}
 
 
-def _build_system_prompt() -> str:
+def resolve_query_persona(category: IntentCategory, active_personas: Sequence[str] | None = None) -> str:
+    active = [p.lower().strip() for p in active_personas] if active_personas else ["cto", "developer", "procurement"]
+    preferences: dict[IntentCategory, list[str]] = {
+        IntentCategory.POLICY: ["cto", "procurement", "developer"],
+        IntentCategory.TRUST: ["cto", "developer", "procurement"],
+        IntentCategory.AVAILABILITY: ["cto", "developer", "procurement"],
+        IntentCategory.EDGE_CASES: ["cto", "developer", "procurement"],
+        IntentCategory.ACCESSIBILITY: ["developer", "cto", "procurement"],
+        IntentCategory.TRANSACTIONAL: ["developer", "procurement", "cto"],
+        IntentCategory.LOCAL: ["developer", "procurement", "cto"],
+        IntentCategory.ELIGIBILITY: ["developer", "procurement", "cto"],
+        IntentCategory.PRICING: ["procurement", "cto", "developer"],
+        IntentCategory.COMMERCIAL: ["procurement", "cto", "developer"],
+    }
+    for candidate in preferences.get(category, []):
+        if candidate in active:
+            return candidate
+    return active[0] if active else "cto"
+
+
+def _build_system_prompt(personas: Sequence[str] | None = None) -> str:
     taxonomy_lines = "\n".join(
         f"- {category.value}: {CATEGORY_DEFINITIONS[category]}" for category in TAXONOMY_CATEGORIES
     )
     category_values = ", ".join(c.value for c in TAXONOMY_CATEGORIES)
+    persona_guide = ""
+    if personas:
+        active_list = ", ".join(personas)
+        persona_guide = (
+            f"\n\nACTIVE PERSONAS: {active_list}\n"
+            "Tailor questions from the perspective of these personas "
+            "(e.g. CTO evaluates enterprise security, SLA, resilience, policy; "
+            "Developer evaluates APIs, technical integration, docs, error cases; "
+            "Procurement evaluates pricing models, licensing, commercial terms)."
+        )
+
     return f"""You are FindableAI's synthetic intent generator for machine-discoverability audits.
 
 ROLE:
 Generate realistic information-seeking questions a customer, search engine, or AI answer agent
-would ask about a business. You discover questions only — you never answer them.
+would ask about a business. You discover questions only — you never answer them.{persona_guide}
 
 OBJECTIVE:
 Produce exactly {REQUIRED_QUERY_COUNT} diverse questions distributed across the 10 taxonomy
@@ -156,7 +187,10 @@ def validate_business_context(business_context: str) -> str:
     return cleaned
 
 
-def validate_intent_batch(batch: IntentBatch) -> IntentBatch:
+def validate_intent_batch(
+    batch: IntentBatch,
+    personas: Sequence[str] | None = None,
+) -> IntentBatch:
     """
     Deterministic post-LLM validation.
 
@@ -262,9 +296,13 @@ def validate_intent_batch(batch: IntentBatch) -> IntentBatch:
     for query in normalized_queries:
         per_category_index[query.category.value] += 1
         idx = per_category_index[query.category.value]
+        assigned_persona = query.persona or resolve_query_persona(query.category, personas)
         finalized.append(
             query.model_copy(
-                update={"intent_id": f"{query.category.value}_{idx:02d}"},
+                update={
+                    "intent_id": f"{query.category.value}_{idx:02d}",
+                    "persona": assigned_persona,
+                },
             )
         )
 
@@ -281,14 +319,20 @@ class IntentGenerator:
     def llm_client(self) -> LLMClient:
         return self._llm
 
-    async def generate_intents(self, *, business_context: str) -> IntentBatch:
+    async def generate_intents(
+        self,
+        *,
+        business_context: str,
+        personas: Sequence[str] | None = None,
+    ) -> IntentBatch:
         cleaned_context = validate_business_context(business_context)
         started = time.perf_counter()
 
         logger.info(
-            "Intent generation started model=%s required_queries=%s",
+            "Intent generation started model=%s required_queries=%s personas=%s",
             self._llm.model,
             REQUIRED_QUERY_COUNT,
+            personas,
         )
 
         calls_before = self._llm.calls_made
@@ -297,7 +341,7 @@ class IntentGenerator:
             raw_batch = await self._llm.create(
                 IntentBatch,
                 messages=[
-                    {"role": "system", "content": _build_system_prompt()},
+                    {"role": "system", "content": _build_system_prompt(personas=personas)},
                     {"role": "user", "content": _build_user_prompt(cleaned_context)},
                 ],
                 max_retries=0,
@@ -327,7 +371,7 @@ class IntentGenerator:
             )
 
         try:
-            validated = validate_intent_batch(raw_batch)
+            validated = validate_intent_batch(raw_batch, personas=personas)
         except IntentGenerationError as exc:
             logger.error(
                 "Intent generation validation failed reason=%s model=%s",
@@ -353,8 +397,12 @@ class IntentGenerator:
 async def generate_intents(
     *,
     business_context: str,
+    personas: Sequence[str] | None = None,
     llm_client: LLMClient | None = None,
 ) -> IntentBatch:
     """Module-level entrypoint: business_context → single LLM call → IntentBatch."""
     generator = IntentGenerator(llm_client=llm_client)
-    return await generator.generate_intents(business_context=business_context)
+    return await generator.generate_intents(
+        business_context=business_context,
+        personas=personas,
+    )

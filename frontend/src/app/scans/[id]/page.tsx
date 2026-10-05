@@ -491,16 +491,17 @@ export default function ScanDashboardPage() {
                   Cross-Page Contradictions &amp; Conflicts
                 </h2>
                 <span className="font-mono text-[11px] text-text-muted">
-                  {contradictions.error ? (
-                    <ErrorState
-                      message={contradictions.error}
-                      onRetry={contradictions.retry}
-                    />
-                  ) : (
-                    <ContradictionCard contradictions={contradictions.data ?? []} />
-                  )}
+                  {contradictions.data?.length ?? displayScan.summary?.contradictions_detected ?? 0} Detected
                 </span>
               </div>
+              {contradictions.error ? (
+                <ErrorState
+                  message={contradictions.error}
+                  onRetry={contradictions.retry}
+                />
+              ) : (
+                <ContradictionCard contradictions={contradictions.data ?? []} />
+              )}
             </div>
           </div>
         )}
@@ -517,10 +518,10 @@ export default function ScanDashboardPage() {
           >
             <GitPullRequest size={15} aria-hidden="true" />
             {patches.loading
-              ? "Loading patches..."
+              ? "Loading fixes..."
               : patchCount > 0
-                ? `View ${patchCount} Unified Patch${patchCount === 1 ? "" : "es"}`
-                : "No patches required"}
+                ? "Review Suggested Fixes"
+                : "No fixes required"}
           </button>
         </div>
       )}

@@ -23,6 +23,7 @@ from app.crawler.crawler import AsyncCrawler
 from app.crawler.dom_chunker import ChunkData, DOMChunker
 from app.crawler.search import store_dom_chunks
 from app.db import AsyncSessionLocal
+from app.engines.intent_generator import resolve_query_persona
 from app.engines.patch_assembler import assemble_real_patches
 from app.engines.scorer import ScoreInputs, Scorer, adapt_score_breakdown_to_api
 from app.github.client import GitHubClientError, build_pygithub_client_from_token
@@ -51,6 +52,7 @@ from app.schemas.intelligence import (
     ContradictionSeverity,
     EntailmentStatus,
     EvidenceReference,
+    IntentCategory,
     IntentEvaluation,
 )
 from app.schemas.patch import DOMSelectorAnchor, PatchProposal, PatchType, PullRequestResult
@@ -85,20 +87,24 @@ def resolve_scan_uuid(scan_id: str) -> uuid.UUID | None:
         return None
 
 
-def _generate_fallback_evaluations(url: str, chunks: Sequence[Any]) -> list[IntentEvaluation]:
+def _generate_fallback_evaluations(
+    url: str,
+    chunks: Sequence[Any],
+    personas: Sequence[str] | None = None,
+) -> list[IntentEvaluation]:
     parsed = urlparse(url)
     domain = parsed.netloc or "Target Business"
     categories = [
-        "eligibility",
-        "policy",
-        "availability",
-        "pricing",
-        "accessibility",
-        "commercial",
-        "local",
-        "transactional",
-        "trust",
-        "edge_cases",
+        IntentCategory.ELIGIBILITY,
+        IntentCategory.POLICY,
+        IntentCategory.AVAILABILITY,
+        IntentCategory.PRICING,
+        IntentCategory.ACCESSIBILITY,
+        IntentCategory.COMMERCIAL,
+        IntentCategory.LOCAL,
+        IntentCategory.TRANSACTIONAL,
+        IntentCategory.TRUST,
+        IntentCategory.EDGE_CASES,
     ]
     evals = []
     chunk_ids = [getattr(c, "id", f"chunk_{i}") for i, c in enumerate(chunks[:5])]
@@ -121,12 +127,15 @@ def _generate_fallback_evaluations(url: str, chunks: Sequence[Any]) -> list[Inte
                     dom_path=f"body > main > section:nth-of-type({(i % 3) + 1})",
                 )
             )
+        persona = resolve_query_persona(cat, personas)
         evals.append(
             IntentEvaluation(
                 intent_id=f"intent_{i:02d}",
-                query=f"What are {domain}'s {cat} options and terms (query #{i})?",
+                query=f"What are {domain}'s {cat.value} options and terms (query #{i})?",
+                category=cat,
+                persona=persona,
                 status=status,
-                reasoning=f"Automated entailment analysis for {cat} intent.",
+                reasoning=f"Automated entailment analysis for {cat.value} intent from {persona} perspective.",
                 evidence=evidence,
                 confidence=0.88,
             )
@@ -266,6 +275,7 @@ async def run_scan_pipeline(
     scan_uuid: uuid.UUID,
     url: str,
     max_pages: int,
+    personas: list[str] | None = None,
 ) -> None:
     """
     Autonomous scan worker pipeline:
@@ -422,6 +432,7 @@ async def run_scan_pipeline(
         obs = ObservationInput(
             scan_id=str(scan_uuid),
             business_context=business_context,
+            personas=personas or ("cto", "developer", "procurement"),
             chunks=orch_chunks,
             html_documents=html_docs,
         )
@@ -450,7 +461,7 @@ async def run_scan_pipeline(
                 )
                 evaluations = []
             else:
-                evaluations = _generate_fallback_evaluations(url, extracted_chunks)
+                evaluations = _generate_fallback_evaluations(url, extracted_chunks, personas=personas)
 
         if not contradictions and orch_result.error:
             if is_prod:
@@ -603,11 +614,13 @@ async def run_scan_pipeline(
                             if hasattr(eval_item.status, "value")
                             else str(eval_item.status)
                         )
+                        cat_val = eval_item.category.value if eval_item.category else "general"
                         s.add(
                             IntentModel(
                                 id=uuid.uuid4(),
                                 scan_id=scan_uuid,
-                                category="general",
+                                category=cat_val,
+                                persona=eval_item.persona,
                                 query=eval_item.query,
                                 status=status_str,
                                 reasoning=eval_item.reasoning,
@@ -753,6 +766,7 @@ async def create_scan(request: ScanRequest, background_tasks: BackgroundTasks):
         scan_uuid,
         str(request.url),
         request.max_pages,
+        request.personas or ["cto", "developer", "procurement"],
     )
     return new_scan
 
@@ -840,6 +854,14 @@ async def get_scan(scan_id: str) -> ScanResponse:
                         IntentEvaluation(
                             intent_id=f"intent_{it.id.hex[:8]}",
                             query=it.query,
+                            category=IntentCategory(it.category)
+                            if it.category in [c.value for c in IntentCategory]
+                            else None,
+                            persona=getattr(it, "persona", None) or resolve_query_persona(
+                                IntentCategory(it.category)
+                                if it.category in [c.value for c in IntentCategory]
+                                else IntentCategory.POLICY
+                            ),
                             status=EntailmentStatus(it.status)
                             if it.status in [e.value for e in EntailmentStatus]
                             else EntailmentStatus.UNKNOWN,
@@ -1057,6 +1079,12 @@ async def get_scan_intents(scan_id: str) -> list[dict[str, Any]]:
                         {
                             "intent_id": f"intent_{it.id.hex[:8]}",
                             "query": it.query,
+                            "category": it.category,
+                            "persona": getattr(it, "persona", None) or resolve_query_persona(
+                                IntentCategory(it.category)
+                                if it.category in [c.value for c in IntentCategory]
+                                else IntentCategory.POLICY
+                            ),
                             "status": it.status,
                             "reasoning": it.reasoning,
                             "evidence": [],

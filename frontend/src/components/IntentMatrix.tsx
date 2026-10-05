@@ -65,6 +65,22 @@ function ExpandedRow({ intent, onEvidenceOpen }: ExpandedRowProps) {
 
   return (
     <div ref={rowRef} className="space-y-3 sm:space-y-4 px-4 sm:px-5 pb-4 sm:pb-5 pt-2 sm:pt-3 text-xs overflow-hidden">
+      {/* Target Persona */}
+      {intent.persona && (
+        <div>
+          <p className="mb-1 font-medium text-text-muted">Target Persona</p>
+          <span className="inline-flex items-center rounded-md bg-white/[0.04] border border-white/[0.08] px-2 py-0.5 font-mono text-[11px] text-text-primary capitalize">
+            {intent.persona === "cto"
+              ? "Skeptical CTO"
+              : intent.persona === "developer"
+              ? "Developer Evaluator"
+              : intent.persona === "procurement"
+              ? "Procurement Officer"
+              : intent.persona}
+          </span>
+        </div>
+      )}
+
       {/* Reasoning */}
       <div>
         <p className="mb-1 font-medium text-text-muted">Reasoning</p>
@@ -114,6 +130,7 @@ export function IntentMatrix({ intents }: IntentMatrixProps) {
   const [search, setSearch] = useState("");
   const [statusFilters, setStatusFilters] = useState<Set<EntailmentStatus>>(new Set());
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [personaFilter, setPersonaFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("status");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -142,6 +159,16 @@ export function IntentMatrix({ intents }: IntentMatrixProps) {
     return Array.from(cats).sort();
   }, [intents]);
 
+  const availablePersonas = useMemo(() => {
+    const list: string[] = [];
+    for (const intent of intents) {
+      if (intent.persona && !list.includes(intent.persona.toLowerCase())) {
+        list.push(intent.persona.toLowerCase());
+      }
+    }
+    return list;
+  }, [intents]);
+
   const filtered = useMemo(() => {
     let result = intents;
     if (search.trim()) {
@@ -150,7 +177,8 @@ export function IntentMatrix({ intents }: IntentMatrixProps) {
         (i) =>
           i.query.toLowerCase().includes(q) ||
           i.category.toLowerCase().includes(q) ||
-          i.reasoning.toLowerCase().includes(q)
+          i.reasoning.toLowerCase().includes(q) ||
+          (i.persona && i.persona.toLowerCase().includes(q))
       );
     }
     if (statusFilters.size > 0) {
@@ -159,8 +187,13 @@ export function IntentMatrix({ intents }: IntentMatrixProps) {
     if (categoryFilter) {
       result = result.filter((i) => i.category === categoryFilter);
     }
+    if (personaFilter !== "all") {
+      result = result.filter(
+        (i) => (i.persona?.toLowerCase() || "") === personaFilter.toLowerCase()
+      );
+    }
     return result;
-  }, [intents, search, statusFilters, categoryFilter]);
+  }, [intents, search, statusFilters, categoryFilter, personaFilter]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -217,12 +250,50 @@ export function IntentMatrix({ intents }: IntentMatrixProps) {
 
   return (
     <div className="space-y-3">
-      {/* Summary chips */}
-      <div className="flex flex-wrap gap-2">
-        {allStatuses.map((s) =>
-          statusCounts[s] > 0 ? (
-            <StatusChip key={s} status={s} count={statusCounts[s]} />
-          ) : null
+      {/* Summary chips & Persona filters */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          {allStatuses.map((s) =>
+            statusCounts[s] > 0 ? (
+              <StatusChip key={s} status={s} count={statusCounts[s]} />
+            ) : null
+          )}
+        </div>
+
+        {availablePersonas.length > 0 && (
+          <div
+            className="flex items-center gap-1 flex-wrap"
+            data-testid="persona-filter"
+            role="group"
+            aria-label="Filter by persona"
+          >
+            <span className="text-[11px] font-mono text-text-muted mr-1">Persona:</span>
+            {[
+              { id: "all", label: "All" },
+              { id: "cto", label: "CTO" },
+              { id: "developer", label: "Dev" },
+              { id: "procurement", label: "Procurement" },
+            ]
+              .filter((p) => p.id === "all" || availablePersonas.includes(p.id))
+              .map((p) => {
+                const active = personaFilter === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setPersonaFilter(p.id)}
+                    aria-pressed={active}
+                    className={`rounded px-2 py-0.5 text-[11px] font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                      active
+                        ? "bg-white text-black font-semibold shadow-sm"
+                        : "bg-surface-secondary text-text-muted border border-white/[0.06] hover:text-text-primary hover:bg-surface-tertiary"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+          </div>
         )}
       </div>
 
@@ -346,10 +417,24 @@ export function IntentMatrix({ intents }: IntentMatrixProps) {
                   >
                     <td colSpan={4} className="p-0">
                       <div className="grid grid-cols-12 items-center px-4 py-3 sm:py-3.5">
-                        <div className="col-span-2">
+                        <div className="col-span-2 flex flex-col items-start gap-1">
                           <span className="rounded-md bg-surface-secondary shadow-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
                             {intent.category}
                           </span>
+                          {intent.persona && (
+                            <span
+                              data-testid={`persona-badge-${intent.intent_id}`}
+                              className="inline-flex items-center rounded bg-white/[0.04] border border-white/[0.08] px-1.5 py-0.2 font-mono text-[9px] uppercase tracking-wider text-text-muted"
+                            >
+                              {intent.persona === "cto"
+                                ? "CTO"
+                                : intent.persona === "developer"
+                                ? "Dev"
+                                : intent.persona === "procurement"
+                                ? "Procure"
+                                : intent.persona}
+                            </span>
+                          )}
                         </div>
                         <div className="col-span-6 text-text-primary pr-2">
                           <div className="flex items-center gap-2">

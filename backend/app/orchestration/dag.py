@@ -6,6 +6,7 @@ Uses one scan-scoped ``BudgetGuard`` shared by every LLM consumer.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import uuid
 from collections.abc import Callable, Sequence
@@ -51,6 +52,7 @@ class ObservationInput:
 
     scan_id: str
     business_context: str
+    personas: Sequence[str] = ("cto", "developer", "procurement")
     chunks: Sequence[Any] = ()
     html_documents: Sequence[str] = ()
     business_facts: BusinessFacts | None = None
@@ -170,6 +172,7 @@ class FindableAIDAG:
         ctx = ScanContext(
             scan_id=str(observation.scan_id).strip(),
             business_context=observation.business_context,
+            personas=list(observation.personas) if observation.personas else ["cto", "developer", "procurement"],
             create_pr=bool(observation.create_pr),
             source_repo=observation.source_repo,
             target_branch=observation.target_branch or "main",
@@ -275,7 +278,13 @@ class FindableAIDAG:
     async def _run_plan(self, ctx: ScanContext) -> None:
         ctx.stage_trace.append("plan")
         try:
-            batch = await self._intent.generate_intents(business_context=ctx.business_context)
+            sig = inspect.signature(self._intent.generate_intents)
+            intent_kwargs: dict[str, Any] = {"business_context": ctx.business_context}
+            if "personas" in sig.parameters or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            ):
+                intent_kwargs["personas"] = ctx.personas
+            batch = await self._intent.generate_intents(**intent_kwargs)
         except LLMBudgetExceededError as exc:
             raise StageExecutionError(
                 f"PLAN budget exhausted: {exc}",
