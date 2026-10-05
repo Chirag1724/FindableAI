@@ -24,26 +24,41 @@
 [Tech Stack & Implementation](docs/02_TECH_STACK_AND_IMPLEMENTATION.md) •
 [Execution Playbook](docs/03_EXECUTION_PLAYBOOK.md) •
 [Team Task Allocation](docs/04_TEAM_TASK_ALLOCATION.md) •
+[Engineering Documentation](docs/engineering/README.md) •
 [Security Policy](SECURITY.md)
 
 </div>
 
-## 📌 The Problem: SEO is Dying. GEO & MDO is Born.
+---
 
-Search is fundamentally mutating. Millions of users no longer click ten blue links—they prompt **AI Answer Engines** like Perplexity, ChatGPT Search, Gemini, and Claude.
+## Project Links
 
-| Traditional SEO | Machine Discoverability (GEO / MDO) |
-| :--- | :--- |
-| Focuses on keywords, backlinks, and meta tags | Focuses on factual clarity, semantic density, and authoritative entity graph grounding |
-| Optimized for Web Crawlers (Googlebot) | Optimized for LLM RAG Retrieval (Vector embeddings + BM25 hybrid search) |
-| Success metric: Search Engine Result Page (SERP) ranking | Success metric: Inclusion, Citation & Entailment in LLM-synthesized answers |
-| Manual keyword stuffing & link-building | Grounded Natural Language Inference (NLI) & Citation-rate optimization |
+| Resource                  | Link                                                                     |
+| :------------------------ | :----------------------------------------------------------------------- |
+| **Live Demo**             | [Live Demo (add link here)](add link here)                               |
+| **Demo Video**            | [Demo Video (add link here)](add link here)                              |
+| **Pitch Deck**            | [Pitch Deck (add link here)](add link here)                              |
+| **Figma Design**          | [Figma Design (optional - add link here)](add link here)                 |
+| **Architecture Overview** | [System Flow & End-to-End Architecture](docs/engineering/SYSTEM_FLOW.md) |
+
+---
+
+## The Problem: SEO is Dying. GEO & MDO is Born.
+
+Search is fundamentally mutating. Millions of users no longer click ten blue links - they prompt **AI Answer Engines** like Perplexity, ChatGPT Search, Gemini, and Claude.
+
+| Traditional SEO                                          | Machine Discoverability (GEO / MDO)                                                    |
+| :------------------------------------------------------- | :------------------------------------------------------------------------------------- |
+| Focuses on keywords, backlinks, and meta tags            | Focuses on factual clarity, semantic density, and authoritative entity graph grounding |
+| Optimized for Web Crawlers (Googlebot)                   | Optimized for LLM RAG Retrieval (Vector embeddings + BM25 hybrid search)               |
+| Success metric: Search Engine Result Page (SERP) ranking | Success metric: Inclusion, Citation & Entailment in LLM-synthesized answers            |
+| Manual keyword stuffing & link-building                  | Grounded Natural Language Inference (NLI) & Citation-rate optimization                 |
 
 **If an AI engine cannot reliably extract, verify, and cite your product facts, your business is effectively invisible to modern searchers.**
 
 FindableAI is the first autonomous engine designed to diagnose, score, and remediate machine invisibility.
 
-## 🚀 Key Innovations & Core Features
+## Key Innovations & Core Features
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
@@ -58,7 +73,7 @@ FindableAI is the first autonomous engine designed to diagnose, score, and remed
            [ Hybrid Retrieval ] (pgvector dense + BM25 sparse + RRF)
                             │
                             ▼
-         [ NLI Entailment & Contradiction Engine ] (DeBERTa-v3 / LLM Judge)
+         [ NLI Entailment & Contradiction Engine ] (LLM-based Entailment Classification)
                             │
                             ▼
     ┌───────────────────────┴───────────────────────┐
@@ -87,72 +102,93 @@ FindableAI is the first autonomous engine designed to diagnose, score, and remed
      - **Neutral:** Information is missing or ambiguous.
      - **Contradiction:** Page contains conflicting claims (e.g. outdated pricing vs FAQ).
 
-5. **Findability F-Score (0–100 Mathematical Metric)**
-   - Transparent, deterministic formula balancing query coverage, entailment ratio, contradiction penalties, and structured data completeness.
+5. **Findability F-Score (0-100 Mathematical Metric)**
+   - Transparent, deterministic formula balancing query coverage, consistency penalties, structural clarity, and extractability.
 
 6. **Autonomous Code Remediations (Direct GitHub PRs)**
    - Instead of generic marketing advice, FindableAI generates actionable unified diffs (DOM additions, content clarifications, Schema.org JSON-LD) and opens ready-to-merge GitHub Pull Requests.
 
-## 🏗️ Repository Architecture & Engineering Documentation
+## Repository Architecture & Engineering Documentation
 
-The project includes an elite-tier engineering specification suite:
+The project includes an engineering specification suite and active operational documentation:
 
 ```
 FindableAI/
+├── .github/workflows/                         # Continuous Integration (CI) workflows
+│   ├── backend-ci.yml                         # Python linting, typing & pytest suite
+│   └── frontend-ci.yml                        # Node linting, Vitest & Next.js build
 ├── assets/                                    # Official branding & vector assets
 │   ├── logo.png                               # Transparent RGBA high-res logo
 │   └── logo.svg                               # Scalable vector logo mark
 ├── backend/                                   # FastAPI asynchronous core API
 │   ├── app/
 │   │   ├── api/v1/                            # Route controllers (health, scans, SSE stream, patches)
-│   │   ├── core/                              # Config (Pydantic Settings), lifespan management
-│   │   ├── schemas/                           # Shared Pydantic data contracts (scan, fscore, patch)
-│   │   └── main.py                            # Application entrypoint with CORS & router mounting
+│   │   ├── core/                              # Config, auth, rate limiting, LLM & budget management
+│   │   ├── crawler/                           # Headless Playwright crawler & DOM chunker
+│   │   ├── engines/                           # Intent generation, NLI entailment, scorer & patch assembler
+│   │   ├── github/                            # Autonomous PR engine & markdown report generator
+│   │   ├── models/                            # SQLAlchemy ORM models (Scan, Intent, Contradiction, Patch)
+│   │   ├── orchestration/                     # Directed Acyclic Graph (FindableAIDAG) state machine
+│   │   ├── schemas/                           # Pydantic data contracts (scan, fscore, scoring, patching)
+│   │   └── main.py                            # Application entrypoint with security middleware
+│   ├── Dockerfile                             # Multi-stage production container image
 │   ├── pyproject.toml                         # Ruff linter, formatter & Mypy type-checking config
-│   └── requirements.txt                       # Python dependencies (Groq, LiteLLM, Playwright, pgvector)
-├── docs/                                      # Comprehensive engineering specification suite
+│   └── requirements.txt                       # Python dependencies (FastAPI, Playwright, pgvector, LiteLLM)
+├── docs/                                      # System design playbooks & engineering guides
+│   ├── engineering/                           # Complete operational engineering documentation
+│   │   ├── README.md                          # Engineering documentation index
+│   │   ├── API_REFERENCE.md                   # Full REST & SSE endpoint specification
+│   │   ├── DEPLOYMENT.md                      # Production deployment & environment variable matrix
+│   │   ├── LOCAL_DEVELOPMENT.md               # Clean-clone developer onboarding runbook
+│   │   ├── ARCHITECTURE_DECISIONS.md          # Architecture Decision Records (ADRs)
+│   │   ├── TESTING.md                         # Test strategy, coverage metrics & execution commands
+│   │   ├── TROUBLESHOOTING.md                 # Problem -> Cause -> Solution operational runbook
+│   │   └── ROADMAP.md                         # Delivery status & forward-looking initiatives
 │   ├── 01_ARCHITECTURE_AND_SYSTEM_DESIGN.md   # Complete system blueprints & component math
 │   ├── 02_TECH_STACK_AND_IMPLEMENTATION.md    # Tech choices, trade-offs & library configs
 │   ├── 03_EXECUTION_PLAYBOOK.md               # 7-phase step-by-step engineering roadmap
-│   └── 04_TEAM_TASK_ALLOCATION.md             # 3-person role breakdown, contracts & deliverables
+│   └── 04_TEAM_TASK_ALLOCATION.md             # Role breakdown, ownership map & contracts
 ├── frontend/                                  # Next.js 14 App Router real-time dashboard
 │   ├── public/                                # Web assets (favicons, SVGs)
 │   ├── src/
-│   │   ├── app/                               # Pages (page.tsx, layout.tsx, not-found.tsx, globals.css)
+│   │   ├── app/                               # Pages (page.tsx, audit/page.tsx, scans/[id]/page.tsx)
+│   │   ├── components/                        # UI widgets (ScoreGauge, IntentMatrix, PatchModal)
+│   │   ├── hooks/                             # Custom hooks (useScanStream, useScanData, useCountUp)
+│   │   ├── lib/                               # API client, diff parsers, phase transitions
 │   │   └── types/                             # TypeScript interface contracts mirroring backend
-│   ├── .eslintrc.json                         # ESLint configuration for Next.js Core Web Vitals
+│   ├── Dockerfile                             # Multi-stage Next.js standalone container
 │   ├── package.json                           # Frontend scripts and dependencies
 │   └── tailwind.config.ts                     # Cybernetic design tokens & glassmorphism utilities
 ├── .env.example                               # Unified environment configuration template
-├── .gitignore                                 # Git hygiene covering Python, Node, Docker, and IDEs
 ├── docker-compose.yml                         # Local PostgreSQL 16 (pgvector) + Redis 7 services
 ├── LICENSE                                    # Open source MIT license (Findable AI)
 └── README.md                                  # Repository overview and onboarding
 ```
 
-### 📚 Detailed Documentation Guide
+### Detailed Documentation Guide
 
-| Document | Focus & Highlights |
-| :--- | :--- |
-| **[01. Architecture & System Design](docs/01_ARCHITECTURE_AND_SYSTEM_DESIGN.md)** | • End-to-end dataflow pipeline<br/>• 9 component deep-dives (Crawler, DOM chunker, NLI engine, PR engine)<br/>• F-Score formal mathematical formulation<br/>• Cost & latency model (<$0.01 per scan, ~10s runtime) |
-| **[02. Tech Stack & Implementation](docs/02_TECH_STACK_AND_IMPLEMENTATION.md)** | • Python 3.11 + FastAPI async core<br/>• Next.js 14 App Router + TailwindCSS dashboard<br/>• PostgreSQL 16 + pgvector with HNSW indexing<br/>• Instructor + Pydantic validation<br/>• Server-Sent Events (SSE) realtime streaming protocol |
-| **[03. Execution Playbook](docs/03_EXECUTION_PLAYBOOK.md)** | • Phases from foundation through production release gates<br/>• Concrete code snippets and database migrations<br/>• Quality gates and unit/integration test specifications<br/>• Points to the canonical production roadmap in doc 04 |
-| **[04. Team Task Allocation](docs/04_TEAM_TASK_ALLOCATION.md)** | • 3-person ownership map<br/>• Shiv intelligence/orchestration **17/17 complete**<br/>• **§10 Production Readiness Roadmap** (`PROD-5.*`–`PROD-8.*`) — integration, security, deploy, release |
+| Document                                                                          | Focus & Highlights                                                                                                                                                                                                                         |
+| :-------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[Engineering Documentation](docs/engineering/README.md)**                       | • Index for API reference, deployment, testing, ADRs, troubleshooting, and roadmap                                                                                                                                                         |
+| **[01. Architecture & System Design](docs/01_ARCHITECTURE_AND_SYSTEM_DESIGN.md)** | • End-to-end dataflow pipeline<br/>• 9 component deep-dives (Crawler, DOM chunker, NLI engine, PR engine)<br/>• F-Score formal mathematical formulation<br/>• Cost & latency model (<$0.01 per scan, ~10s runtime)                         |
+| **[02. Tech Stack & Implementation](docs/02_TECH_STACK_AND_IMPLEMENTATION.md)**   | • Python 3.11 + FastAPI async core<br/>• Next.js 14 App Router + TailwindCSS dashboard<br/>• PostgreSQL 16 + pgvector with HNSW indexing<br/>• Instructor + Pydantic validation<br/>• Server-Sent Events (SSE) realtime streaming protocol |
+| **[03. Execution Playbook](docs/03_EXECUTION_PLAYBOOK.md)**                       | • Phases from foundation through production release gates<br/>• Concrete code snippets and database migrations<br/>• Quality gates and unit/integration test specifications                                                                |
+| **[04. Team Task Allocation](docs/04_TEAM_TASK_ALLOCATION.md)**                   | • 3-person ownership map and historical milestone allocation                                                                                                                                                                               |
 
-## 💻 Tech Stack Summary
+## Tech Stack Summary
 
-| Layer | Primary Technology | Purpose |
-| :--- | :--- | :--- |
-| **Frontend** | Next.js 14 (App Router), TypeScript, TailwindCSS, Lucide Icons | High-performance dashboard, interactive F-Score visualizer, unified diff viewer |
-| **Realtime Stream** | Server-Sent Events (SSE) via `EventSource` | Realtime progress updates during 10-second audits |
-| **Backend API** | FastAPI (Python 3.11), Pydantic v2, Instructor | Async API, schema enforcement, structured LLM outputs |
-| **Crawler & Extraction** | Playwright (Python async), BeautifulSoup4 | JavaScript-rendered DOM harvesting with CSS path derivation |
-| **Database & Vector Store** | PostgreSQL 16 + pgvector, SQLAlchemy 2.0 (async), Alembic | Relational audit storage + hybrid BM25 / vector embeddings |
-| **Job Queue & Cache** | Redis 7 in `docker-compose` (optional local service) | Reserved for cache/rate-limit; **scans currently use FastAPI `BackgroundTasks`** (no Celery/ARQ worker in-repo yet) |
-| **AI / LLM Orchestration** | Groq (Qwen 2.5 72B) via LiteLLM & Instructor | Ultra-fast (~500 tps) synthetic intent generation, NLI classification, patch creation |
-| **VCS Automation** | PyGithub / GitHub REST API | Automated branch creation, patch application, and Pull Request opening |
+| Layer                       | Primary Technology                                             | Purpose                                                                                                             |
+| :-------------------------- | :------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------ |
+| **Frontend**                | Next.js 14 (App Router), TypeScript, TailwindCSS, Lucide Icons | High-performance dashboard, interactive F-Score visualizer, unified diff viewer                                     |
+| **Realtime Stream**         | Server-Sent Events (SSE) via `EventSource`                     | Realtime progress updates during 10-second audits                                                                   |
+| **Backend API**             | FastAPI (Python 3.11), Pydantic v2, Instructor                 | Async API, schema enforcement, structured LLM outputs                                                               |
+| **Crawler & Extraction**    | Playwright (Python async), BeautifulSoup4                      | JavaScript-rendered DOM harvesting with CSS path derivation                                                         |
+| **Database & Vector Store** | PostgreSQL 16 + pgvector, SQLAlchemy 2.0 (async), Alembic      | Relational audit storage + hybrid BM25 / vector embeddings                                                          |
+| **Job Queue & Cache**       | Redis 7 in `docker-compose` (optional local service)           | Reserved for cache/rate-limit; **scans currently use FastAPI `BackgroundTasks`** (no Celery/ARQ worker in-repo yet) |
+| **AI / LLM Orchestration**  | Groq (Qwen 2.5 72B) via LiteLLM & Instructor                   | Ultra-fast (~500 tps) synthetic intent generation, NLI classification, patch creation                               |
+| **VCS Automation**          | PyGithub / GitHub REST API                                     | Automated branch creation, patch application, and Pull Request opening                                              |
 
-## 👥 Team Roles & Ownership
+## Team Roles & Ownership
 
 This project is architected for seamless execution across three dedicated roles:
 
@@ -173,7 +209,7 @@ This project is architected for seamless execution across three dedicated roles:
 *For complete task matrices, contract definitions, and milestone checklists, see [docs/04_TEAM_TASK_ALLOCATION.md](docs/04_TEAM_TASK_ALLOCATION.md).*
 
 
-## 🛠️ Quickstart & Local Setup
+## Quickstart & Local Setup
 
 ### Prerequisites
 
@@ -186,7 +222,6 @@ This project is architected for seamless execution across three dedicated roles:
 
 ```bash
 git clone https://github.com/Chirag1724/FindableAI.git
-cd FindableAI
 
 # Copy environment template
 cp .env.example .env
@@ -225,7 +260,7 @@ npm run dev
 
 Visit `http://localhost:3000` to access the FindableAI Scan Console.
 
-## 📈 Findability F-Score Breakdown
+## Findability F-Score Breakdown
 
 FindableAI evaluates content across four mathematically rigorous sub-scores:
 
@@ -236,7 +271,7 @@ $$\text{F-Score} = 100 \times \left( 0.40 \cdot S_{\text{ans}} + 0.30 \cdot S_{\
 3. **Structure ($S_{\text{str}}$, 20%)**: Coverage and syntactic validity of Schema.org JSON-LD microdata across core entity types.
 4. **Extractability & Accessibility ($S_{\text{acc}}$, 10%)**: Clean machine readability and DOM structural clarity of key entity metadata.
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions from the community. Please review our [Execution Playbook](docs/03_EXECUTION_PLAYBOOK.md) and [Architecture Specifications](docs/01_ARCHITECTURE_AND_SYSTEM_DESIGN.md) before submitting pull requests.
 
@@ -246,10 +281,11 @@ We welcome contributions from the community. Please review our [Execution Playbo
 4. Push to the Branch (`git push origin feature/InnovativeFeature`)
 5. Open a Pull Request
 
-## 📄 License
+## License
 
 Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for complete legal terms.
 
 <div align="center">
   <sub>Built with precision for the next generation of AI search and discoverability.</sub>
 </div>
+
