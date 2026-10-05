@@ -275,7 +275,6 @@ def validate_framework_layout_syntax(original_content: str, modified_content: st
     if modified_content == original_content:
         return True
 
-    sanitized_orig = strip_comments_and_strings(original_content)
     sanitized_mod = strip_comments_and_strings(modified_content)
 
     # 1. Delimiter balance check
