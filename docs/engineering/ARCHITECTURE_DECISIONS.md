@@ -65,19 +65,25 @@ Implement a permission-aware strategy in `GitHubPRService.create_remediation_pr(
 
 ### ADR-003: Framework Route Detection & Safe Guidance PRs
 
-- **Status:** Accepted
-- **Code Evidence:** [backend/app/github/pr_engine.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/github/pr_engine.py#L250-L310), [backend/app/github/pr_engine.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/github/pr_engine.py#L508-L530).
+- **Status:** Accepted (Updated with Heuristic Structural Validation)
+- **Code Evidence:** [backend/app/engines/framework_adapter.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/framework_adapter.py), [backend/app/github/pr_engine.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/github/pr_engine.py).
 
 #### Context
-Crawled URL paths (e.g. `/about`) do not map 1:1 to filesystem paths in modern component frameworks (Next.js App Router `app/about/page.tsx`, React Router `src/views/About.jsx`, Vue, Astro). Attempting to inject raw HTML or unified diffs directly into JSX/TSX components causes build syntax errors and TypeScript compiler breaks.
+Crawled URL paths (e.g. `/about`) do not map 1:1 to filesystem paths in modern component frameworks (Next.js App Router `app/about/page.tsx`, Pages Router `pages/_app.tsx`, React Router `src/App.tsx`, Vue `src/App.vue`, Astro `src/layouts/Layout.astro`). Direct string injection into JSX/TSX layout files without structural checks risks corrupting component syntax, breaking imports, or failing target repository build pipelines.
 
 #### Decision
-Implement two-tier file resolution in `resolve_target_file()`:
-1. **Tier 1 (Static HTML):** If an exact or fuzzy `.html`/`.htm` file is found (e.g. `public/index.html` or `index.html`), inject the Schema.org `<script type="application/ld+json">` tag directly into the file.
-2. **Tier 2 (Framework Route Match):** If a matching framework component (`.tsx`, `.jsx`, `.vue`, `.astro`, `.svelte`) is detected or no safe static HTML file exists, generate a clean Markdown remediation guide at `docs/FINDABLE_AI_REMEDIATION.md`. The PR commits this guide containing tailored Schema.org JSON-LD snippets, DOM anchor references, and copy-paste instructions.
+Implement a three-tier safe remediation resolution strategy:
+1. **Tier 1 (Static HTML Direct Injection):** If an exact or fuzzy `.html`/`.htm` file is found (e.g. `public/index.html` or `index.html`), inject the Schema.org `<script type="application/ld+json">` tag directly into the `<head>` or `<body>`.
+2. **Tier 2 (Framework Component Synthesis & Layout Injection with Heuristic Validation):** For component-based repositories (Next.js, React, Vue, Astro):
+   - Synthesize a framework-specific component file (`src/components/JsonLd.tsx` or framework equivalent) via `framework_adapter.py` encapsulating the Schema.org JSON-LD microdata.
+   - Insert an import statement and component tag (`<JsonLd ... />`) into the identified root layout file (`layout.tsx`, `_app.tsx`, `App.tsx`, `App.vue`, `Layout.astro`).
+   - Run a heuristic structural/lexical validation (`validate_framework_layout_syntax`) verifying comment/string stripping, balanced delimiters (`{}`, `()`, `[]`, `<>`), and insertion boundary validity.
+   - Framing Note: This validator is a heuristic structural/lexical safety net - not a full TypeScript/JSX compiler - so it reduces risk significantly but cannot guarantee 100% semantic correctness across every possible custom layout.
+3. **Tier 3 (Automatic Guidance PR Fallback):** If layout resolution fails, if heuristic syntax validation fails (e.g. unbalanced tags, malformed JSX), or if no safe layout candidate is found, automatically fall back to generating a non-breaking Markdown remediation guide at `docs/FINDABLE_AI_REMEDIATION.md`. The PR commits this comprehensive guide containing tailored Schema.org JSON-LD snippets, DOM anchor references, and copy-paste instructions without modifying application code.
 
 #### Consequences
-- Completely eliminates syntax corruption on React/Next.js/Vue codebases.
+- Eliminates syntax corruption risks on complex React, Next.js, and Vue codebases.
+- Provides native component integration where safe, with guaranteed zero-build-breakage fallback to guidance PRs.
 - Keeps PR creation safe and actionable across any frontend architecture.
 
 ---

@@ -48,13 +48,14 @@ This runbook documents verified solutions for real issues encountered during the
 ### 3. File Not Found Error When Patching Framework Codebases
 
 - **Symptom:**
-  `GitHub PR creation failed: file not found: about.html`
+  `GitHub PR creation failed: file not found: about.html` or syntax errors in modified JSX layout files.
 - **Root Cause:**
-  The patch generator derived file paths from crawled URL paths (e.g. `/about` -> `about.html`). While this works for static HTML sites, modern frameworks (Next.js App Router `app/about/page.tsx`, React Router `src/views/About.jsx`, Vue, Astro) do not maintain static `.html` files in the repository root.
+  The legacy patch generator assumed static HTML files (e.g. `/about` -> `about.html`). Modern component frameworks (Next.js App Router `app/about/page.tsx`, React Router `src/App.tsx`, Vue, Astro) do not use static HTML files. Furthermore, naive string injection into layout files risks breaking JSX syntax or failing builds.
 - **Fix:**
-  `resolve_target_file()` in [backend/app/github/pr_engine.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/github/pr_engine.py#L250-L310) implements two-tier file resolution:
-  - If direct HTML files are found, it generates unified diffs.
-  - If a framework component is detected or no static HTML file exists, it creates `docs/FINDABLE_AI_REMEDIATION.md` containing structured Schema.org JSON-LD snippets and insertion instructions without risking JSX syntax corruption.
+  `framework_adapter.py` and `resolve_target_file()` implement a three-tier remediation resolution:
+  1. If static HTML files are found, it injects Schema.org JSON-LD scripts directly.
+  2. If a framework repository is detected, it synthesizes a standalone component (`src/components/JsonLd.tsx`), mounts it into the root layout, and runs a heuristic structural/lexical syntax check (`validate_framework_layout_syntax()`) verifying balanced tags and delimiters.
+  3. If layout resolution fails or heuristic syntax validation detects unbalanced delimiters, it automatically falls back to generating a non-breaking Markdown remediation guide at `docs/FINDABLE_AI_REMEDIATION.md`.
 
 ---
 

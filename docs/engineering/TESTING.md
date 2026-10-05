@@ -10,10 +10,10 @@ FindableAI maintains a comprehensive test suite across the backend and frontend.
 
 | Test Suite | Framework | Total Tests | Pass Count | Failure Count | Execution Time |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Backend Test Suite** | pytest / pytest-asyncio | **319** | **319** | **0** | ~236s |
-| **Backend Type Checker** | Mypy (strict) | **48 files** | **48 files** | **0** | ~10s |
-| **Frontend Test Suite** | Vitest / Testing Library | **273** | **273** | **0** | ~170s |
-| **Total Test Surface** | pytest + Vitest | **592** | **592** | **0** | ~416s |
+| **Backend Test Suite** | pytest / pytest-asyncio | **335** | **335** | **0** | ~170s |
+| **Backend Type Checker** | Mypy (strict) | **51 files** | **51 files** | **0** | ~10s |
+| **Frontend Test Suite** | Vitest / Testing Library | **285** | **285** | **0** | ~180s |
+| **Total Test Surface** | pytest + Vitest | **620** | **620** | **0** | ~360s |
 
 ---
 
@@ -34,7 +34,10 @@ FindableAI maintains a comprehensive test suite across the backend and frontend.
 4. **Security & SSRF Boundaries:**
    - [backend/tests/test_security.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/tests/test_security.py) executes automated attack vectors covering loopback IPs (`127.0.0.1`), private subnets (`10.0.0.0/8`, `192.168.0.0/16`), AWS cloud metadata endpoints (`169.254.169.254`), and non-HTTP URL schemes (`file://`, `ftp://`).
 
-5. **Motion Isolation in Frontend Tests:**
+5. **Heuristic Layout Syntax Validation & Edge-Case Fallbacks:**
+   - [backend/tests/test_framework_patch_resolution.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/tests/test_framework_patch_resolution.py) executes 12 unit tests verifying framework layout component synthesis, root layout injection, and heuristic structural validation (handling commented children, string literal props, multiline destructured imports, HOC wrappers, and automatic Tier 3 guidance fallback on unbalanced JSX syntax).
+
+6. **Motion Isolation in Frontend Tests:**
    - [frontend/src/lib/motion.ts](file:///c:/Users/LENOVO/Desktop/FindableAI/frontend/src/lib/motion.ts) detects `process.env.NODE_ENV === "test"` and automatically disables heavy CSS animations to ensure fast, deterministic Vitest renders.
 
 ---
@@ -48,7 +51,8 @@ FindableAI maintains a comprehensive test suite across the backend and frontend.
 | `test_production_readiness.py` | API Security | Sliding-window rate limiting, API key enforcement (`X-API-Key`), security headers, health check DB ping. |
 | `test_crawler.py` | Crawler | Async HTML fetching, domain normalization, redirect limits. |
 | `test_chunker.py` | Extraction | Semantic DOM chunking, heading hierarchy tracking, word count validation. |
-| `test_intent_generator.py` | Intelligence | Persona query generation, category distribution, Pydantic validation. |
+| `test_intent_generator.py` | Intelligence | Query generation, category distribution, Pydantic validation. |
+| `test_intent_personas.py` | Intelligence | Persona query generation, category-to-persona resolution, custom persona parameters. |
 | `test_entailment_engine.py` | NLI | Claim verification, evidence reference extraction, confidence thresholding. |
 | `test_contradiction.py` | NLI | Cross-page conflict detection, severity weighting (hard vs soft), duplicate deduplication. |
 | `test_scorer.py` | Scoring | Canonical 40/30/20/10 weight validation, letter grade derivation, bounds checking. |
@@ -56,6 +60,7 @@ FindableAI maintains a comprehensive test suite across the backend and frontend.
 | `test_jsonld_generator.py` | Remediation | Evidence-backed Schema.org JSON-LD generation without invented facts. |
 | `test_patch_prioritizer.py` | Remediation | Top-3 candidate opportunity ranking, priority formula `(impact * confidence) / difficulty`. |
 | `test_patch_formatter.py` | Remediation | Unified diff formatting, DOM anchor insertion points (`before_head`, `before_body`). |
+| `test_framework_patch_resolution.py` | Remediation | Framework component synthesis, layout injection, and heuristic structural validation edge-cases. |
 | `test_dag_state.py` | Orchestration | `OrchestrationState` transitions, immutable artifact accumulation. |
 | `test_dag_runner.py` | Orchestration | Full `FindableAIDAG` execution across PLAN, OBSERVE, ORIENT, DECIDE, ACT, REFLECT, STOP. |
 | `test_end_to_end_orchestration.py` | Orchestration | Comprehensive pipeline run against static HTML corpus. |
@@ -81,7 +86,8 @@ FindableAI maintains a comprehensive test suite across the backend and frontend.
 | `src/components/ScoreGauge.test.tsx` | Components | Radial SVG gauge rendering, sub-score bars, grade badge colors. |
 | `src/components/ContradictionCard.test.tsx` | Components | Contradiction conflict comparison, severity badges, DOM path copy. |
 | `src/components/EvidenceViewer.test.tsx` | Components | Evidence modal, dialog accessibility (`role="dialog"`), keyboard focus trap. |
-| `src/components/PatchModal.test.tsx` | Components | Unified diff view, DOM snippet inspection, PR trigger submission. |
+| `src/components/PatchModal.test.tsx` | Components | Unified diff view, DOM snippet inspection, framework component tabs, PR trigger submission. |
+| `src/components/CrawledPagesModal.test.tsx` | Components | Crawled pages modal, page chunk counts, content hashes, URL navigation. |
 | `src/components/StatusBadge.test.tsx` | Components | Entailment status pills (Supported, Partially Supported, Unknown, Contradicted). |
 | `src/components/CopyButton.test.tsx` | Components | Clipboard API integration and visual copied feedback. |
 | `src/app/page.test.tsx` | Pages | Marketing landing page, telemetry preview widgets, FAQ accordion. |
