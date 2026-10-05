@@ -249,6 +249,8 @@ def validate_intent_evaluation(
     return IntentEvaluation(
         intent_id=intent.intent_id,
         query=intent.query,
+        category=intent.category,
+        persona=intent.persona,
         status=evaluation.status,
         reasoning=reasoning,
         evidence=rebuilt,
@@ -346,6 +348,8 @@ class EntailmentEngine:
             return IntentEvaluation(
                 intent_id=intent.intent_id,
                 query=intent.query,
+                category=intent.category,
+                persona=intent.persona,
                 status=EntailmentStatus.UNKNOWN,
                 reasoning="No evidence chunks were retrieved for this intent.",
                 evidence=[],

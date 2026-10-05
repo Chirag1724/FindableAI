@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -23,6 +23,7 @@ from app.crawler.crawler import AsyncCrawler
 from app.crawler.dom_chunker import ChunkData, DOMChunker
 from app.crawler.search import store_dom_chunks
 from app.db import AsyncSessionLocal
+from app.engines.intent_generator import resolve_query_persona
 from app.engines.patch_assembler import assemble_real_patches
 from app.engines.scorer import ScoreInputs, Scorer, adapt_score_breakdown_to_api
 from app.github.client import GitHubClientError, build_pygithub_client_from_token
@@ -51,12 +52,14 @@ from app.schemas.intelligence import (
     ContradictionSeverity,
     EntailmentStatus,
     EvidenceReference,
+    IntentCategory,
     IntentEvaluation,
 )
 from app.schemas.patch import DOMSelectorAnchor, PatchProposal, PatchType, PullRequestResult
 from app.schemas.patching import FormattedPatch, PatchFormatStatus, SchemaRemediationTarget
 from app.schemas.scan import (
     AuditSummary,
+    CrawledPageDetail,
     ScanRequest,
     ScanResponse,
     ScanStatus,
@@ -84,20 +87,24 @@ def resolve_scan_uuid(scan_id: str) -> uuid.UUID | None:
         return None
 
 
-def _generate_fallback_evaluations(url: str, chunks: Sequence[Any]) -> list[IntentEvaluation]:
+def _generate_fallback_evaluations(
+    url: str,
+    chunks: Sequence[Any],
+    personas: Sequence[str] | None = None,
+) -> list[IntentEvaluation]:
     parsed = urlparse(url)
     domain = parsed.netloc or "Target Business"
     categories = [
-        "eligibility",
-        "policy",
-        "availability",
-        "pricing",
-        "accessibility",
-        "commercial",
-        "local",
-        "transactional",
-        "trust",
-        "edge_cases",
+        IntentCategory.ELIGIBILITY,
+        IntentCategory.POLICY,
+        IntentCategory.AVAILABILITY,
+        IntentCategory.PRICING,
+        IntentCategory.ACCESSIBILITY,
+        IntentCategory.COMMERCIAL,
+        IntentCategory.LOCAL,
+        IntentCategory.TRANSACTIONAL,
+        IntentCategory.TRUST,
+        IntentCategory.EDGE_CASES,
     ]
     evals = []
     chunk_ids = [getattr(c, "id", f"chunk_{i}") for i, c in enumerate(chunks[:5])]
@@ -120,12 +127,15 @@ def _generate_fallback_evaluations(url: str, chunks: Sequence[Any]) -> list[Inte
                     dom_path=f"body > main > section:nth-of-type({(i % 3) + 1})",
                 )
             )
+        persona = resolve_query_persona(cat, personas)
         evals.append(
             IntentEvaluation(
                 intent_id=f"intent_{i:02d}",
-                query=f"What are {domain}'s {cat} options and terms (query #{i})?",
+                query=f"What are {domain}'s {cat.value} options and terms (query #{i})?",
+                category=cat,
+                persona=persona,
                 status=status,
-                reasoning=f"Automated entailment analysis for {cat} intent.",
+                reasoning=f"Automated entailment analysis for {cat.value} intent from {persona} perspective.",
                 evidence=evidence,
                 confidence=0.88,
             )
@@ -265,6 +275,7 @@ async def run_scan_pipeline(
     scan_uuid: uuid.UUID,
     url: str,
     max_pages: int,
+    personas: list[str] | None = None,
 ) -> None:
     """
     Autonomous scan worker pipeline:
@@ -307,18 +318,35 @@ async def run_scan_pipeline(
         chunker = DOMChunker()
         extracted_chunks: list[ChunkData] = []
         html_docs: list[str] = []
+        crawled_pages_detail: list[CrawledPageDetail] = []
         if crawl_results:
             for page in crawl_results:
-                chunks = chunker.chunk(page.html, page.url)
+                chunks = chunker.chunk(page.html, page.url) if page.html else []
                 extracted_chunks.extend(chunks)
                 if page.html:
                     html_docs.append(page.html)
+                crawled_pages_detail.append(
+                    CrawledPageDetail(
+                        url=page.url,
+                        status_code=page.status_code,
+                        chunks_count=len(chunks),
+                        is_spa=page.is_spa,
+                    )
+                )
         else:
             default_html = (
                 "<html><body><main><h1>Welcome</h1><p>Findable content</p></main></body></html>"
             )
             extracted_chunks = chunker.chunk(default_html, url)
             html_docs = [default_html]
+            crawled_pages_detail = [
+                CrawledPageDetail(
+                    url=url,
+                    status_code=200,
+                    chunks_count=len(extracted_chunks),
+                    is_spa=False,
+                )
+            ]
 
         if not html_docs:
             html_docs = [
@@ -404,6 +432,7 @@ async def run_scan_pipeline(
         obs = ObservationInput(
             scan_id=str(scan_uuid),
             business_context=business_context,
+            personas=personas or ("cto", "developer", "procurement"),
             chunks=orch_chunks,
             html_documents=html_docs,
         )
@@ -432,7 +461,7 @@ async def run_scan_pipeline(
                 )
                 evaluations = []
             else:
-                evaluations = _generate_fallback_evaluations(url, extracted_chunks)
+                evaluations = _generate_fallback_evaluations(url, extracted_chunks, personas=personas)
 
         if not contradictions and orch_result.error:
             if is_prod:
@@ -527,6 +556,8 @@ async def run_scan_pipeline(
             intents_generated=len(evaluations),
             contradictions_detected=len(contradictions),
             execution_time_seconds=round(exec_duration, 2),
+            max_pages_requested=max_pages,
+            crawled_pages=crawled_pages_detail,
         )
 
         llm_calls_made = llm_client.calls_made
@@ -546,6 +577,7 @@ async def run_scan_pipeline(
             record.completed_at = end_time
             record.f_score = f_score
             record.summary = summary
+            record.crawled_pages = crawled_pages_detail
             record.patches = patches
             record.intents = evaluations
             record.contradictions = contradictions
@@ -582,11 +614,13 @@ async def run_scan_pipeline(
                             if hasattr(eval_item.status, "value")
                             else str(eval_item.status)
                         )
+                        cat_val = eval_item.category.value if eval_item.category else "general"
                         s.add(
                             IntentModel(
                                 id=uuid.uuid4(),
                                 scan_id=scan_uuid,
-                                category="general",
+                                category=cat_val,
+                                persona=eval_item.persona,
                                 query=eval_item.query,
                                 status=status_str,
                                 reasoning=eval_item.reasoning,
@@ -732,15 +766,47 @@ async def create_scan(request: ScanRequest, background_tasks: BackgroundTasks):
         scan_uuid,
         str(request.url),
         request.max_pages,
+        request.personas or ["cto", "developer", "procurement"],
     )
     return new_scan
+
+
+def enrich_patches_with_framework(
+    patches: list[PatchProposal], repo_url: str | None
+) -> list[PatchProposal]:
+    """Enriches patches with framework-native diffs and auxiliary files when repo is connected."""
+    if not repo_url or not isinstance(repo_url, str) or not repo_url.strip() or not patches:
+        return patches
+    if any(p.target_file for p in patches):
+        return patches
+    try:
+        from app.engines.framework_adapter import resolve_framework_patches
+
+        token = settings.GITHUB_TOKEN
+        if token:
+            gh_client = build_pygithub_client_from_token(token)
+            source_repo = parse_github_repo_owner_name(repo_url.strip())
+            repo_ref = gh_client.get_repository(source_repo)
+            tree_files = gh_client.list_files(repo_ref, ref=repo_ref.default_branch)
+
+            def get_file_content(path: str) -> str:
+                return gh_client.get_file(repo_ref, path, ref=repo_ref.default_branch).content
+
+            return resolve_framework_patches(patches, tree_files, get_file_content)
+    except Exception as fw_err:
+        logger.debug("Framework patch resolution skipped: %s", fw_err)
+    return patches
 
 
 @router.get("/{scan_id}", response_model=ScanResponse)
 async def get_scan(scan_id: str) -> ScanResponse:
     """Fetches status and results of a scan."""
     if scan_id in SCANS_DB:
-        return SCANS_DB[scan_id]
+        record = SCANS_DB[scan_id]
+        target_repo = record.repo_url or record.github_repo_url
+        if target_repo and not any(p.target_file for p in record.patches):
+            record.patches = enrich_patches_with_framework(record.patches, target_repo)
+        return record
 
     # Query persistent PostgreSQL database
     scan_uuid = resolve_scan_uuid(scan_id)
@@ -788,6 +854,14 @@ async def get_scan(scan_id: str) -> ScanResponse:
                         IntentEvaluation(
                             intent_id=f"intent_{it.id.hex[:8]}",
                             query=it.query,
+                            category=IntentCategory(it.category)
+                            if it.category in [c.value for c in IntentCategory]
+                            else None,
+                            persona=getattr(it, "persona", None) or resolve_query_persona(
+                                IntentCategory(it.category)
+                                if it.category in [c.value for c in IntentCategory]
+                                else IntentCategory.POLICY
+                            ),
                             status=EntailmentStatus(it.status)
                             if it.status in [e.value for e in EntailmentStatus]
                             else EntailmentStatus.UNKNOWN,
@@ -859,6 +933,13 @@ async def get_scan(scan_id: str) -> ScanResponse:
                         if db_scan.status in [e.value for e in ScanStatus]
                         else ScanStatus.COMPLETED
                     )
+                    crawled_fallback = [
+                        CrawledPageDetail(
+                            url=db_scan.url,
+                            status_code=200,
+                            chunks_count=len(converted_intents),
+                        )
+                    ]
                     scan_resp = ScanResponse(
                         scan_id=scan_id,
                         target_url=db_scan.url,
@@ -871,10 +952,13 @@ async def get_scan(scan_id: str) -> ScanResponse:
                             intents_generated=len(converted_intents),
                             contradictions_detected=len(converted_cons),
                             execution_time_seconds=0.0,
+                            max_pages_requested=1,
+                            crawled_pages=crawled_fallback,
                         )
                         if db_scan.status == "completed"
                         else None,
-                        patches=converted_patches,
+                        crawled_pages=crawled_fallback,
+                        patches=enrich_patches_with_framework(converted_patches, db_scan.repo_url),
                         intents=converted_intents,
                         contradictions=converted_cons,
                         repo_url=db_scan.repo_url,
@@ -995,6 +1079,12 @@ async def get_scan_intents(scan_id: str) -> list[dict[str, Any]]:
                         {
                             "intent_id": f"intent_{it.id.hex[:8]}",
                             "query": it.query,
+                            "category": it.category,
+                            "persona": getattr(it, "persona", None) or resolve_query_persona(
+                                IntentCategory(it.category)
+                                if it.category in [c.value for c in IntentCategory]
+                                else IntentCategory.POLICY
+                            ),
                             "status": it.status,
                             "reasoning": it.reasoning,
                             "evidence": [],
@@ -1041,20 +1131,47 @@ async def get_scan_contradictions(scan_id: str) -> list[dict[str, Any]]:
 
 
 @router.get("/{scan_id}/patches", response_model=list[PatchProposal])
-async def get_scan_patches(scan_id: str) -> list[PatchProposal]:
-    """Returns remediation code patches for this scan."""
+async def get_scan_patches(
+    scan_id: str,
+    repo_url: str | None = Query(
+        default=None, description="GitHub repository URL for framework-native diffs"
+    ),
+) -> list[PatchProposal]:
+    """Returns remediation code patches for this scan.
+
+    When ``repo_url`` is provided (or stored on the scan), patches are enriched
+    with framework-native code diffs so the UI preview matches the GitHub PR exactly.
+    """
+    patches: list[PatchProposal] = []
+    scan_repo_url: str | None = repo_url if isinstance(repo_url, str) else None
+
     if scan_id in SCANS_DB and SCANS_DB[scan_id].patches:
-        return SCANS_DB[scan_id].patches
+        patches = SCANS_DB[scan_id].patches
+        if not scan_repo_url:
+            scan_repo_url = getattr(SCANS_DB[scan_id], "repo_url", None) or getattr(
+                SCANS_DB[scan_id], "github_repo_url", None
+            )
 
     scan_uuid = resolve_scan_uuid(scan_id)
-    if scan_uuid:
+    if not scan_repo_url and scan_uuid:
+        try:
+            async with AsyncSessionLocal() as s:
+                scan_stmt = select(ScanModel).where(ScanModel.id == scan_uuid)
+                scan_result = await s.execute(scan_stmt)
+                db_scan = scan_result.scalar_one_or_none()
+                if db_scan:
+                    scan_repo_url = db_scan.repo_url
+        except Exception as e:
+            logger.debug("DB scan repo_url lookup error: %s", e)
+
+    if not patches and scan_uuid:
         try:
             async with AsyncSessionLocal() as s:
                 stmt = select(PatchModel).where(PatchModel.scan_id == scan_uuid)
                 result = await s.execute(stmt)
                 db_patches = result.scalars().all()
                 if db_patches:
-                    return [
+                    patches = [
                         PatchProposal(
                             patch_id=f"patch_{p.id.hex[:8]}",
                             patch_type=PatchType(p.patch_type)
@@ -1077,7 +1194,10 @@ async def get_scan_patches(scan_id: str) -> list[PatchProposal]:
         except Exception as e:
             logger.debug("DB patches lookup error: %s", e)
 
-    return []
+    if not patches:
+        return []
+
+    return enrich_patches_with_framework(patches, scan_repo_url)
 
 
 def parse_github_repo_owner_name(url: str) -> str:
@@ -1251,6 +1371,12 @@ async def apply_scan_patch(
         ) from exc
     except Exception as exc:
         logger.exception("Unexpected error during PR creation for scan %s", scan_id)
+        msg = str(exc)
+        if "timed out" in msg.lower() or "timeout" in msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="GitHub API timed out while communicating with repository. Please retry.",
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal error creating GitHub PR: {exc}",

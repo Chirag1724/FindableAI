@@ -43,12 +43,25 @@ class ScanStatusEvent(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class CrawledPageDetail(BaseModel):
+    url: str
+    status_code: int = 200
+    chunks_count: int = 0
+    load_time_ms: int = 0
+    is_spa: bool = False
+    title: str | None = None
+
+
 class AuditSummary(BaseModel):
     pages_crawled: int
     dom_chunks_extracted: int
     intents_generated: int
     contradictions_detected: int
     execution_time_seconds: float
+    max_pages_requested: int | None = None
+    crawled_pages: list[CrawledPageDetail] = Field(
+        default_factory=list, description="Details of each URL crawled during scan"
+    )
 
 
 class ScanResponse(BaseModel):
@@ -59,6 +72,9 @@ class ScanResponse(BaseModel):
     completed_at: datetime | None = None
     f_score: FScoreBreakdown | None = None
     summary: AuditSummary | None = None
+    crawled_pages: list[CrawledPageDetail] = Field(
+        default_factory=list, description="Details of each URL crawled during scan"
+    )
     patches: list[PatchProposal] = Field(default_factory=list)
     intents: list[IntentEvaluation] = Field(default_factory=list)
     contradictions: list[Contradiction] = Field(default_factory=list)

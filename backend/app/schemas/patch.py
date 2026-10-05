@@ -18,6 +18,12 @@ class DOMSelectorAnchor(BaseModel):
     suggested_snippet: str
 
 
+class AuxiliaryFile(BaseModel):
+    file_path: str = Field(..., description="Path to new auxiliary file in repository")
+    content: str = Field(..., description="Source code content")
+    action: str = Field(default="create", description="Action to perform: create | modify | delete")
+
+
 class PatchProposal(BaseModel):
     patch_id: str
     patch_type: PatchType
@@ -29,6 +35,22 @@ class PatchProposal(BaseModel):
     dom_anchor: DOMSelectorAnchor
     unified_diff: str = Field(..., description="Standard git-compatible unified diff format")
     applied: bool = False
+    target_file: str | None = Field(
+        default=None,
+        description="Path to target file in repository, e.g. frontend/src/app/layout.tsx",
+    )
+    code_diff: str | None = Field(
+        default=None,
+        description="Framework-native unified git diff against repository source",
+    )
+    auxiliary_files: list[AuxiliaryFile] = Field(
+        default_factory=list,
+        description="Associated new files such as React components",
+    )
+    framework: str | None = Field(
+        default=None,
+        description="Detected repository framework, e.g. nextjs_app_router",
+    )
 
 
 class PullRequestResult(BaseModel):

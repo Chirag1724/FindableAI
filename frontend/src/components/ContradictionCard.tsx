@@ -45,10 +45,10 @@ function SingleCard({ contradiction }: { contradiction: Contradiction }) {
       {/* Source URLs */}
       {contradiction.source_urls.length > 0 && (
         <div>
-          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
             Sources
           </p>
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             {contradiction.source_urls.map((url) => (
               <a
                 key={url}
@@ -68,14 +68,14 @@ function SingleCard({ contradiction }: { contradiction: Contradiction }) {
       {/* DOM paths */}
       {contradiction.dom_paths.length > 0 && (
         <div>
-          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
             DOM Paths
           </p>
-          <div className="space-y-1">
+          <div className="space-y-2">
             {contradiction.dom_paths.map((path) => (
               <div
                 key={path}
-                className="flex items-center justify-between gap-2 rounded-lg bg-surface-secondary shadow-border px-3 py-1.5"
+                className="flex items-center justify-between gap-2 rounded-lg bg-surface-secondary shadow-border px-3.5 py-2"
               >
                 <span className="font-mono text-xs text-text-primary break-all min-w-0">
                   {path}

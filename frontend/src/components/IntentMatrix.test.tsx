@@ -16,6 +16,7 @@ function makeIntent(overrides: Partial<IntentEvaluation> & { intent_id: string }
     evidence: overrides.evidence ?? [],
     confidence: overrides.confidence ?? 0.9,
     difficulty: overrides.difficulty,
+    persona: overrides.persona,
   };
 }
 
@@ -217,5 +218,50 @@ describe("IntentMatrix - row expansion", () => {
     render(<IntentMatrix intents={intents} />);
     await userEvent.click(screen.getByTestId("intent-row-int_r"));
     expect(screen.getByText("My special reasoning text.")).toBeInTheDocument();
+  });
+});
+
+// --- Persona filtering ---
+
+describe("IntentMatrix - persona filtering", () => {
+  const PERSONA_INTENTS: IntentEvaluation[] = [
+    makeIntent({
+      intent_id: "p_1",
+      query: "CTO security question?",
+      persona: "cto",
+    }),
+    makeIntent({
+      intent_id: "p_2",
+      query: "Developer API question?",
+      persona: "developer",
+    }),
+    makeIntent({
+      intent_id: "p_3",
+      query: "Procurement pricing question?",
+      persona: "procurement",
+    }),
+  ];
+
+  it("renders persona badges for intents with persona", () => {
+    render(<IntentMatrix intents={PERSONA_INTENTS} />);
+    expect(screen.getByTestId("persona-badge-p_1")).toHaveTextContent("CTO");
+    expect(screen.getByTestId("persona-badge-p_2")).toHaveTextContent("Dev");
+    expect(screen.getByTestId("persona-badge-p_3")).toHaveTextContent("Procure");
+  });
+
+  it("filters intents when persona chip is clicked", async () => {
+    render(<IntentMatrix intents={PERSONA_INTENTS} />);
+    const ctoBtn = screen.getByRole("button", { name: "CTO" });
+    await userEvent.click(ctoBtn);
+
+    expect(screen.getByTestId("intent-row-p_1")).toBeInTheDocument();
+    expect(screen.queryByTestId("intent-row-p_2")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("intent-row-p_3")).not.toBeInTheDocument();
+
+    const devBtn = screen.getByRole("button", { name: "Dev" });
+    await userEvent.click(devBtn);
+
+    expect(screen.queryByTestId("intent-row-p_1")).not.toBeInTheDocument();
+    expect(screen.getByTestId("intent-row-p_2")).toBeInTheDocument();
   });
 });

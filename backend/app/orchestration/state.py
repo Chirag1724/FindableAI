@@ -73,6 +73,7 @@ class ScanContext:
 
     scan_id: str
     business_context: str
+    personas: list[str] = field(default_factory=lambda: ["cto", "developer", "procurement"])
     chunks: list[OrchestrationChunk] = field(default_factory=list)
     html_documents: list[str] = field(default_factory=list)
     business_facts: BusinessFacts = field(default_factory=BusinessFacts)

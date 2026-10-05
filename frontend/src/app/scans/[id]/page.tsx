@@ -24,15 +24,14 @@ import { IntentMatrix } from "@/components/IntentMatrix";
 import { ContradictionCard } from "@/components/ContradictionCard";
 import { PatchModal } from "@/components/PatchModal";
 import { ErrorState } from "@/components/ErrorState";
-import { GaugeSkeleton, TableSkeleton, CardSkeleton, StatsSkeleton } from "@/components/Skeletons";
 import { gsap, EASING, prefersReducedMotion } from "@/lib/motion";
 import { LiveScanConsole } from "@/components/LiveScanConsole";
 
 const ScoreGauge = dynamic(
   () => import("@/components/ScoreGauge").then((mod) => mod.ScoreGauge),
-  { ssr: false, loading: () => <GaugeSkeleton /> }
+  { ssr: false }
 );
-import type { ScanResponse, ScanStatus } from "@/types/scan";
+import type { ScanResponse, ScanStatus, ScanStatusEvent } from "@/types/scan";
 
 const TERMINAL_STATUSES: ScanStatus[] = ["completed", "failed"];
 const RUNNING_STATUSES: ScanStatus[] = [
@@ -48,76 +47,17 @@ const RUNNING_STATUSES: ScanStatus[] = [
 
 function ScanStatusBadge({ status }: { status: ScanStatus }) {
   const meta = scanStatusMeta(status);
+  const isRunning = RUNNING_STATUSES.includes(status);
+
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${meta.classes}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border border-white/[0.08] ${meta.classes}`}
     >
       <span
-        className={`h-1.5 w-1.5 rounded-full ${meta.dotClass} ${RUNNING_STATUSES.includes(status) ? "animate-pulse" : ""}`}
-        aria-hidden="true"
+        className={`h-1.5 w-1.5 rounded-full ${meta.dotClass} ${isRunning ? "animate-pulse" : ""}`}
       />
       {meta.label}
     </span>
-  );
-}
-
-function EventLog({ events }: { events: { message: string; timestamp: string; current_step: string }[] }) {
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
-  const recent = events.slice(-8);
-
-  useEffect(() => {
-    if (!contentRef.current) return;
-    if (prefersReducedMotion()) return;
-
-    if (open) {
-      gsap.fromTo(
-        contentRef.current,
-        { height: 0, opacity: 0 },
-        { height: "auto", opacity: 1, duration: 0.25, ease: EASING.expand }
-      );
-    }
-  }, [open]);
-
-  useEffect(() => {
-    if (open) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [events, open]);
-
-  if (events.length === 0) return null;
-
-  return (
-    <div className="rounded-xl bg-surface shadow-border overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors duration-150 hover:bg-surface-secondary"
-        aria-expanded={open}
-      >
-        <span className="text-xs font-medium text-text-muted">
-          Pipeline log ({events.length} events)
-        </span>
-        <ChevronDown
-          size={14}
-          className={`text-text-muted transition-transform duration-150 ${open ? "rotate-180" : ""}`}
-          aria-hidden="true"
-        />
-      </button>
-      {open && (
-        <div ref={contentRef} className="max-h-48 overflow-y-auto border-t border-white/[0.06] px-4 pb-3 pt-2 custom-scrollbar">
-          {recent.map((ev, i) => (
-            <div key={i} className="flex gap-2 py-1 text-xs">
-              <span className="shrink-0 font-mono text-text-muted/60">
-                {new Date(ev.timestamp).toLocaleTimeString()}
-              </span>
-              <span className="text-text-muted">{ev.current_step}</span>
-              <span className="text-text-primary">{ev.message}</span>
-            </div>
-          ))}
-          <div ref={bottomRef} />
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -131,10 +71,11 @@ export default function ScanDashboardPage() {
   const [initialError, setInitialError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [patchModalOpen, setPatchModalOpen] = useState(false);
+  const [dataReadyTimedOut, setDataReadyTimedOut] = useState(false);
 
-  // Determine if we need streaming (running) or static display (completed/failed)
+  // SSE Stream: active while scan is running
   const isRunning =
-    initialScan !== null && RUNNING_STATUSES.includes(initialScan.status);
+    initialScan === null || RUNNING_STATUSES.includes(initialScan.status);
 
   const { latestEvent, eventLog, lastGoodStatus } = useScanStream(
     scanId,
@@ -201,6 +142,32 @@ export default function ScanDashboardPage() {
     void fetchInitial();
   }, [fetchInitial]);
 
+  // Check if data is fully ready to show completed dashboard
+  const isFailed = currentStatus === "failed";
+  const isCompleted = currentStatus === "completed";
+
+  const isDataReady = Boolean(
+    displayScan &&
+    displayScan.summary &&
+    (displayScan.f_score || scan.data?.f_score) &&
+    !scan.loading &&
+    !intents.loading &&
+    !contradictions.loading &&
+    !patches.loading
+  );
+
+  useEffect(() => {
+    if (isCompleted && !isDataReady && !dataReadyTimedOut) {
+      const timer = setTimeout(() => {
+        setDataReadyTimedOut(true);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [isCompleted, isDataReady, dataReadyTimedOut]);
+
+  const showCompletedDashboard = isCompleted && (isDataReady || dataReadyTimedOut);
+  const patchCount = patches.data?.length ?? displayScan?.patches.length ?? 0;
+
   // Not found state
   if (notFound) {
     return (
@@ -216,20 +183,6 @@ export default function ScanDashboardPage() {
           >
             Scan another URL
           </Link>
-        </div>
-      </div>
-    );
-  }
-
-  // Initial loading
-  if (initialLoading) {
-    return (
-      <div className="min-h-screen bg-background">
-        <div className="sticky top-0 z-30 h-14 w-full glass border-b border-white/[0.08]" />
-        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6 sm:space-y-8">
-          <StatsSkeleton />
-          <GaugeSkeleton />
-          <TableSkeleton />
         </div>
       </div>
     );
@@ -258,11 +211,73 @@ export default function ScanDashboardPage() {
     );
   }
 
-  if (!displayScan) return null;
+  // Initial loading: show full processing screen instead of skeleton placeholders
+  if (initialLoading || !displayScan) {
+    return (
+      <div className="min-h-screen bg-background pb-24 relative overflow-x-hidden">
+        <div className="pointer-events-none absolute inset-0 -top-20 flex items-center justify-center overflow-hidden">
+          <div className="hero-grid-bg absolute inset-0 opacity-40" />
+          <div className="hero-glow absolute inset-0 opacity-40" />
+        </div>
 
-  const isFailed = currentStatus === "failed";
-  const isCompleted = currentStatus === "completed";
-  const patchCount = patches.data?.length ?? displayScan.patches.length;
+        <header className="sticky top-0 z-50 glass border-b border-white/[0.08] py-3 sm:py-3.5 w-full">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 flex items-center justify-between">
+            <Link href="/" className="flex items-center gap-2 sm:gap-3 group">
+              <Image
+                src="/logo.png"
+                alt="FindableAI Logo"
+                width={32}
+                height={32}
+                className="h-7 w-7 rounded-lg object-contain transition-transform duration-150 group-hover:scale-105"
+                priority
+              />
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-base tracking-tight text-text-primary font-semibold">
+                  FindableAI
+                </span>
+                <span className="text-[10px] font-mono tracking-widest text-text-muted uppercase hidden sm:inline">
+                  MDO
+                </span>
+              </div>
+            </Link>
+          </div>
+        </header>
+
+        <main className="relative z-10 mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6 sm:space-y-8">
+          <ScanProgress
+            currentStatus="pending"
+            latestEvent={{
+              scan_id: scanId ?? "",
+              status: "pending",
+              progress_percent: 10,
+              current_step: "Initializing",
+              message: "Connecting to telemetry stream and loading scan status...",
+              timestamp: new Date().toISOString(),
+            }}
+            lastGoodStatus="pending"
+          />
+          <LiveScanConsole
+            currentStatus="pending"
+            latestEvent={null}
+            events={[]}
+            targetUrl="Initializing audit session..."
+          />
+        </main>
+      </div>
+    );
+  }
+
+  const activeEvent: ScanStatusEvent | null =
+    isCompleted && !showCompletedDashboard
+      ? {
+          scan_id: scanId ?? "",
+          status: "generating_patches",
+          progress_percent: 98,
+          current_step: "Synthesizing",
+          message: "Assembling audit findings, intent evaluations, and patch remediations...",
+          timestamp: latestEvent?.timestamp ?? new Date().toISOString(),
+        }
+      : latestEvent;
 
   return (
     <div className="min-h-screen bg-background pb-24 relative overflow-x-hidden">
@@ -374,7 +389,15 @@ export default function ScanDashboardPage() {
               </span>
             )}
 
-            <ScanStatusBadge status={currentStatus} />
+            <ScanStatusBadge
+              status={
+                showCompletedDashboard
+                  ? "completed"
+                  : currentStatus === "completed"
+                  ? "generating_patches"
+                  : currentStatus
+              }
+            />
 
             <div className="flex items-center gap-1.5 text-xs text-text-muted rounded-lg bg-surface-secondary px-2.5 py-1 shadow-border font-mono">
               <Clock size={12} aria-hidden="true" />
@@ -382,6 +405,7 @@ export default function ScanDashboardPage() {
             </div>
           </div>
         </div>
+
         {/* Failed state */}
         {isFailed && (
           <ErrorState
@@ -398,37 +422,44 @@ export default function ScanDashboardPage() {
           />
         )}
 
-        {/* Running: Progress + Live Telemetry Pipeline Workspace */}
-        {!isFailed && !isCompleted && (
+        {/* Processing Screen: Live Telemetry Pipeline Workspace (shown until page is fully loaded) */}
+        {!isFailed && !showCompletedDashboard && (
           <div className="space-y-6 sm:space-y-8">
             <ScanProgress
-              currentStatus={currentStatus}
-              latestEvent={latestEvent}
+              currentStatus={isCompleted ? "generating_patches" : currentStatus}
+              latestEvent={activeEvent}
               lastGoodStatus={lastGoodStatus}
             />
             <LiveScanConsole
               currentStatus={currentStatus}
-              latestEvent={latestEvent}
-              events={eventLog}
+              latestEvent={activeEvent}
+              events={
+                isCompleted && !isDataReady && eventLog.length > 0 && !eventLog.some(e => e.current_step === "Synthesizing")
+                  ? [
+                      ...eventLog,
+                      {
+                        message: "Compiling machine discoverability index & verifying patch remediations...",
+                        current_step: "Synthesizing",
+                        timestamp: new Date().toISOString(),
+                      },
+                    ]
+                  : eventLog
+              }
               targetUrl={displayScan.target_url}
             />
           </div>
         )}
 
-        {/* Completed dashboard */}
-        {isCompleted && (
+        {/* Completed dashboard (ONLY rendered when fully loaded and ready) */}
+        {showCompletedDashboard && (
           <div className="space-y-8 sm:space-y-10 animate-fade-in">
             {/* Summary stats */}
-            {scan.loading ? (
-              <StatsSkeleton />
-            ) : displayScan.summary ? (
+            {displayScan.summary && (
               <SummaryStats summary={displayScan.summary} />
-            ) : null}
+            )}
 
             {/* Findability Analytics Matrix (2x2) */}
-            {scan.loading || (!displayScan.f_score && !scan.data?.f_score) ? (
-              <GaugeSkeleton />
-            ) : (() => {
+            {(() => {
               const fs = displayScan.f_score ?? scan.data?.f_score;
               return fs ? <ScoreGauge fScore={fs} /> : null;
             })()}
@@ -443,9 +474,7 @@ export default function ScanDashboardPage() {
                   {intents.data?.length ?? displayScan.summary?.intents_generated ?? 30} Simulated Vectors
                 </span>
               </div>
-              {intents.loading ? (
-                <TableSkeleton />
-              ) : intents.error ? (
+              {intents.error ? (
                 <ErrorState
                   message={intents.error}
                   onRetry={intents.retry}
@@ -462,12 +491,10 @@ export default function ScanDashboardPage() {
                   Cross-Page Contradictions &amp; Conflicts
                 </h2>
                 <span className="font-mono text-[11px] text-text-muted">
-                  {contradictions.data?.length ?? displayScan.summary?.contradictions_detected ?? 0} Conflicts Flagged
+                  {contradictions.data?.length ?? displayScan.summary?.contradictions_detected ?? 0} Detected
                 </span>
               </div>
-              {contradictions.loading ? (
-                <CardSkeleton count={1} />
-              ) : contradictions.error ? (
+              {contradictions.error ? (
                 <ErrorState
                   message={contradictions.error}
                   onRetry={contradictions.retry}
@@ -480,8 +507,8 @@ export default function ScanDashboardPage() {
         )}
       </main>
 
-      {/* Sticky patches button */}
-      {isCompleted && (
+      {/* Sticky patches button (ONLY shown when dashboard is fully loaded) */}
+      {showCompletedDashboard && (
         <div className="fixed bottom-0 inset-x-0 flex justify-center px-4 py-3.5 z-30 bg-background/80 backdrop-blur-lg border-t border-white/[0.08] shadow-2xl">
           <button
             type="button"
@@ -491,10 +518,10 @@ export default function ScanDashboardPage() {
           >
             <GitPullRequest size={15} aria-hidden="true" />
             {patches.loading
-              ? "Loading patches..."
+              ? "Loading fixes..."
               : patchCount > 0
-                ? `View ${patchCount} Unified Patch${patchCount === 1 ? "" : "es"}`
-                : "No patches required"}
+                ? "Review Suggested Fixes"
+                : "No fixes required"}
           </button>
         </div>
       )}

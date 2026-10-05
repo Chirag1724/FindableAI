@@ -52,6 +52,12 @@ export type PatchType =
   | "heading_structure"
   | "factual_conflict_resolution";
 
+export interface AuxiliaryFile {
+  file_path: string;
+  content: string;
+  action: "create" | "modify" | "delete";
+}
+
 export interface PatchProposal {
   patch_id: string;
   patch_type: PatchType;
@@ -61,6 +67,20 @@ export interface PatchProposal {
   dom_anchor: DOMSelectorAnchor;
   unified_diff: string;
   applied: boolean;
+  target_file?: string | null;
+  code_diff?: string | null;
+  auxiliary_files?: AuxiliaryFile[];
+  framework?: string | null;
+}
+
+
+export interface CrawledPageDetail {
+  url: string;
+  status_code: number;
+  chunks_count: number;
+  load_time_ms?: number;
+  is_spa?: boolean;
+  title?: string;
 }
 
 export interface AuditSummary {
@@ -69,6 +89,8 @@ export interface AuditSummary {
   intents_generated: number;
   contradictions_detected: number;
   execution_time_seconds: number;
+  max_pages_requested?: number;
+  crawled_pages?: CrawledPageDetail[];
 }
 
 export interface ScanResponse {
@@ -79,6 +101,7 @@ export interface ScanResponse {
   completed_at?: string;
   f_score?: FScoreBreakdown;
   summary?: AuditSummary;
+  crawled_pages?: CrawledPageDetail[];
   patches: PatchProposal[];
   error?: string;
   execution_mode?: "real_llm" | "deterministic_fallback" | string;
@@ -126,6 +149,7 @@ export interface IntentEvaluation {
   evidence: EvidenceReference[];
   confidence: number;
   difficulty?: "easy" | "medium" | "hard";
+  persona?: "cto" | "developer" | "procurement" | string;
 }
 
 export type ContradictionSeverity = "HARD_CONTRADICTION" | "SOFT_INCONSISTENCY";

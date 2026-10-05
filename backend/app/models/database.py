@@ -123,6 +123,7 @@ class Intent(Base):
         UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True
     )
     category: Mapped[str] = mapped_column(String(100), nullable=False)
+    persona: Mapped[str | None] = mapped_column(String(50), nullable=True)
     query: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(
         String(50), nullable=False
