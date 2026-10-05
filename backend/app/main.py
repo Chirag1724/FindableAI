@@ -107,6 +107,15 @@ async def root():
     }
 
 
+@app.get("/health", tags=["Health"])
+async def health_check():
+    return {
+        "status": "healthy",
+        "service": settings.PROJECT_NAME,
+        "version": settings.VERSION,
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
 

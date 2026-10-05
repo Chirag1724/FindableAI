@@ -66,9 +66,11 @@ class Settings(BaseSettings):
             return value
         v = value.strip()
         if v.startswith("postgres://"):
-            return "postgresql+asyncpg://" + v[len("postgres://"):]
-        if v.startswith("postgresql://") and not v.startswith("postgresql+asyncpg://"):
-            return "postgresql+asyncpg://" + v[len("postgresql://"):]
+            v = "postgresql+asyncpg://" + v[len("postgres://"):]
+        elif v.startswith("postgresql://") and not v.startswith("postgresql+asyncpg://"):
+            v = "postgresql+asyncpg://" + v[len("postgresql://"):]
+        if "sslmode=require" in v:
+            v = v.replace("sslmode=require", "ssl=require")
         return v
 
     @field_validator("MAX_LLM_CALLS_PER_SCAN")
