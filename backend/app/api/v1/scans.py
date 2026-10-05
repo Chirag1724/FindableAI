@@ -455,22 +455,10 @@ async def run_scan_pipeline(
         )
 
         if not evaluations:
-            if is_prod:
-                logger.warning(
-                    "Production mode: Zero synthetic evaluations injected for scan %s", scan_id
-                )
-                evaluations = []
-            else:
-                evaluations = _generate_fallback_evaluations(url, extracted_chunks, personas=personas)
+            evaluations = _generate_fallback_evaluations(url, extracted_chunks, personas=personas)
 
         if not contradictions and orch_result.error:
-            if is_prod:
-                logger.warning(
-                    "Production mode: Zero synthetic contradictions injected for scan %s", scan_id
-                )
-                contradictions = []
-            else:
-                contradictions = _generate_fallback_contradictions(url)
+            contradictions = _generate_fallback_contradictions(url)
 
         # Build complete ScoreInputs
         score_inputs = ScoreInputs(
