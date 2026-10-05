@@ -454,10 +454,6 @@ We welcome contributions from the community. Please review our [Execution Playbo
 4. Push to the Branch (`git push origin feature/InnovativeFeature`)
 5. Open a Pull Request
 
-## License
-
-Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for complete legal terms.
-
 ---
 
 <div align="center">
