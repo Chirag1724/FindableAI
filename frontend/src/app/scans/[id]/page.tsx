@@ -509,12 +509,12 @@ export default function ScanDashboardPage() {
 
       {/* Sticky patches button (ONLY shown when dashboard is fully loaded) */}
       {showCompletedDashboard && (
-        <div className="fixed bottom-0 inset-x-0 flex justify-center px-4 py-3.5 z-30 bg-background/80 backdrop-blur-lg border-t border-white/[0.08] shadow-2xl">
+        <div className="fixed bottom-0 inset-x-0 flex justify-center px-4 py-3 sm:py-3.5 z-30 bg-background/90 backdrop-blur-lg border-t border-white/[0.08] shadow-2xl pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
           <button
             type="button"
             onClick={() => setPatchModalOpen(true)}
             disabled={patchCount === 0 && !patches.loading}
-            className="flex items-center gap-2 rounded-lg bg-white text-black px-6 py-2.5 text-xs font-bold tracking-wider uppercase shadow-lg transition-all duration-150 hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500 active:scale-95"
+            className="flex items-center justify-center gap-2 rounded-lg bg-white text-black px-6 py-3 sm:py-2.5 text-xs font-bold tracking-wider uppercase shadow-lg transition-all duration-150 hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500 active:scale-95 w-full sm:w-auto max-w-sm"
           >
             <GitPullRequest size={15} aria-hidden="true" />
             {patches.loading

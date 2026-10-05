@@ -329,20 +329,18 @@ export default function AuditPage() {
                 </label>
 
                 {/* Quick Fill */}
-                <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-mono text-text-muted">
-                  <span>Quick test:</span>
-                  <button
-                    type="button"
-                    data-testid="demo-fill-btn"
-                    onClick={() => {
-                      handleUrlChange(DEMO_TARGET.url);
-                      setRepoUrl(DEMO_TARGET.repoUrl);
-                    }}
-                    className="px-2 py-0.5 rounded bg-surface-secondary text-text-muted hover:text-white hover:bg-white/[0.08] transition-colors duration-150 border border-white/[0.06]"
-                  >
-                    FindableAI
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  data-testid="demo-fill-btn"
+                  onClick={() => {
+                    handleUrlChange(DEMO_TARGET.url);
+                    setRepoUrl(DEMO_TARGET.repoUrl);
+                  }}
+                  className="inline-flex items-center px-2.5 py-1 rounded-md bg-surface-secondary text-text-muted hover:text-white hover:bg-white/[0.08] transition-colors duration-150 border border-white/[0.08] active:scale-95 text-[11px] font-mono"
+                  title="Auto-fill with FindableAI sample target"
+                >
+                  FindableAI
+                </button>
               </div>
 
               <div

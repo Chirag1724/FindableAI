@@ -535,7 +535,7 @@ export function PatchModal({
   return (
     <div
       ref={backdropRef}
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center px-0 sm:px-4 bg-black/75 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center p-0 sm:p-4 bg-background sm:bg-black/75 sm:backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) handleAnimatedClose(); }}
     >
       <div
@@ -544,22 +544,24 @@ export function PatchModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="patch-modal-title"
-        className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-t-2xl sm:rounded-xl glass shadow-2xl overflow-hidden"
+        className="flex h-full sm:h-auto sm:max-h-[90vh] w-full max-w-3xl flex-col rounded-none sm:rounded-xl bg-background sm:glass shadow-2xl overflow-hidden"
       >
-        {/* Header */}
-        <div className="flex shrink-0 items-center justify-between px-5 py-4 border-b border-white/[0.08]">
-          <div>
+        {/* Header: Full-screen mobile app top bar + desktop modal header */}
+        <div className="flex shrink-0 items-center justify-between px-4 sm:px-5 py-3.5 sm:py-4 border-b border-white/[0.08] bg-surface/70 sm:bg-transparent pt-[calc(0.875rem+env(safe-area-inset-top,0px))] sm:pt-4">
+          <div className="min-w-0 pr-2">
             <h2
               id="patch-modal-title"
-              className="flex items-center gap-2 text-sm font-semibold text-text-primary"
+              className="flex items-center gap-2 text-xs sm:text-sm font-semibold text-text-primary"
             >
-              <GitPullRequest size={16} aria-hidden="true" />
-              {hasFrameworkPR
-                ? `Pull Request: ${resolvedPatches.length} Unified Patch${resolvedPatches.length === 1 ? "" : "es"}`
-                : `Proposed Patches (${resolvedPatches.length})`}
+              <GitPullRequest size={15} className="shrink-0 text-violet-400" aria-hidden="true" />
+              <span className="truncate">
+                {hasFrameworkPR
+                  ? `Pull Request: ${resolvedPatches.length} Unified Patch${resolvedPatches.length === 1 ? "" : "es"}`
+                  : `Proposed Patches (${resolvedPatches.length})`}
+              </span>
             </h2>
             {resolvedPatches.length > 0 && (
-              <p className="mt-0.5 text-xs text-text-muted">
+              <p className="mt-0.5 text-[11px] sm:text-xs text-text-muted">
                 Projected F-Score: {currentScore.toFixed(1)} &rarr;{" "}
                 <span className="font-semibold text-emerald-400">
                   {projectedScore.toFixed(1)}
@@ -573,14 +575,14 @@ export function PatchModal({
             type="button"
             onClick={handleAnimatedClose}
             aria-label="Close patches modal"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors duration-150 hover:bg-white/10 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors duration-150 hover:bg-white/10 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 shrink-0"
           >
             <X size={16} aria-hidden="true" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 sm:space-y-6 custom-scrollbar">
           {resolvedPatches.length === 0 ? (
             <EmptyState
               title="No patches available"
@@ -646,7 +648,7 @@ export function PatchModal({
         </div>
 
         {/* Footer - PR button */}
-        <div className="shrink-0 px-5 py-4 border-t border-white/[0.08] bg-surface">
+        <div className="shrink-0 px-4 sm:px-5 py-4 border-t border-white/[0.08] bg-surface pb-[calc(1rem+env(safe-area-inset-bottom,0px))] sm:pb-4">
           {prState === "success" && prResult ? (
             <div
               data-testid="pr-result"

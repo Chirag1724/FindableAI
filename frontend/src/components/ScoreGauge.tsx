@@ -209,7 +209,7 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
       {/* Upper Grid: 3 balanced analytics cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 items-stretch">
         {/* CARD 1: OVERALL F-SCORE + RADIAL BREAKDOWN */}
-        <div className="h-full rounded-2xl bg-surface shadow-border p-6 flex flex-col justify-between">
+        <div className="h-full rounded-2xl bg-surface shadow-border p-5 sm:p-6 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <Activity size={15} className="text-violet-400" />
@@ -226,7 +226,7 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
             </span>
           </div>
 
-          <div className="relative mx-auto my-3 h-60 w-60 flex items-center justify-center">
+          <div className="relative mx-auto my-3 h-52 w-52 sm:h-60 sm:w-60 flex items-center justify-center">
             <ResponsiveContainer width="100%" height="100%">
               <RadialBarChart
                 cx="50%"

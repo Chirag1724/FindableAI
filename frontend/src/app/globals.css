@@ -113,18 +113,32 @@ details > summary::-webkit-details-marker {
   display: none;
 }
 
-/* Ambient engineering grid background */
+/* Ambient engineering grid background with soft feathered fade */
 .hero-grid-bg {
   background-image: 
     linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 40px 40px;
-  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 80%);
-  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 80%);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(ellipse 80% 55% at 50% 35%, #000 15%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 55% at 50% 35%, #000 15%, transparent 70%);
+}
+
+@media (min-width: 640px) {
+  .hero-grid-bg {
+    background-size: 40px 40px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 80%);
+  }
 }
 
 .hero-glow {
-  background: radial-gradient(circle 600px at 50% 25%, rgba(124, 58, 237, 0.14), rgba(16, 185, 129, 0.05) 45%, transparent 75%);
+  background: radial-gradient(ellipse 85% 50% at 50% 30%, rgba(124, 58, 237, 0.16), rgba(16, 185, 129, 0.04) 40%, transparent 70%);
+}
+
+@media (min-width: 640px) {
+  .hero-glow {
+    background: radial-gradient(circle 600px at 50% 25%, rgba(124, 58, 237, 0.14), rgba(16, 185, 129, 0.05) 45%, transparent 75%);
+  }
 }
 
 /* Production range slider styling - soft muted tone */

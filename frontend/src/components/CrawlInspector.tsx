@@ -248,7 +248,7 @@ export function CrawlInspector() {
     <div className="rounded-xl bg-surface shadow-border overflow-hidden text-left">
       {/* 1. Header Toolbar with Live Status & Route Switcher */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-4 sm:p-5 border-b border-white/[0.08] bg-surface-secondary/40">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center flex-wrap gap-2 sm:gap-3">
           <div className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
             <span className="font-mono text-xs font-semibold text-white tracking-wide">

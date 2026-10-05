@@ -403,7 +403,7 @@ export default function HomePage() {
           className="relative min-h-[calc(100vh-4rem)] min-h-[calc(100dvh-4rem)] flex flex-col justify-center items-center text-center max-w-4xl mx-auto py-12 sm:py-16"
         >
           {/* Ambient Grid & Glow Layer */}
-          <div className="pointer-events-none absolute inset-0 -top-20 flex items-center justify-center overflow-hidden">
+          <div className="pointer-events-none absolute -inset-x-4 sm:inset-x-0 inset-y-0 -top-20 flex items-center justify-center overflow-hidden">
             <div className="hero-grid-bg absolute inset-0 opacity-70" />
             <div className="hero-glow absolute inset-0 opacity-60" />
           </div>
