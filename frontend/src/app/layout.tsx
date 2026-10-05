@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import "./globals.css";
+import { JsonLd } from "@/components/JsonLd";
+
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -102,6 +104,7 @@ export default function RootLayout({
       className={`dark ${GeistSans.variable} ${GeistMono.variable}`}
     >
       <body className="min-h-screen bg-background text-[#EDEDED] antialiased selection:bg-white selection:text-black">
+        <JsonLd />
         {children}
       </body>
     </html>
