@@ -10,6 +10,7 @@ from app.engines.framework_adapter import (
     locate_framework_layout,
     resolve_framework_patches,
     synthesize_framework_component,
+    validate_framework_layout_syntax,
 )
 from app.schemas.patch import DOMSelectorAnchor, PatchProposal, PatchType
 
@@ -85,6 +86,7 @@ def test_inject_component_into_layout():
     )
     assert 'import { JsonLd } from "@/components/JsonLd";' in injected
     assert "<JsonLd />" in injected
+    assert validate_framework_layout_syntax(SAMPLE_LAYOUT, injected) is True
 
 
 def test_resolve_framework_patches_end_to_end():
@@ -157,3 +159,137 @@ def test_resolve_framework_patches_multiple_patches_deduplicates_layout_diff():
     assert resolved[1].code_diff is None
     assert len(resolved[1].auxiliary_files) == 0
     assert resolved[1].framework is None
+
+
+def test_commented_children_falls_back_safely():
+    """Layout where {children} only appears inside comments and no <body> tag exists."""
+    commented_layout = """import './globals.css';
+// TODO: implement RootLayout with {children}
+export default function Layout() {
+  return <div>Custom Layout Under Construction</div>;
+}
+"""
+    files = ["package.json", "frontend/src/app/layout.tsx"]
+    resolved = resolve_framework_patches(
+        [SAMPLE_PATCH],
+        tree_files=files,
+        get_file_content=lambda p: commented_layout,
+    )
+    # Since there's no body and no return {children}, it should safely avoid corrupting comments
+    assert len(resolved) == 1
+    # Either validly unchanged or no layout modification attached
+    assert resolved[0].code_diff is None or "<JsonLd />" in resolved[0].code_diff
+
+
+def test_string_literal_children_falls_back_safely():
+    """Layout where '{children}' is in a string literal outside of JSX return."""
+    string_literal_layout = """import './globals.css';
+const description = "App container for {children} rendering";
+
+export default function Layout() {
+  return <div>Static Site Shell</div>;
+}
+"""
+    injected = inject_component_into_layout(string_literal_layout)
+    # Should not blindly inject inside the string assignment
+    assert 'description = "App container for <JsonLd />' not in injected
+
+
+def test_type_annotation_children_does_not_inject_in_params():
+    """Layout with TypeScript type definition ({ children }: { children: React.ReactNode })."""
+    type_layout = """import type React from 'react';
+import './globals.css';
+
+interface LayoutProps {
+  children: React.ReactNode;
+}
+
+export default function Layout({ children }: LayoutProps) {
+  return (
+    <main className="container">
+      {children}
+    </main>
+  );
+}
+"""
+    injected = inject_component_into_layout(type_layout)
+    assert "interface LayoutProps" in injected
+    # Ensure <JsonLd /> was not injected into interface or parameters
+    assert "<JsonLd />children" not in injected
+    assert "<JsonLd />" in injected
+    assert validate_framework_layout_syntax(type_layout, injected) is True
+
+
+def test_hoc_wrapper_layout_injection_or_safe_fallback():
+    """Layout wrapped in a Higher-Order Component (e.g. withAuth or memo)."""
+    hoc_layout = """import React from 'react';
+import { withTheme } from '@/lib/theme';
+
+function LayoutComponent({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="theme-wrapper">
+      {children}
+    </div>
+  );
+}
+
+export default withTheme(LayoutComponent);
+"""
+    injected = inject_component_into_layout(hoc_layout)
+    assert 'import { JsonLd } from "@/components/JsonLd";' in injected
+    assert "<JsonLd />" in injected
+    assert validate_framework_layout_syntax(hoc_layout, injected) is True
+
+
+def test_multiline_destructured_imports_integrity():
+    """Layout starting with complex multi-line import destructuring."""
+    multiline_import_layout = """import {
+  type Metadata,
+  type Viewport,
+} from 'next';
+import {
+  Inter,
+  Roboto_Mono,
+} from 'next/font/google';
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html>
+      <body>
+        {children}
+      </body>
+    </html>
+  );
+}
+"""
+    injected = inject_component_into_layout(multiline_import_layout)
+    assert 'import { JsonLd } from "@/components/JsonLd";' in injected
+    assert validate_framework_layout_syntax(multiline_import_layout, injected) is True
+
+
+def test_malformed_unbalanced_jsx_rejects_and_falls_back():
+    """Layout with unbalanced braces/parentheses is rejected by the syntax validator."""
+    malformed_layout = """import './globals.css';
+
+export default function Layout({ children }: { children: React.ReactNode }) {
+  return (
+    <div>
+      {children}
+    // missing closing tags and unclosed brace
+"""
+    # Validation should catch structural imbalance
+    is_valid = validate_framework_layout_syntax(malformed_layout, malformed_layout + "\n<JsonLd />")
+    assert is_valid is False
+
+    # PR engine / resolution fallback test
+    files = ["package.json", "frontend/src/app/layout.tsx"]
+    resolved = resolve_framework_patches(
+        [SAMPLE_PATCH],
+        tree_files=files,
+        get_file_content=lambda p: malformed_layout,
+    )
+    # Framework layout diff is skipped on validation failure
+    assert len(resolved) == 1
+    assert resolved[0].target_file is None
+    assert resolved[0].code_diff is None
+

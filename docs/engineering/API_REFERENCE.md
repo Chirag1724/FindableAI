@@ -170,6 +170,20 @@ Fetches the full scan state, calculated F-Score breakdown, summary statistics, s
     "contradictions_detected": 1,
     "execution_time_seconds": 42.8
   },
+  "crawled_pages": [
+    {
+      "url": "https://bistro-demo.example.com",
+      "status_code": 200,
+      "chunks_count": 14,
+      "content_hash": "a8f3b2c1..."
+    },
+    {
+      "url": "https://bistro-demo.example.com/about",
+      "status_code": 200,
+      "chunks_count": 8,
+      "content_hash": "d4e5f6a7..."
+    }
+  ],
   "patches": [
     {
       "patch_id": "patch_e3f9a1b2",
@@ -184,10 +198,29 @@ Fetches the full scan state, calculated F-Score breakdown, summary statistics, s
         "suggested_snippet": "<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"LocalBusiness\"}</script>"
       },
       "unified_diff": "--- a/index.html\n+++ b/index.html\n@@ -1,3 +1,6 @@\n <head>\n+<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"LocalBusiness\"}</script>\n <title>Bistro</title>\n </head>",
+      "framework_component_code": "export default function JsonLd() {\n  return (\n    <script\n      type=\"application/ld+json\"\n      dangerouslySetInnerHTML={{ __html: JSON.stringify({\"@context\": \"https://schema.org\", \"@type\": \"LocalBusiness\"}) }}\n    />\n  );\n}",
+      "framework_file_path": "src/components/JsonLd.tsx",
+      "framework_layout_file": "src/app/layout.tsx",
       "applied": false
     }
   ],
-  "intents": [],
+  "intents": [
+    {
+      "intent_id": "intent_01",
+      "query": "What are the payment and refund terms?",
+      "category": "policy",
+      "persona": "procurement",
+      "status": "supported",
+      "reasoning": "Explicit refund policy discovered in DOM chunk.",
+      "evidence": [
+        {
+          "chunk_id": "chunk_04",
+          "dom_path": "body > main > section#policy"
+        }
+      ],
+      "confidence": 0.94
+    }
+  ],
   "contradictions": [],
   "error": null,
   "execution_mode": "real_llm",

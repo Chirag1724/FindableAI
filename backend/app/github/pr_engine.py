@@ -15,6 +15,7 @@ from app.engines.framework_adapter import (
     inject_component_into_layout,
     locate_framework_layout,
     synthesize_framework_component,
+    validate_framework_layout_syntax,
 )
 from app.github.client import GitHubClient, GitHubClientError
 from app.github.pr_markdown import generate_pr_markdown
@@ -650,31 +651,43 @@ class GitHubPRService:
                     )
 
                     if component_content:
-                        framework_updates = [
-                            ValidatedRepoFileUpdate(
-                                path=component_file,
-                                content=component_content,
-                                opportunity_ids=self._opportunity_ids(grouped),
-                                schema_types=[
-                                    p.schema_type for patches in grouped.values() for p in patches
-                                ],
+                        # Validate syntax integrity of modified layout before committing
+                        is_layout_valid = validate_framework_layout_syntax(
+                            remote_layout.content, patched_layout
+                        )
+                        if not is_layout_valid:
+                            logger.warning(
+                                "Framework layout syntax validation failed for %s, falling back to guidance PR",
+                                layout_file,
                             )
-                        ]
-                        if patched_layout != remote_layout.content:
-                            framework_updates.append(
+                            guidance_mode = True
+                            prepared = []
+                        else:
+                            framework_updates = [
                                 ValidatedRepoFileUpdate(
-                                    path=layout_file,
-                                    content=patched_layout,
+                                    path=component_file,
+                                    content=component_content,
                                     opportunity_ids=self._opportunity_ids(grouped),
                                     schema_types=[
-                                        p.schema_type
-                                        for patches in grouped.values()
-                                        for p in patches
+                                        p.schema_type for patches in grouped.values() for p in patches
                                     ],
                                 )
-                            )
-                        prepared = framework_updates
-                        guidance_mode = False
+                            ]
+                            if patched_layout != remote_layout.content:
+                                framework_updates.append(
+                                    ValidatedRepoFileUpdate(
+                                        path=layout_file,
+                                        content=patched_layout,
+                                        opportunity_ids=self._opportunity_ids(grouped),
+                                        schema_types=[
+                                            p.schema_type
+                                            for patches in grouped.values()
+                                            for p in patches
+                                        ],
+                                    )
+                                )
+                            prepared = framework_updates
+                            guidance_mode = False
                 except Exception as framework_err:
                     logger.info(
                         "Framework component generation failed, falling back to guidance PR: %s",

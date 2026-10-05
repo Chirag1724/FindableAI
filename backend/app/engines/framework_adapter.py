@@ -212,6 +212,105 @@ def synthesize_framework_component(items: Sequence[Any]) -> str:
     )
 
 
+def strip_comments_and_strings(code: str) -> str:
+    """Strips comments and string literals to enable clean structural inspection."""
+    output: list[str] = []
+    i = 0
+    n = len(code)
+    while i < n:
+        # Multi-line comment
+        if code[i : i + 2] == "/*":
+            end_idx = code.find("*/", i + 2)
+            if end_idx == -1:
+                break
+            i = end_idx + 2
+            continue
+        # Single-line comment
+        if code[i : i + 2] == "//":
+            end_idx = code.find("\n", i + 2)
+            if end_idx == -1:
+                break
+            i = end_idx
+            continue
+        # Template literal or string literal
+        if code[i] in ('"', "'", "`"):
+            quote = code[i]
+            i += 1
+            while i < n:
+                if code[i] == "\\":
+                    i += 2
+                    continue
+                if code[i] == quote:
+                    i += 1
+                    break
+                i += 1
+            continue
+        output.append(code[i])
+        i += 1
+    return "".join(output)
+
+
+def check_balanced_delimiters(sanitized: str) -> bool:
+    """Verifies that curly braces, parentheses, and square brackets are balanced."""
+    stack: list[str] = []
+    pairs = {"}": "{", ")": "(", "]": "["}
+    for ch in sanitized:
+        if ch in ("{", "(", "["):
+            stack.append(ch)
+        elif ch in ("}", ")", "]"):
+            if not stack or stack[-1] != pairs[ch]:
+                return False
+            stack.pop()
+    return len(stack) == 0
+
+
+def validate_framework_layout_syntax(original_content: str, modified_content: str) -> bool:
+    """Validates structural and lexical integrity of modified TSX/JSX layout.
+
+    Acts as a heuristic safety net confirming balanced delimiters, clean import
+    boundaries, and valid JSX element placement before code is committed to Git.
+    """
+    if not modified_content or not modified_content.strip():
+        return False
+    if modified_content == original_content:
+        return True
+
+    sanitized_orig = strip_comments_and_strings(original_content)
+    sanitized_mod = strip_comments_and_strings(modified_content)
+
+    # 1. Delimiter balance check
+    if not check_balanced_delimiters(sanitized_mod):
+        logger.warning("Framework layout validation failed: unbalanced delimiters in modified layout")
+        return False
+
+    # 2. Injected import boundary check
+    if 'import { JsonLd } from "' not in modified_content:
+        logger.warning("Framework layout validation failed: missing JsonLd import statement")
+        return False
+
+    # Ensure import is at the start of a line (not spliced into another statement)
+    if not re.search(r"^import\s+\{\s*JsonLd\s*\}\s+from\s+[\"'].*?[\"'];?", modified_content, re.MULTILINE):
+        logger.warning("Framework layout validation failed: malformed import line boundary")
+        return False
+
+    # 3. Injected JSX component check
+    if "<JsonLd />" not in sanitized_mod and "<JsonLd/>" not in sanitized_mod:
+        logger.warning("Framework layout validation failed: <JsonLd /> not present in sanitized JSX")
+        return False
+
+    # Ensure <JsonLd /> is not inside an unclosed HTML attribute or type annotation
+    if re.search(r"<\w+\s+[^>]*<JsonLd\s*/>", modified_content):
+        logger.warning("Framework layout validation failed: <JsonLd /> nested inside tag opening attribute")
+        return False
+
+    # Ensure <JsonLd /> is not injected into a TypeScript type definition parameter
+    if re.search(r"\{\s*<JsonLd\s*/>\s*children\s*:\s*React", modified_content):
+        logger.warning("Framework layout validation failed: <JsonLd /> placed inside parameter type definition")
+        return False
+
+    return True
+
+
 def inject_component_into_layout(
     layout_content: str,
     component_name: str = "JsonLd",
@@ -226,8 +325,9 @@ def inject_component_into_layout(
 
     content = layout_content
 
+    # 1. Inject import statement after the last top-level import block
     import_stmt = f'import {{ {component_name} }} from "{import_path}";'
-    import_matches = list(re.finditer(r"^import\s+.*?(?:;|\n)", content, re.MULTILINE))
+    import_matches = list(re.finditer(r"^import\s+[\s\S]*?(?:;|\n)", content, re.MULTILINE))
     if import_matches:
         last_import = import_matches[-1]
         insert_idx = last_import.end()
@@ -240,13 +340,21 @@ def inject_component_into_layout(
         content = import_stmt + "\n\n" + content
 
     tag = f"<{component_name} />"
+
+    # 2. Inject JSX tag into body or JSX return structure
     body_match = re.search(r"(<body\b[^>]*>)", content, re.IGNORECASE)
     if body_match:
         idx = body_match.end()
         content = content[:idx] + f"\n        {tag}" + content[idx:]
-    elif "{children}" in content:
-        idx = content.find("{children}")
-        content = content[:idx] + f"{tag}\n        " + content[idx:]
+    else:
+        # Avoid injecting into TypeScript type definitions like ({ children }: { children: React.ReactNode })
+        return_match = re.search(r"\breturn\b\s*[\s\S]*", content)
+        if return_match:
+            return_body = return_match.group(0)
+            child_idx_in_return = return_body.find("{children}")
+            if child_idx_in_return != -1:
+                abs_idx = return_match.start() + child_idx_in_return
+                content = content[:abs_idx] + f"{tag}\n        " + content[abs_idx:]
 
     return content
 
@@ -297,6 +405,14 @@ def resolve_framework_patches(
         component_name="JsonLd",
         import_path=import_path,
     )
+
+    # Post-injection syntax validation safety net
+    if not validate_framework_layout_syntax(remote_layout, patched_layout):
+        logger.warning(
+            "Framework layout validation failed for %s; skipping direct layout modification",
+            layout_file,
+        )
+        return list(patches)
 
     layout_diff = generate_git_diff(remote_layout, patched_layout, layout_file)
     framework_name = "nextjs_app_router" if "/app/" in layout_file else "nextjs_pages"
