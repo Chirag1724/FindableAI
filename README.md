@@ -34,8 +34,7 @@
 | Resource                  | Link                                                                     |
 | :------------------------ | :----------------------------------------------------------------------- |
 | **Live Demo**             | [findableai.vercel.app](https://findableai.vercel.app/)                  |
-| **Demo Video**            | [Demo Video (add link here)](add link here)                              |
-| **Demo Video Script**     | [Production Script & Walkthrough](docs/DEMO_VIDEO_SCRIPT.md)             |
+| **Demo Video**            | [Demo Video (add link here)](add link here)                              |                           |
 | **Figma Design**          | [Figma UI/UX Prototype](https://www.figma.com/design/WH3T793esaoyj8FNY265xJ/FindableAI?m=auto&t=VhmLDDUFEAgXNS6M-1) |
 | **Architecture Overview** | [System Flow & End-to-End Architecture](docs/engineering/SYSTEM_FLOW.md) |
 
