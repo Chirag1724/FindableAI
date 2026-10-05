@@ -22,7 +22,7 @@ FindableAI handles high-leverage integrations. Vulnerability disclosures should 
 
 ### 2.2 Indirect Prompt Injection & Untrusted Ingestion
 * **Boundary:** DOM chunk extraction, synthetic intent generation, and NLI verification engines.
-* **Invariant:** Raw web content crawled from target domains is untrusted. Extracted text chunks passed into LLMs (`FactExtractor`, DeBERTa, evaluator judges) must not execute system instructions, override prompt delimiters, or compromise orchestrator control flow.
+* **Invariant:** Raw web content crawled from target domains is untrusted. Extracted text chunks passed into LLMs (`FactExtractor`, NLI entailment classifiers, evaluator judges) must not execute system instructions, override prompt delimiters, or compromise orchestrator control flow.
 * **Reporting Trigger:** Direct demonstration of adversarial payload extraction causing data exfiltration, unauthorized API operations, or privilege escalation.
 
 ### 2.3 Downstream Supply Chain & GitHub App Permissions
