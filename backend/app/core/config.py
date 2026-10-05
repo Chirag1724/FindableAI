@@ -59,6 +59,18 @@ class Settings(BaseSettings):
     DB_POOL_TIMEOUT: int = 30
     DB_POOL_RECYCLE: int = 1800
 
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def _normalize_database_url(cls, value: str) -> str:
+        if not value or not isinstance(value, str):
+            return value
+        v = value.strip()
+        if v.startswith("postgres://"):
+            return "postgresql+asyncpg://" + v[len("postgres://"):]
+        if v.startswith("postgresql://") and not v.startswith("postgresql+asyncpg://"):
+            return "postgresql+asyncpg://" + v[len("postgresql://"):]
+        return v
+
     @field_validator("MAX_LLM_CALLS_PER_SCAN")
     @classmethod
     def _max_llm_calls_non_negative(cls, value: int) -> int:

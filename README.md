@@ -36,7 +36,7 @@
 | **Live Demo**             | [findableai.vercel.app](https://findableai.vercel.app/)                  |
 | **Demo Video**            | [Demo Video (add link here)](add link here)                              |
 | **Pitch Deck**            | [Pitch Deck (add link here)](add link here)                              |
-| **Figma Design**          | [Figma Design (optional - add link here)](add link here)                 |
+| **Figma Design**          | [Figma UI/UX Prototype](https://www.figma.com/design/WH3T793esaoyj8FNY265xJ/FindableAI?m=auto&t=VhmLDDUFEAgXNS6M-1) |
 | **Architecture Overview** | [System Flow & End-to-End Architecture](docs/engineering/SYSTEM_FLOW.md) |
 
 ---
