@@ -1,25 +1,39 @@
 import Link from "next/link";
-import { Search } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 
 export default function NotFound() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface shadow-border mb-6">
-        <Search size={20} className="text-text-muted" aria-hidden="true" />
+      {/* Monospace Code Pill */}
+      <div className="inline-flex items-center rounded-md border border-white/10 bg-surface px-2.5 py-1 text-xs font-mono text-text-muted mb-6">
+        <span>404 &middot; NOT FOUND</span>
       </div>
 
-      <h1 className="text-5xl font-bold text-text-primary mb-2">404</h1>
-      <h2 className="text-base font-medium text-text-primary mb-2">Page not found</h2>
-      <p className="text-xs text-text-muted mb-8 max-w-xs leading-relaxed">
-        The page you are looking for does not exist or may have been moved.
+      <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-text-primary mb-3">
+        Page not found
+      </h1>
+
+      <p className="max-w-md text-sm text-text-muted mb-8 leading-relaxed">
+        The requested URL does not exist or may have been moved.
       </p>
 
-      <Link
-        href="/"
-        className="rounded-lg bg-white px-5 py-2.5 text-xs font-semibold text-black tracking-wider uppercase transition-colors duration-150 hover:bg-neutral-200 focus-visible:ring-2 focus-visible:ring-blue-500"
-      >
-        Back to home
-      </Link>
+      {/* Clean Linear/Vercel-style Actions */}
+      <div className="flex items-center gap-3">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-surface px-4 py-2 text-xs font-medium text-text-primary transition-colors hover:bg-surface-secondary hover:text-white focus-visible:ring-2 focus-visible:ring-blue-500"
+        >
+          <ArrowLeft size={13} aria-hidden="true" />
+          <span>Home</span>
+        </Link>
+        <Link
+          href="/audit"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-xs font-medium text-black transition-colors hover:bg-neutral-200 focus-visible:ring-2 focus-visible:ring-blue-500"
+        >
+          <span>Run Audit</span>
+          <ArrowRight size={13} aria-hidden="true" />
+        </Link>
+      </div>
     </div>
   );
 }
