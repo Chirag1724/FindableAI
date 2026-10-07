@@ -24,6 +24,7 @@
 [Tech Stack & Implementation](docs/02_TECH_STACK_AND_IMPLEMENTATION.md) •
 [Execution Playbook](docs/03_EXECUTION_PLAYBOOK.md) •
 [Team Task Allocation](docs/04_TEAM_TASK_ALLOCATION.md) •
+[AI Lighthouse & ML Crawler Governance](docs/05_AI_LIGHTHOUSE_FEATURE_SPEC.md) •
 [Engineering Documentation](docs/engineering/README.md) •
 [Security Policy](SECURITY.md)
 
