@@ -162,7 +162,7 @@ class LighthouseEngine:
         if not targets:
             return {"score": 70, "ratio": 1.0, "detail": "Few section landmarks detected"}
 
-        with_id = [t for t in targets if t.has_attr("id") and t["id"].strip()]
+        with_id = [t for t in targets if t.has_attr("id") and str(t.get("id") or "").strip()]
         ratio = len(with_id) / len(targets)
         score = round(ratio * 100)
 
@@ -209,7 +209,7 @@ class LighthouseEngine:
 
         if self.soup:
             for a in self.soup.find_all("a", href=True):
-                href = (a.get("href") or "").lower()
+                href = str(a.get("href") or "").lower()
                 text = a.get_text().lower()
                 for kw in policy_keywords:
                     if kw in href or kw in text:
