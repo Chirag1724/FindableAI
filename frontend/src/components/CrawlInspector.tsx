@@ -92,7 +92,7 @@ const ROUTES_DATA: RouteData[] = [
         status: "Microdata",
         line: "L112",
         selector: "head > script[type='application/ld+json']",
-        preview: '{"@context":"https://schema.org","@type":"SoftwareApplication","name":"FindableAI"}',
+        preview: '{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Example SaaS Co"}',
       },
     ],
   },
@@ -256,7 +256,7 @@ export function CrawlInspector() {
             </span>
           </div>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface shadow-border text-[10px] font-mono text-text-muted">
-            Sample Preview
+            Sample Preview: Simulated Target Site (example.com)
           </span>
           <span className="hidden sm:inline text-white/[0.2]">&bull;</span>
           <span className="hidden sm:inline font-mono text-[11px] text-text-muted">

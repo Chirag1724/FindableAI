@@ -25,13 +25,13 @@ interface QueryItem {
 const SIMULATED_QUERIES: QueryItem[] = [
   {
     id: "q1",
-    query: "Does FindableAI support SOC2 Type II compliance reports and audit logs?",
+    query: "Does Acme Cloud support SOC2 Type II compliance reports and audit logs?",
     persona: "Enterprise CTO",
     category: "Compliance & Security",
     entailment: "Entailed",
     score: 0.94,
     evidenceAnchor: "section.compliance-trust > p.certifications",
-    extractedSnippet: "SOC2 Type II certified with real-time audit logging and tamper-proof trails.",
+    extractedSnippet: "Acme Cloud: SOC2 Type II certified with real-time audit logging and tamper-proof trails.",
   },
   {
     id: "q2",
@@ -93,7 +93,7 @@ export function IntentSimulator() {
             SYNTHETIC BUYER INTENT SIMULATION
           </span>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface shadow-border text-[10px] font-mono text-text-muted">
-            Sample Preview
+            Sample Preview: Simulated Third-Party Audit (Acme Cloud)
           </span>
           <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface text-text-muted border border-white/[0.08]">
             30 Queries Generated

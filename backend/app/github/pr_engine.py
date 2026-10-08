@@ -248,6 +248,10 @@ def build_report_data(
             )
         elif "layout." in update.path or "_app." in update.path:
             summary = "Mounted <JsonLd /> in application root layout"
+        elif update.path == "llms.txt":
+            summary = "Added /llms.txt machine-readable AI knowledge manifest for search LLMs"
+        elif update.path == "robots.txt":
+            summary = "Added optimized robots.txt for AI search crawler governance and citation access"
         elif update.path.endswith((".html", ".htm")):
             summary = "Added Schema.org JSON-LD: " + ", ".join(t.value for t in update.schema_types)
         else:
@@ -698,6 +702,26 @@ class GitHubPRService:
                     guidance_mode = True
                     prepared = []
 
+        # Include optional standalone /llms.txt and /robots.txt manifests if provided
+        if request.llms_txt_content and request.llms_txt_content.strip():
+            prepared.append(
+                ValidatedRepoFileUpdate(
+                    path="llms.txt",
+                    content=request.llms_txt_content.strip() + "\n",
+                    opportunity_ids=["generate-llms-txt"],
+                    schema_types=[],
+                )
+            )
+        if request.robots_txt_content and request.robots_txt_content.strip():
+            prepared.append(
+                ValidatedRepoFileUpdate(
+                    path="robots.txt",
+                    content=request.robots_txt_content.strip() + "\n",
+                    opportunity_ids=["unblock-perplexitybot"],
+                    schema_types=[],
+                )
+            )
+
         if guidance_mode:
             guide_path = "docs/FINDABLE_AI_REMEDIATION.md"
             guide_content = generate_remediation_guide(request, grouped, matched_files)
@@ -707,7 +731,8 @@ class GitHubPRService:
                     content=guide_content,
                     opportunity_ids=self._opportunity_ids(grouped),
                     schema_types=[p.schema_type for patches in grouped.values() for p in patches],
-                )
+                ),
+                *[u for u in prepared if u.path in ("llms.txt", "robots.txt")],
             ]
             report = build_report_data(request, prepared)
             body = (

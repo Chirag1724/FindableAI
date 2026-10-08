@@ -62,6 +62,6 @@ def test_generate_llms_full_txt():
         chunks=chunks,
     )
 
-    assert "# Acme AI — Full Knowledge Corpus" in full_manifest
+    assert "# Acme AI - Full Knowledge Corpus" in full_manifest
     assert "Feature 1: Real-time static AST analysis" in full_manifest
     assert "Pricing Tier: Professional edition" in full_manifest

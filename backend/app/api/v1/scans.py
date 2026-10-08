@@ -25,7 +25,9 @@ from app.crawler.search import store_dom_chunks
 from app.db import AsyncSessionLocal
 from app.engines.intent_generator import resolve_query_persona
 from app.engines.lighthouse import LighthouseEngine
+from app.engines.llms_txt_generator import generate_llms_txt
 from app.engines.patch_assembler import assemble_real_patches
+from app.engines.robots_analyzer import generate_optimized_robots_txt
 from app.engines.scorer import ScoreInputs, Scorer, adapt_score_breakdown_to_api
 from app.github.client import GitHubClientError, build_pygithub_client_from_token
 from app.github.pr_engine import GitHubPRService, PREngineError
@@ -1351,6 +1353,23 @@ async def apply_scan_patch(
         else "main"
     )
 
+    # Generate optional llms.txt and robots.txt manifests for PR integration
+    llms_manifest: str | None = None
+    robots_manifest: str | None = None
+    try:
+        parsed_target = urlparse(scan.target_url)
+        domain = parsed_target.netloc or "example.com"
+        crawled_urls = [p.url for p in (scan.crawled_pages or []) if p.url] or [scan.target_url]
+        llms_manifest = generate_llms_txt(
+            domain=domain,
+            crawled_urls=crawled_urls,
+        )
+        robots_manifest = generate_optimized_robots_txt(
+            domain=domain,
+        )
+    except Exception as manifest_err:
+        logger.debug("Manifest generation skipped for PR on scan %s: %s", scan_id, manifest_err)
+
     try:
         gh_client = build_pygithub_client_from_token(token)
         pr_service = GitHubPRService(gh_client)
@@ -1362,6 +1381,8 @@ async def apply_scan_patch(
             intent_evaluations=scan.intents,
             current_score=current_score,
             projected_score=projected_score,
+            llms_txt_content=llms_manifest,
+            robots_txt_content=robots_manifest,
             commit_message=f"fix(discoverability): apply FindableAI remediation patches for {scan_id}",
             pr_title=f"FindableAI: Machine Discoverability Remediation Patches ({scan_id})",
         )

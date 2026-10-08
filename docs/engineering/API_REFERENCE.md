@@ -235,7 +235,68 @@ Fetches the full scan state, calculated F-Score breakdown, summary statistics, s
 
 ---
 
-### 4. Stream Scan Progress (Server-Sent Events)
+### 4. Fetch AI Lighthouse Scores & Governance
+
+#### `GET /api/v1/scans/{scan_id}/lighthouse`
+Fetches deterministic AI Lighthouse per-engine readiness scores (ChatGPT, Gemini, Perplexity, Claude), ML crawler governance matrix, and prioritized audit recommendations.
+
+- **Authentication:** None required.
+- **Success Status:** `200 OK`
+- **Response Model:** `LighthouseResponse` ([backend/app/schemas/lighthouse.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/schemas/lighthouse.py))
+
+```json
+{
+  "scan_id": "scan_ba38d45a981a",
+  "computed_at": "2026-10-08T12:00:00Z",
+  "engines": {
+    "chatgpt": {
+      "score": 82,
+      "tier": "needs_improvement",
+      "criteria": {
+        "bot_access": {"score": 100, "detail": "GPTBot, OAI-SearchBot, ChatGPT-User allowed"},
+        "schema_coverage": {"score": 75, "detail": "Types: Organization, FAQPage"},
+        "answerability": {"score": 85, "detail": "85% of buyer intent queries answered"},
+        "structural_clarity": {"score": 95, "detail": "Clean hierarchical heading tree"},
+        "consistency": {"score": 100, "detail": "Zero cross-page contradictions"}
+      }
+    },
+    "gemini": {"score": 78, "tier": "needs_improvement", "criteria": {}},
+    "perplexity": {"score": 88, "tier": "needs_improvement", "criteria": {}},
+    "claude": {"score": 91, "tier": "good", "criteria": {}}
+  },
+  "crawler_governance": {
+    "ai_visibility_index": 85,
+    "scraping_risk": "low",
+    "bot_matrix": [
+      {"bot": "PerplexityBot", "category": "search", "status": "allowed", "impact": "positive"},
+      {"bot": "GPTBot", "category": "training", "status": "blocked", "impact": "neutral"}
+    ],
+    "llms_txt_present": false
+  },
+  "audits": {
+    "opportunities": [
+      {
+        "id": "unblock-perplexitybot",
+        "title": "Unblock PerplexityBot in robots.txt",
+        "score_lift": 18,
+        "engine": "perplexity",
+        "severity": "critical"
+      }
+    ],
+    "diagnostics": [],
+    "passed": [
+      {"id": "gptbot-allowed", "title": "GPTBot explicitly allowed in robots.txt"}
+    ]
+  }
+}
+```
+
+- **Error Codes:**
+  - `404 Not Found`: Scan record not found or scan calculation still in progress.
+
+---
+
+### 5. Stream Scan Progress (Server-Sent Events)
 
 #### `GET /api/v1/scans/{scan_id}/stream`
 Provides a live Server-Sent Events (SSE) feed emitting progress percentages, current DAG execution steps, and completion events. Automatically sends keepalive heartbeats (`: heartbeat\n\n`) every 30 seconds.

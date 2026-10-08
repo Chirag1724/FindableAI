@@ -423,25 +423,25 @@ npm run dev
 
 Visit `http://localhost:3000` to access the FindableAI Scan Console.
 
-### 5. Automated Testing Suite (614 Tests)
+### 5. Automated Testing Suite (653 Tests)
 
-FindableAI maintains a production-grade test suite covering API contracts, DOM parsing, DAG orchestration, NLI entailment, and UI interactions:
+FindableAI maintains a production-grade test suite covering API contracts, DOM parsing, DAG orchestration, NLI entailment, AI Lighthouse scoring, and UI interactions:
 
 ```bash
-# Backend Test Suite (329 tests)
+# Backend Test Suite (348 tests)
 cd backend
 pytest -v
 
-# Frontend Test Suite (285 tests)
+# Frontend Test Suite (305 tests)
 cd frontend
 npm run test
 ```
 
 | Layer | Framework | Passed Tests | Key Coverage Areas |
 | :--- | :--- | :--- | :--- |
-| **Backend** | `pytest` + `pytest-asyncio` | **329 passed** | SSRF filters, DAG state runner, Scorer formula, Budget guard, PyGithub PR service |
-| **Frontend** | `vitest` + React Testing Library | **285 passed** | Intent Matrix, Patch Modal, Live SSE Console, Radial ScoreGauge, Motion animations |
-| **TOTAL** | Multi-Tier Automated CI | **614 PASSED** | End-to-end reliability guarantee |
+| **Backend** | `pytest` + `pytest-asyncio` | **348 passed** | SSRF filters, DAG state runner, Scorer formula, AI Lighthouse engine, Budget guard, PyGithub PR service |
+| **Frontend** | `vitest` + React Testing Library | **305 passed** | Intent Matrix, AI Lighthouse gauges, Crawler governance panel, Patch Modal, Live SSE Console, ScoreGauge |
+| **TOTAL** | Multi-Tier Automated CI | **653 PASSED** | End-to-end reliability verification |
 
 ### 6. Production Cloud Deployment
 
