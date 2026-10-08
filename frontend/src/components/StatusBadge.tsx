@@ -1,10 +1,13 @@
 import type { EntailmentStatus, ContradictionSeverity } from "@/types/scan";
+import type { ScrapingRisk } from "@/types/lighthouse";
 import {
-  CheckCircle, MinusCircle, AlertTriangle, HelpCircle,
+  CheckCircle, MinusCircle, AlertTriangle, HelpCircle, ShieldCheck,
 } from "lucide-react";
 
+export type StatusBadgeType = EntailmentStatus | ContradictionSeverity | ScrapingRisk;
+
 interface StatusBadgeProps {
-  status: EntailmentStatus | ContradictionSeverity;
+  status: StatusBadgeType;
   className?: string;
 }
 
@@ -14,7 +17,7 @@ interface BadgeMeta {
   classes: string;
 }
 
-function getMeta(status: EntailmentStatus | ContradictionSeverity): BadgeMeta {
+function getMeta(status: StatusBadgeType): BadgeMeta {
   switch (status) {
     case "SUPPORTED":
       return {
@@ -51,6 +54,24 @@ function getMeta(status: EntailmentStatus | ContradictionSeverity): BadgeMeta {
         label: "Soft Inconsistency",
         icon: <MinusCircle size={11} aria-hidden="true" />,
         classes: "bg-amber-950/60 text-amber-300 ring-1 ring-inset ring-amber-800",
+      };
+    case "low":
+      return {
+        label: "Low Scraping Risk",
+        icon: <ShieldCheck size={11} aria-hidden="true" />,
+        classes: "bg-emerald-950/60 text-emerald-300 ring-1 ring-inset ring-emerald-800",
+      };
+    case "moderate":
+      return {
+        label: "Moderate Scraping Risk",
+        icon: <MinusCircle size={11} aria-hidden="true" />,
+        classes: "bg-amber-950/60 text-amber-300 ring-1 ring-inset ring-amber-800",
+      };
+    case "critical":
+      return {
+        label: "Critical Scraping Risk",
+        icon: <AlertTriangle size={11} aria-hidden="true" />,
+        classes: "bg-rose-950/60 text-rose-300 ring-1 ring-inset ring-rose-800",
       };
   }
 }

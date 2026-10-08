@@ -1,6 +1,7 @@
 import type {
   ScanResponse, PatchProposal, PullRequestResult, ApiError,
 } from "@/types/scan";
+import type { LighthouseResponse } from "@/types/lighthouse";
 
 // Internal request body for createScan (mirrors backend ScanRequest schema)
 interface CreateScanBody {
@@ -132,6 +133,13 @@ export async function applyPatches(
     body: payload ? JSON.stringify(payload) : undefined,
     signal,
   });
+}
+
+export async function getLighthouse(
+  scanId: string,
+  signal?: AbortSignal
+): Promise<LighthouseResponse> {
+  return request<LighthouseResponse>(`/scans/${scanId}/lighthouse`, { signal });
 }
 
 export interface HealthResponse {

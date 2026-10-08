@@ -1,4 +1,5 @@
 import type { ScanStatus, EntailmentStatus } from "@/types/scan";
+import type { ScoreTier, ScrapingRisk } from "@/types/lighthouse";
 
 // Numeric formatters
 
@@ -59,6 +60,64 @@ export function gradeColor(grade: string): string {
       return "text-amber-400";
     default:
       return "text-rose-400";
+  }
+}
+
+// AI Lighthouse score tier helpers
+
+export function lighthouseTier(score: number): ScoreTier {
+  if (score >= 90) return "good";
+  if (score >= 50) return "needs_improvement";
+  return "poor";
+}
+
+export function lighthouseTierLabel(tier: ScoreTier): string {
+  switch (tier) {
+    case "good":
+      return "Good";
+    case "needs_improvement":
+      return "Needs Improvement";
+    case "poor":
+      return "Poor";
+  }
+}
+
+export function lighthouseTierColor(score: number): string {
+  if (score >= 90) return "text-emerald-400";
+  if (score >= 50) return "text-amber-400";
+  return "text-rose-400";
+}
+
+export function lighthouseTierStroke(score: number): string {
+  if (score >= 90) return "#10b981"; // emerald-500
+  if (score >= 50) return "#f59e0b"; // amber-500
+  return "#f43f5e"; // rose-500
+}
+
+export function scrapingRiskMeta(risk: ScrapingRisk): {
+  label: string;
+  classes: string;
+  badgeClass: string;
+} {
+  switch (risk) {
+    case "low":
+      return {
+        label: "Low Risk",
+        classes: "text-emerald-400",
+        badgeClass: "bg-emerald-950/60 text-emerald-300 ring-1 ring-inset ring-emerald-800",
+      };
+    case "moderate":
+      return {
+        label: "Moderate Risk",
+        classes: "text-amber-400",
+        badgeClass: "bg-amber-950/60 text-amber-300 ring-1 ring-inset ring-amber-800",
+      };
+    case "critical":
+      return {
+        label: "Critical Risk",
+        classes: "text-rose-400",
+        badgeClass: "bg-rose-950/60 text-rose-300 ring-1 ring-inset ring-rose-800",
+      };
   }
 }
 
