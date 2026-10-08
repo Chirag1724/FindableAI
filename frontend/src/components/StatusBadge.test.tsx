@@ -68,6 +68,23 @@ describe("StatusBadge - ring classes", () => {
   });
 });
 
+describe("StatusBadge - ScrapingRisk", () => {
+  it("renders 'Low Scraping Risk' for low", () => {
+    render(<StatusBadge status="low" />);
+    expect(screen.getByText("Low Scraping Risk")).toBeInTheDocument();
+  });
+
+  it("renders 'Moderate Scraping Risk' for moderate", () => {
+    render(<StatusBadge status="moderate" />);
+    expect(screen.getByText("Moderate Scraping Risk")).toBeInTheDocument();
+  });
+
+  it("renders 'Critical Scraping Risk' for critical", () => {
+    render(<StatusBadge status="critical" />);
+    expect(screen.getByText("Critical Scraping Risk")).toBeInTheDocument();
+  });
+});
+
 describe("StatusBadge - className prop", () => {
   it("applies extra className", () => {
     const { container } = render(<StatusBadge status="SUPPORTED" className="ml-2" />);

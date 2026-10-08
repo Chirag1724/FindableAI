@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import {
@@ -12,6 +12,8 @@ import {
   ChevronDown,
   Github,
   Plus,
+  LayoutDashboard,
+  Compass,
 } from "lucide-react";
 import { getScan } from "@/lib/api";
 import { useScanStream } from "@/hooks/useScanStream";
@@ -26,6 +28,7 @@ import { PatchModal } from "@/components/PatchModal";
 import { ErrorState } from "@/components/ErrorState";
 import { gsap, EASING, prefersReducedMotion } from "@/lib/motion";
 import { LiveScanConsole } from "@/components/LiveScanConsole";
+import { LighthouseTab } from "@/components/LighthouseTab";
 
 const ScoreGauge = dynamic(
   () => import("@/components/ScoreGauge").then((mod) => mod.ScoreGauge),
@@ -64,7 +67,29 @@ function ScanStatusBadge({ status }: { status: ScanStatus }) {
 export default function ScanDashboardPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const scanId = typeof params?.id === "string" ? params.id : null;
+
+  const tabParam = searchParams.get("tab");
+  const [activeTab, setActiveTab] = useState<"overview" | "lighthouse">(
+    tabParam === "lighthouse" ? "lighthouse" : "overview"
+  );
+
+  useEffect(() => {
+    if (tabParam === "lighthouse" || tabParam === "overview") {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
+
+  const handleTabChange = useCallback(
+    (tab: "overview" | "lighthouse") => {
+      setActiveTab(tab);
+      if (!scanId) return;
+      const targetUrl = tab === "lighthouse" ? `/scans/${scanId}?tab=lighthouse` : `/scans/${scanId}`;
+      router.replace(targetUrl, { scroll: false });
+    },
+    [router, scanId]
+  );
 
   const [initialScan, setInitialScan] = useState<ScanResponse | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -452,57 +477,123 @@ export default function ScanDashboardPage() {
 
         {/* Completed dashboard (ONLY rendered when fully loaded and ready) */}
         {showCompletedDashboard && (
-          <div className="space-y-8 sm:space-y-10 animate-fade-in">
-            {/* Summary stats */}
-            {displayScan.summary && (
-              <SummaryStats summary={displayScan.summary} />
+          <div className="space-y-6 sm:space-y-8 animate-fade-in">
+            {/* Tab Navigation Switcher */}
+            <div
+              role="tablist"
+              aria-label="Scan Report Views"
+              className="flex items-center gap-2 border-b border-white/[0.08] pb-3"
+            >
+              <button
+                type="button"
+                role="tab"
+                id="tab-overview"
+                aria-selected={activeTab === "overview"}
+                aria-controls="panel-overview"
+                onClick={() => handleTabChange("overview")}
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold tracking-wide transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                  activeTab === "overview"
+                    ? "bg-white text-black shadow-md font-bold"
+                    : "bg-surface-secondary text-text-muted hover:text-white hover:bg-surface-tertiary shadow-border"
+                }`}
+              >
+                <LayoutDashboard size={14} aria-hidden="true" />
+                <span>Intelligence Overview</span>
+              </button>
+
+              <button
+                type="button"
+                role="tab"
+                id="tab-lighthouse"
+                aria-selected={activeTab === "lighthouse"}
+                aria-controls="panel-lighthouse"
+                onClick={() => handleTabChange("lighthouse")}
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold tracking-wide transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                  activeTab === "lighthouse"
+                    ? "bg-white text-black shadow-md font-bold"
+                    : "bg-surface-secondary text-text-muted hover:text-white hover:bg-surface-tertiary shadow-border"
+                }`}
+              >
+                <Compass size={14} aria-hidden="true" />
+                <span>AI Lighthouse</span>
+                <span className="rounded-full bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-mono font-bold text-sky-400">
+                  NEW
+                </span>
+              </button>
+            </div>
+
+            {/* Tab Panel 1: Intelligence Overview */}
+            {activeTab === "overview" && (
+              <div
+                role="tabpanel"
+                id="panel-overview"
+                aria-labelledby="tab-overview"
+                className="space-y-8 sm:space-y-10 animate-fade-in"
+              >
+                {/* Summary stats */}
+                {displayScan.summary && (
+                  <SummaryStats summary={displayScan.summary} />
+                )}
+
+                {/* Findability Analytics Matrix (2x2) */}
+                {(() => {
+                  const fs = displayScan.f_score ?? scan.data?.f_score;
+                  return fs ? <ScoreGauge fScore={fs} /> : null;
+                })()}
+
+                {/* Intent Evaluations */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between pb-1 border-b border-white/[0.06]">
+                    <h2 className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-text-primary">
+                      Intent Vector Evaluations
+                    </h2>
+                    <span className="font-mono text-[11px] text-text-muted">
+                      {intents.data?.length ?? displayScan.summary?.intents_generated ?? 30} Simulated Vectors
+                    </span>
+                  </div>
+                  {intents.error ? (
+                    <ErrorState
+                      message={intents.error}
+                      onRetry={intents.retry}
+                    />
+                  ) : (
+                    <IntentMatrix intents={intents.data ?? []} />
+                  )}
+                </div>
+
+                {/* Contradictions */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between pb-1 border-b border-white/[0.06]">
+                    <h2 className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-text-primary">
+                      Cross-Page Contradictions &amp; Conflicts
+                    </h2>
+                    <span className="font-mono text-[11px] text-text-muted">
+                      {contradictions.data?.length ?? displayScan.summary?.contradictions_detected ?? 0} Detected
+                    </span>
+                  </div>
+                  {contradictions.error ? (
+                    <ErrorState
+                      message={contradictions.error}
+                      onRetry={contradictions.retry}
+                    />
+                  ) : (
+                    <ContradictionCard contradictions={contradictions.data ?? []} />
+                  )}
+                </div>
+              </div>
             )}
 
-            {/* Findability Analytics Matrix (2x2) */}
-            {(() => {
-              const fs = displayScan.f_score ?? scan.data?.f_score;
-              return fs ? <ScoreGauge fScore={fs} /> : null;
-            })()}
-
-            {/* Intent Evaluations */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between pb-1 border-b border-white/[0.06]">
-                <h2 className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-text-primary">
-                  Intent Vector Evaluations
-                </h2>
-                <span className="font-mono text-[11px] text-text-muted">
-                  {intents.data?.length ?? displayScan.summary?.intents_generated ?? 30} Simulated Vectors
-                </span>
+            {/* Tab Panel 2: AI Lighthouse */}
+            {activeTab === "lighthouse" && scanId && (
+              <div
+                role="tabpanel"
+                id="panel-lighthouse"
+                aria-labelledby="tab-lighthouse"
+                className="animate-fade-in"
+              >
+                <LighthouseTab scanId={scanId} />
               </div>
-              {intents.error ? (
-                <ErrorState
-                  message={intents.error}
-                  onRetry={intents.retry}
-                />
-              ) : (
-                <IntentMatrix intents={intents.data ?? []} />
-              )}
-            </div>
-
-            {/* Contradictions */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between pb-1 border-b border-white/[0.06]">
-                <h2 className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-text-primary">
-                  Cross-Page Contradictions &amp; Conflicts
-                </h2>
-                <span className="font-mono text-[11px] text-text-muted">
-                  {contradictions.data?.length ?? displayScan.summary?.contradictions_detected ?? 0} Detected
-                </span>
-              </div>
-              {contradictions.error ? (
-                <ErrorState
-                  message={contradictions.error}
-                  onRetry={contradictions.retry}
-                />
-              ) : (
-                <ContradictionCard contradictions={contradictions.data ?? []} />
-              )}
-            </div>
+            )}
           </div>
         )}
       </main>
