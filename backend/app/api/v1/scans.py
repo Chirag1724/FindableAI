@@ -24,8 +24,10 @@ from app.crawler.dom_chunker import ChunkData, DOMChunker
 from app.crawler.search import store_dom_chunks
 from app.db import AsyncSessionLocal
 from app.engines.intent_generator import resolve_query_persona
+from app.engines.lighthouse import LighthouseEngine
 from app.engines.patch_assembler import assemble_real_patches
 from app.engines.scorer import ScoreInputs, Scorer, adapt_score_breakdown_to_api
+from app.schemas.lighthouse import LighthouseResponse
 from app.github.client import GitHubClientError, build_pygithub_client_from_token
 from app.github.pr_engine import GitHubPRService, PREngineError
 from app.models.database import (
@@ -73,6 +75,8 @@ router = APIRouter()
 # In-memory store for caching, local development, and resilient fallbacks
 SCANS_DB: dict[str, ScanResponse] = {}
 CHUNKS_DB: dict[str, list[ChunkData]] = {}
+LIGHTHOUSE_DB: dict[str, LighthouseResponse] = {}
+ROBOTS_DB: dict[str, str] = {}
 EVENT_LOGS: dict[str, list[ScanStatusEvent]] = {}
 EVENT_QUEUES: dict[str, list[asyncio.Queue[ScanStatusEvent | None]]] = {}
 
@@ -306,6 +310,12 @@ async def run_scan_pipeline(
         )
         crawl_results = await crawler.crawl(url)
         pages_crawled = len(crawl_results) if crawl_results else 1
+        robots_txt_content = (
+            crawl_results[0].robots_txt if crawl_results and crawl_results[0].robots_txt else ""
+        )
+        ROBOTS_DB[scan_id] = robots_txt_content
+        ROBOTS_DB[str(scan_uuid)] = robots_txt_content
+        ROBOTS_DB[scan_uuid.hex] = robots_txt_content
 
         # Phase 2: EXTRACTING_DOM
         await _emit_event(
@@ -558,6 +568,25 @@ async def run_scan_pipeline(
             budget_guard.limit,
             budget_guard.remaining,
         )
+
+        # Phase 9.5: AI Lighthouse Readiness Scoring & Governance
+        try:
+            lighthouse_engine = LighthouseEngine(
+                url=url,
+                html_documents=html_docs,
+                chunks=extracted_chunks,
+                evaluations=evaluations,
+                contradictions=contradictions,
+                robots_txt=robots_txt_content,
+                scan_id=scan_id,
+            )
+            lighthouse_resp = lighthouse_engine.evaluate()
+            LIGHTHOUSE_DB[scan_id] = lighthouse_resp
+            LIGHTHOUSE_DB[str(scan_uuid)] = lighthouse_resp
+            LIGHTHOUSE_DB[scan_uuid.hex] = lighthouse_resp
+            LIGHTHOUSE_DB[f"scan_{scan_uuid.hex[:12]}"] = lighthouse_resp
+        except Exception as lh_err:
+            logger.warning("Lighthouse evaluation error for %s: %s", scan_id, lh_err)
 
         if scan_id in SCANS_DB:
             record = SCANS_DB[scan_id]
@@ -1369,3 +1398,79 @@ async def apply_scan_patch(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal error creating GitHub PR: {exc}",
         ) from exc
+
+
+@router.get("/{scan_id}/lighthouse", response_model=LighthouseResponse)
+async def get_scan_lighthouse(scan_id: str) -> LighthouseResponse:
+    """
+    Fetches deterministic AI Lighthouse per-engine readiness scores and crawler governance.
+    Evaluates site readiness for ChatGPT, Gemini, Perplexity, and Claude per Doc 5 §4.4.
+    """
+    # 1. Check in-memory store
+    if scan_id in LIGHTHOUSE_DB:
+        return LIGHTHOUSE_DB[scan_id]
+
+    # Resolve scan UUID
+    scan_uuid = resolve_scan_uuid(scan_id)
+    if scan_uuid:
+        if str(scan_uuid) in LIGHTHOUSE_DB:
+            return LIGHTHOUSE_DB[str(scan_uuid)]
+        if scan_uuid.hex in LIGHTHOUSE_DB:
+            return LIGHTHOUSE_DB[scan_uuid.hex]
+        short_id = f"scan_{scan_uuid.hex[:12]}"
+        if short_id in LIGHTHOUSE_DB:
+            return LIGHTHOUSE_DB[short_id]
+
+    # 2. Check if scan exists in SCANS_DB to compute dynamically
+    record = SCANS_DB.get(scan_id)
+    if not record and scan_uuid:
+        record = (
+            SCANS_DB.get(str(scan_uuid))
+            or SCANS_DB.get(scan_uuid.hex)
+            or SCANS_DB.get(f"scan_{scan_uuid.hex[:12]}")
+        )
+
+    if record:
+        chunks = (
+            CHUNKS_DB.get(scan_id)
+            or (CHUNKS_DB.get(str(scan_uuid)) if scan_uuid else None)
+            or []
+        )
+        robots_txt = (
+            ROBOTS_DB.get(scan_id)
+            or (ROBOTS_DB.get(str(scan_uuid)) if scan_uuid else "")
+            or ""
+        )
+        engine = LighthouseEngine(
+            url=record.target_url,
+            chunks=chunks,
+            evaluations=record.intents or [],
+            contradictions=record.contradictions or [],
+            robots_txt=robots_txt,
+            scan_id=scan_id,
+        )
+        resp = engine.evaluate()
+        LIGHTHOUSE_DB[scan_id] = resp
+        return resp
+
+    # 3. Check persistent database if available
+    if scan_uuid:
+        try:
+            async with AsyncSessionLocal() as s:
+                db_scan = await s.get(ScanModel, scan_uuid)
+                if db_scan:
+                    engine = LighthouseEngine(
+                        url=db_scan.url,
+                        scan_id=scan_id,
+                    )
+                    resp = engine.evaluate()
+                    LIGHTHOUSE_DB[scan_id] = resp
+                    return resp
+        except Exception as db_err:
+            logger.debug("Database lookup skipped for scan %s: %s", scan_id, db_err)
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Scan '{scan_id}' not found.",
+    )
+
