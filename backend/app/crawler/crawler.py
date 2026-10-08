@@ -19,6 +19,7 @@ class CrawlResult:
     status_code: int
     internal_links: list[str] = field(default_factory=list)
     is_spa: bool = False
+    robots_txt: str = ""
 
 
 class AsyncCrawler:
@@ -165,6 +166,19 @@ class AsyncCrawler:
             return len(text.split()) < 3
         return False
 
+    async def fetch_robots_txt(self, client: httpx.AsyncClient, base_url: str) -> str:
+        """Fetch robots.txt for the given base domain with SSRF validation."""
+        parsed = urlparse(base_url)
+        robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
+        try:
+            validate_target_url(robots_url, allow_private=self.allow_private)
+            resp = await client.get(robots_url, headers=self.headers, follow_redirects=True)
+            if resp.status_code == 200:
+                return resp.text
+        except Exception as e:
+            logger.debug("Failed to fetch robots.txt from '%s': %s", robots_url, e)
+        return ""
+
     async def crawl(self, start_url: str) -> list[CrawlResult]:
         """
         Execute an async BFS crawl starting at start_url, up to self.max_pages.
@@ -176,6 +190,8 @@ class AsyncCrawler:
         results: list[CrawlResult] = []
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
+            robots_txt = await self.fetch_robots_txt(client, start_url)
+
             while queue and len(results) < self.max_pages:
                 current_url = queue.pop(0)
                 if current_url in visited:
@@ -186,6 +202,7 @@ class AsyncCrawler:
                 if not result:
                     continue
 
+                result.robots_txt = robots_txt
                 results.append(result)
 
                 # Enqueue newly discovered internal links

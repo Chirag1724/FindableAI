@@ -279,7 +279,9 @@ def validate_framework_layout_syntax(original_content: str, modified_content: st
 
     # 1. Delimiter balance check
     if not check_balanced_delimiters(sanitized_mod):
-        logger.warning("Framework layout validation failed: unbalanced delimiters in modified layout")
+        logger.warning(
+            "Framework layout validation failed: unbalanced delimiters in modified layout"
+        )
         return False
 
     # 2. Injected import boundary check
@@ -288,23 +290,31 @@ def validate_framework_layout_syntax(original_content: str, modified_content: st
         return False
 
     # Ensure import is at the start of a line (not spliced into another statement)
-    if not re.search(r"^import\s+\{\s*JsonLd\s*\}\s+from\s+[\"'].*?[\"'];?", modified_content, re.MULTILINE):
+    if not re.search(
+        r"^import\s+\{\s*JsonLd\s*\}\s+from\s+[\"'].*?[\"'];?", modified_content, re.MULTILINE
+    ):
         logger.warning("Framework layout validation failed: malformed import line boundary")
         return False
 
     # 3. Injected JSX component check
     if "<JsonLd />" not in sanitized_mod and "<JsonLd/>" not in sanitized_mod:
-        logger.warning("Framework layout validation failed: <JsonLd /> not present in sanitized JSX")
+        logger.warning(
+            "Framework layout validation failed: <JsonLd /> not present in sanitized JSX"
+        )
         return False
 
     # Ensure <JsonLd /> is not inside an unclosed HTML attribute or type annotation
     if re.search(r"<\w+\s+[^>]*<JsonLd\s*/>", modified_content):
-        logger.warning("Framework layout validation failed: <JsonLd /> nested inside tag opening attribute")
+        logger.warning(
+            "Framework layout validation failed: <JsonLd /> nested inside tag opening attribute"
+        )
         return False
 
     # Ensure <JsonLd /> is not injected into a TypeScript type definition parameter
     if re.search(r"\{\s*<JsonLd\s*/>\s*children\s*:\s*React", modified_content):
-        logger.warning("Framework layout validation failed: <JsonLd /> placed inside parameter type definition")
+        logger.warning(
+            "Framework layout validation failed: <JsonLd /> placed inside parameter type definition"
+        )
         return False
 
     return True

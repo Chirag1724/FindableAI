@@ -90,8 +90,14 @@ def _category_distribution(queries: list[IntentQuery]) -> dict[str, int]:
     return {category.value: counts.get(category.value, 0) for category in TAXONOMY_CATEGORIES}
 
 
-def resolve_query_persona(category: IntentCategory, active_personas: Sequence[str] | None = None) -> str:
-    active = [p.lower().strip() for p in active_personas] if active_personas else ["cto", "developer", "procurement"]
+def resolve_query_persona(
+    category: IntentCategory, active_personas: Sequence[str] | None = None
+) -> str:
+    active = (
+        [p.lower().strip() for p in active_personas]
+        if active_personas
+        else ["cto", "developer", "procurement"]
+    )
     preferences: dict[IntentCategory, list[str]] = {
         IntentCategory.POLICY: ["cto", "procurement", "developer"],
         IntentCategory.TRUST: ["cto", "developer", "procurement"],

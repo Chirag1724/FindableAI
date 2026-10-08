@@ -18,6 +18,24 @@ from .intelligence import (
     Patch,
     ScanResult,
 )
+from .lighthouse import (
+    AuditDiagnostic,
+    AuditOpportunity,
+    AuditPassed,
+    BotAccessStatus,
+    BotCategory,
+    BotStatus,
+    CrawlerGovernance,
+    CriterionDetail,
+    EngineKey,
+    EngineScore,
+    LighthouseResponse,
+    ScoreTier,
+    ScrapingRisk,
+)
+from .lighthouse import (
+    AuditSummary as LighthouseAuditSummary,
+)
 from .patch import DOMSelectorAnchor, PatchProposal, PullRequestResult
 from .patching import (
     BusinessFacts,
@@ -49,12 +67,22 @@ from .scoring import (
 )
 
 __all__ = [
+    "AuditDiagnostic",
+    "AuditOpportunity",
+    "AuditPassed",
     "AuditSummary",
+    "BotAccessStatus",
+    "BotCategory",
+    "BotStatus",
     "BusinessFacts",
     "Contradiction",
     "ContradictionSeverity",
     "ContradictionSeverityWeights",
+    "CrawlerGovernance",
+    "CriterionDetail",
     "DOMSelectorAnchor",
+    "EngineKey",
+    "EngineScore",
     "EntailmentStatus",
     "EvidenceReference",
     "FScoreBreakdown",
@@ -67,6 +95,8 @@ __all__ = [
     "IntentQuery",
     "JsonLdGenerationResult",
     "JsonLdSkip",
+    "LighthouseAuditSummary",
+    "LighthouseResponse",
     "MenuItemFact",
     "OpeningHoursFact",
     "PREngineRequest",
@@ -94,7 +124,9 @@ __all__ = [
     "SchemaRemediationTarget",
     "SchemaTypeResult",
     "ScoreBreakdown",
+    "ScoreTier",
     "ScoreWeights",
+    "ScrapingRisk",
     "SubScoreMetric",
     "ValidatedRepoFileUpdate",
 ]

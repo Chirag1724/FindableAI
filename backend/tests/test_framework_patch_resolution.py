@@ -292,4 +292,3 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     assert len(resolved) == 1
     assert resolved[0].target_file is None
     assert resolved[0].code_diff is None
-

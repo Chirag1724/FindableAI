@@ -172,7 +172,9 @@ class FindableAIDAG:
         ctx = ScanContext(
             scan_id=str(observation.scan_id).strip(),
             business_context=observation.business_context,
-            personas=list(observation.personas) if observation.personas else ["cto", "developer", "procurement"],
+            personas=list(observation.personas)
+            if observation.personas
+            else ["cto", "developer", "procurement"],
             create_pr=bool(observation.create_pr),
             source_repo=observation.source_repo,
             target_branch=observation.target_branch or "main",
