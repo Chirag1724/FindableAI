@@ -39,7 +39,8 @@ flowchart TD
     RealLLM --> ScorerPhase["Deterministic F-Score Calculator"]:::backend
     FallbackNLI --> ScorerPhase
     
-    ScorerPhase --> PatchGen["Patch Synthesizer - Framework Components & HTML Diffs"]:::backend
+    ScorerPhase --> LighthousePhase["Deterministic AI Lighthouse Engine (ChatGPT, Gemini, Perplexity, Claude)"]:::backend
+    LighthousePhase --> PatchGen["Patch Synthesizer - Framework Components & HTML Diffs"]:::backend
     PatchGen --> ScanComplete["Scan Status: COMPLETED & Dashboard Renders"]:::client
     
     ScanComplete --> UserApply["User Clicks 'Create Pull Request'"]:::client
@@ -140,7 +141,14 @@ flowchart TD
      $$F = 0.40 \cdot S_{\text{ans}} + 0.30 \cdot S_{\text{con}} + 0.20 \cdot S_{\text{str}} + 0.10 \cdot S_{\text{acc}}$$
   3. Letter grades (S, A, B, C, D, F) and sub-score metrics are derived.
 
-### Stage 10: Deterministic Patch Proposal & Framework Component Assembly
+### Stage 10: Deterministic AI Lighthouse & Crawler Governance Assessment
+- **Components Responsible:** [`backend/app/engines/lighthouse.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/lighthouse.py) (`LighthouseEngine.evaluate()`), [`backend/app/engines/robots_analyzer.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/robots_analyzer.py), [`backend/app/engines/llms_txt_generator.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/llms_txt_generator.py)
+- **Execution:**
+  1. **Zero-LLM Heuristic Assessment:** Computes readiness scores across 4 major search engines (ChatGPT, Gemini, Perplexity, Claude) using tailored weighting formulas.
+  2. **Crawler Governance:** Analyzes `robots.txt` rules across 9 known AI user-agents to determine the AI Visibility Index (0-100) and Scraping Risk tier.
+  3. **Manifest Synthesis:** Generates Jeremy Howard compliant `/llms.txt` and Pareto-optimal `robots.txt` manifests.
+
+### Stage 11: Deterministic Patch Proposal & Framework Component Assembly
 - **Components Responsible:** [`backend/app/engines/patch_assembler.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/patch_assembler.py) (`assemble_real_patches()`), [`backend/app/engines/framework_adapter.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/framework_adapter.py) (`synthesize_framework_component()`, `detect_framework_from_repo_tree()`)
 - **Execution:**
   1. The worker emits `ScanStatus.GENERATING_PATCHES` (97% progress).

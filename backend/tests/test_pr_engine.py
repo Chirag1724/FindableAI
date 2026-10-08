@@ -566,3 +566,39 @@ def test_create_pr_framework_layout_generates_component_and_layout_diff():
     )
     assert '"@type": "WebSite"' in created_comp.content
     assert "export function JsonLd()" in created_comp.content
+
+
+def test_create_pr_with_manifest_files():
+    client = FakeGitHubClient(login="acme-bot")
+    client.seed_repo(
+        "acme-bot/sample-site",
+        files={"index.html": BASE_HTML},
+        allow_push=True,
+    )
+    service = GitHubPRService(client)
+
+    patch = _applied_patch(
+        opportunity_id="opp-1",
+        file_path="index.html",
+        patched='<html><head><script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Acme"}</script></head><body>Hi</body></html>',
+    )
+    req = _request(
+        source_repo="acme-bot/sample-site",
+        scan_id="scan-manifest-test",
+        patches=[patch],
+        llms_txt_content="# Acme\n> Official AI Knowledge Base\n",
+        robots_txt_content="User-agent: PerplexityBot\nAllow: /\n",
+    )
+    result = service.create_remediation_pr(req)
+
+    assert "index.html" in result.changed_files
+    assert "llms.txt" in result.changed_files
+    assert "robots.txt" in result.changed_files
+
+    # Verify committed content on feature branch
+    repo = client.get_repository("acme-bot/sample-site")
+    llms_file = client.get_file(repo, "llms.txt", ref=result.generated_branch)
+    assert "# Acme" in llms_file.content
+    robots_file = client.get_file(repo, "robots.txt", ref=result.generated_branch)
+    assert "PerplexityBot" in robots_file.content
+

@@ -8,12 +8,16 @@ This document outlines the testing philosophy, test suite organization, mock fix
 
 FindableAI maintains a comprehensive test suite across the backend and frontend.
 
+## Test Suite Summary
+
+FindableAI maintains a comprehensive test suite across the backend and frontend.
+
 | Test Suite | Framework | Total Tests | Pass Count | Failure Count | Execution Time |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Backend Test Suite** | pytest / pytest-asyncio | **335** | **335** | **0** | ~170s |
-| **Backend Type Checker** | Mypy (strict) | **51 files** | **51 files** | **0** | ~10s |
-| **Frontend Test Suite** | Vitest / Testing Library | **285** | **285** | **0** | ~180s |
-| **Total Test Surface** | pytest + Vitest | **620** | **620** | **0** | ~360s |
+| **Backend Test Suite** | pytest / pytest-asyncio | **348** | **348** | **0** | ~110s |
+| **Backend Type Checker** | Mypy / Pyright | **55 files** | **55 files** | **0** | ~10s |
+| **Frontend Test Suite** | Vitest / Testing Library | **305** | **305** | **0** | ~80s |
+| **Total Test Surface** | pytest + Vitest | **653** | **653** | **0** | ~190s |
 
 ---
 
@@ -57,6 +61,10 @@ FindableAI maintains a comprehensive test suite across the backend and frontend.
 | `test_contradiction.py` | NLI | Cross-page conflict detection, severity weighting (hard vs soft), duplicate deduplication. |
 | `test_scorer.py` | Scoring | Canonical 40/30/20/10 weight validation, letter grade derivation, bounds checking. |
 | `test_projected_score.py` | Scoring | Per-opportunity non-cumulative projected score calculations. |
+| `test_lighthouse.py` | AI Lighthouse | Deterministic per-engine readiness scores (ChatGPT, Gemini, Perplexity, Claude), audit checklists. |
+| `test_lighthouse_api.py` | AI Lighthouse | REST endpoint `GET /api/v1/scans/{id}/lighthouse` serialization and in-progress 404 behavior. |
+| `test_robots_analyzer.py` | AI Lighthouse | 15-feature extraction vector, AI Visibility Index, Scraping Risk, optimized `robots.txt` generator. |
+| `test_llms_txt_generator.py` | AI Lighthouse | Jeremy Howard compliant `/llms.txt` and `/llms-full.txt` manifest generation. |
 | `test_jsonld_generator.py` | Remediation | Evidence-backed Schema.org JSON-LD generation without invented facts. |
 | `test_patch_prioritizer.py` | Remediation | Top-3 candidate opportunity ranking, priority formula `(impact * confidence) / difficulty`. |
 | `test_patch_formatter.py` | Remediation | Unified diff formatting, DOM anchor insertion points (`before_head`, `before_body`). |
@@ -65,7 +73,7 @@ FindableAI maintains a comprehensive test suite across the backend and frontend.
 | `test_dag_runner.py` | Orchestration | Full `FindableAIDAG` execution across PLAN, OBSERVE, ORIENT, DECIDE, ACT, REFLECT, STOP. |
 | `test_end_to_end_orchestration.py` | Orchestration | Comprehensive pipeline run against static HTML corpus. |
 | `test_real_patch_pipeline.py` | Remediation | Fact extraction from HTML chunks and end-to-end patch generation. |
-| `test_pr_engine.py` | GitHub Integration | Direct push, fork fallback, forking disabled errors, framework route matching, path traversal rejection. |
+| `test_pr_engine.py` | GitHub Integration | Direct push, fork fallback, manifest additions (llms.txt/robots.txt), path traversal rejection. |
 | `test_pr_engine_integration.py` | GitHub Integration | End-to-end flow from crawl extraction to pull request generation. |
 | `test_pr_markdown.py` | Reporting | Deterministic PR report Markdown generation, table escaping, secret redaction. |
 | `test_scans_api.py` | API Endpoints | REST endpoints, SSE event streams, 404 handling, parameter validations. |
@@ -84,6 +92,10 @@ FindableAI maintains a comprehensive test suite across the backend and frontend.
 | `src/hooks/useScanData.test.ts` | Hooks | Parallel resource fetching (`intents`, `contradictions`, `patches`). |
 | `src/hooks/useCountUp.test.ts` | Hooks | Smooth score gauge animated counter hooks. |
 | `src/components/ScoreGauge.test.tsx` | Components | Radial SVG gauge rendering, sub-score bars, grade badge colors. |
+| `src/components/LighthouseGauge.test.tsx` | Components | Circular SVG readiness score gauges with score tiers and animated paths. |
+| `src/components/CrawlerGovernancePanel.test.tsx` | Components | AI Visibility Index, Scraping Risk badges, and optimized `robots.txt` modal. |
+| `src/components/AuditChecklist.test.tsx` | Components | Opportunities, Diagnostics, and Passed Audits with score lift badges. |
+| `src/components/LighthouseTab.test.tsx` | Components | AI Lighthouse container, tab loading states, in-progress 404 retry handling. |
 | `src/components/ContradictionCard.test.tsx` | Components | Contradiction conflict comparison, severity badges, DOM path copy. |
 | `src/components/EvidenceViewer.test.tsx` | Components | Evidence modal, dialog accessibility (`role="dialog"`), keyboard focus trap. |
 | `src/components/PatchModal.test.tsx` | Components | Unified diff view, DOM snippet inspection, framework component tabs, PR trigger submission. |

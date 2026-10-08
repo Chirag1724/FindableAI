@@ -139,6 +139,22 @@ Consolidate `patches.py` to delegate 100% directly to `scans.py`'s `apply_scan_p
 - `apply_patch_as_pr` resolves the scan record in `SCANS_DB`, binds the target repo URL override, and invokes the canonical `apply_scan_patch` function.
 - All GitHub client initialization, score derivations, and PR engine executions exist in a single location.
 
+---
+
+### ADR-007: Zero-LLM Deterministic AI Lighthouse & Crawler Governance
+
+- **Status:** Accepted (October 2026)
+- **Code Evidence:** [backend/app/engines/lighthouse.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/lighthouse.py), [backend/app/engines/robots_analyzer.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/robots_analyzer.py), [backend/app/engines/llms_txt_generator.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/llms_txt_generator.py).
+
+#### Context
+Evaluating search engine readiness across 4 distinct AI search engines (ChatGPT, Gemini, Perplexity, Claude) and auditing crawler governance could introduce latency, token expense, and non-deterministic scoring if driven by prompt-based LLM queries.
+
+#### Decision
+Implement AI Lighthouse scoring as a pure deterministic heuristic engine that consumes existing DAG artifacts (DOM AST chunks, Schema.org reports, NLI entailment ratios, contradiction counts) and parses `robots.txt` via `urllib.robotparser`:
+1. Use weighted linear scoring formulas specific to each engine's known indexing architecture.
+2. Extract a 15-feature mathematical vector from `robots.txt` to calculate the AI Visibility Index (0-100) and Scraping Risk classification.
+3. Synthesize Jeremy Howard compliant `/llms.txt` and Pareto-optimal `robots.txt` manifests deterministically.
+
 #### Consequences
-- Eliminates duplicate PR request assembly and error translation logic.
-- Prevents future divergence between scan-level and patch-level PR operations.
+- Zero additional LLM tokens or API latency added to audit execution.
+- 100% reproducible and verifiable scores across subsequent audits for the same site state.

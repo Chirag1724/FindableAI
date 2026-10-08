@@ -130,7 +130,7 @@ def generate_llms_full_txt(
     desc = description.strip() or f"Complete flattened factual content for {site_title}."
 
     lines: list[str] = [
-        f"# {site_title} — Full Knowledge Corpus",
+        f"# {site_title} - Full Knowledge Corpus",
         "",
         f"> {desc}",
         "",

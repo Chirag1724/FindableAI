@@ -75,6 +75,8 @@ class PREngineRequest(BaseModel):
     intent_evaluations: list[IntentEvaluation] = Field(default_factory=list)
     current_score: float | None = Field(default=None, ge=0.0, le=100.0)
     projected_score: float | None = Field(default=None, ge=0.0, le=100.0)
+    llms_txt_content: str | None = None
+    robots_txt_content: str | None = None
     commit_message: str = Field(
         default="feat: apply FindableAI remediation patches",
         min_length=1,

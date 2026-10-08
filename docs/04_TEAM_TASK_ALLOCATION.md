@@ -3,7 +3,8 @@
 > **Document Version:** 1.0  
 > **Classification:** Internal Team Reference  
 > **Authors:** FindableAI Core Team  
-> **Last Updated:** September 2026  
+> **Last Updated:** October 2026  
+> **Notice:** For the AI Lighthouse feature task allocations (Himanshu H-1 to H-8, Chirag C-1 to C-6), see [docs/05_AI_LIGHTHOUSE_FEATURE_SPEC.md](file:///c:/Users/LENOVO/Desktop/FindableAI/docs/05_AI_LIGHTHOUSE_FEATURE_SPEC.md#L608-L720) Section 8.
 
 ---
 
