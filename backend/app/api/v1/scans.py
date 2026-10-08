@@ -27,7 +27,6 @@ from app.engines.intent_generator import resolve_query_persona
 from app.engines.lighthouse import LighthouseEngine
 from app.engines.patch_assembler import assemble_real_patches
 from app.engines.scorer import ScoreInputs, Scorer, adapt_score_breakdown_to_api
-from app.schemas.lighthouse import LighthouseResponse
 from app.github.client import GitHubClientError, build_pygithub_client_from_token
 from app.github.pr_engine import GitHubPRService, PREngineError
 from app.models.database import (
@@ -57,6 +56,7 @@ from app.schemas.intelligence import (
     IntentCategory,
     IntentEvaluation,
 )
+from app.schemas.lighthouse import LighthouseResponse
 from app.schemas.patch import DOMSelectorAnchor, PatchProposal, PatchType, PullRequestResult
 from app.schemas.patching import FormattedPatch, PatchFormatStatus, SchemaRemediationTarget
 from app.schemas.scan import (
@@ -874,7 +874,8 @@ async def get_scan(scan_id: str) -> ScanResponse:
                             category=IntentCategory(it.category)
                             if it.category in [c.value for c in IntentCategory]
                             else None,
-                            persona=getattr(it, "persona", None) or resolve_query_persona(
+                            persona=getattr(it, "persona", None)
+                            or resolve_query_persona(
                                 IntentCategory(it.category)
                                 if it.category in [c.value for c in IntentCategory]
                                 else IntentCategory.POLICY
@@ -1097,7 +1098,8 @@ async def get_scan_intents(scan_id: str) -> list[dict[str, Any]]:
                             "intent_id": f"intent_{it.id.hex[:8]}",
                             "query": it.query,
                             "category": it.category,
-                            "persona": getattr(it, "persona", None) or resolve_query_persona(
+                            "persona": getattr(it, "persona", None)
+                            or resolve_query_persona(
                                 IntentCategory(it.category)
                                 if it.category in [c.value for c in IntentCategory]
                                 else IntentCategory.POLICY
@@ -1432,14 +1434,10 @@ async def get_scan_lighthouse(scan_id: str) -> LighthouseResponse:
 
     if record:
         chunks = (
-            CHUNKS_DB.get(scan_id)
-            or (CHUNKS_DB.get(str(scan_uuid)) if scan_uuid else None)
-            or []
+            CHUNKS_DB.get(scan_id) or (CHUNKS_DB.get(str(scan_uuid)) if scan_uuid else None) or []
         )
         robots_txt = (
-            ROBOTS_DB.get(scan_id)
-            or (ROBOTS_DB.get(str(scan_uuid)) if scan_uuid else "")
-            or ""
+            ROBOTS_DB.get(scan_id) or (ROBOTS_DB.get(str(scan_uuid)) if scan_uuid else "") or ""
         )
         engine = LighthouseEngine(
             url=record.target_url,
@@ -1473,4 +1471,3 @@ async def get_scan_lighthouse(scan_id: str) -> LighthouseResponse:
         status_code=status.HTTP_404_NOT_FOUND,
         detail=f"Scan '{scan_id}' not found.",
     )
-

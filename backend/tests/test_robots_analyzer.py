@@ -1,5 +1,3 @@
-import pytest
-
 from app.engines.robots_analyzer import (
     analyze_robots_txt,
     classify_scraping_risk,

@@ -3,11 +3,9 @@ from __future__ import annotations
 import re
 import urllib.robotparser
 from dataclasses import dataclass
-from typing import Literal
 
 from app.schemas.lighthouse import (
     BotAccessStatus,
-    BotCategory,
     BotStatus,
     CrawlerGovernance,
     ScrapingRisk,
@@ -65,7 +63,11 @@ def extract_features(robots_txt: str) -> tuple[RobotsFeatureVector, list[BotStat
     Deterministic 15-feature extraction vector from raw robots.txt (§5.3).
     """
     raw_text = robots_txt or ""
-    lines = [line.strip() for line in raw_text.splitlines() if line.strip() and not line.strip().startswith("#")]
+    lines = [
+        line.strip()
+        for line in raw_text.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
 
     rp = urllib.robotparser.RobotFileParser()
     rp.parse(raw_text.splitlines() if raw_text else ["User-agent: *", "Allow: /"])
@@ -232,10 +234,12 @@ def compute_ai_visibility_index(features: RobotsFeatureVector) -> int:
         score += 3.0
 
     clamped = max(0.0, min(100.0, score))
-    return int(round(clamped))
+    return round(clamped)
 
 
-def classify_scraping_risk(features: RobotsFeatureVector, bot_matrix: list[BotStatus]) -> ScrapingRisk:
+def classify_scraping_risk(
+    features: RobotsFeatureVector, bot_matrix: list[BotStatus]
+) -> ScrapingRisk:
     """
     Scraping Risk Classification per §5.4:
     - Low: Training bots blocked AND citation bots allowed

@@ -4,7 +4,6 @@ import json
 import re
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
@@ -17,7 +16,6 @@ from app.schemas.lighthouse import (
     AuditSummary,
     CrawlerGovernance,
     CriterionDetail,
-    EngineKey,
     EngineScore,
     LighthouseResponse,
     ScoreTier,
@@ -113,11 +111,21 @@ class LighthouseEngine:
     def analyze_headings(self) -> dict[str, Any]:
         """Inspect heading tag hierarchy (h1 -> h2 -> h3)."""
         if not self.soup:
-            return {"score": 50, "has_h1": False, "skipped_levels": False, "detail": "No DOM available"}
+            return {
+                "score": 50,
+                "has_h1": False,
+                "skipped_levels": False,
+                "detail": "No DOM available",
+            }
 
         headings = self.soup.find_all(re.compile(r"^h[1-6]$"))
         if not headings:
-            return {"score": 40, "has_h1": False, "skipped_levels": False, "detail": "No heading elements found"}
+            return {
+                "score": 40,
+                "has_h1": False,
+                "skipped_levels": False,
+                "detail": "No heading elements found",
+            }
 
         has_h1 = any(h.name == "h1" for h in headings)
         levels = [int(h.name[1]) for h in headings]
@@ -156,7 +164,7 @@ class LighthouseEngine:
 
         with_id = [t for t in targets if t.has_attr("id") and t["id"].strip()]
         ratio = len(with_id) / len(targets)
-        score = int(round(ratio * 100))
+        score = round(ratio * 100)
 
         if ratio >= 0.7:
             detail = f"{len(with_id)}/{len(targets)} section and heading landmarks have citation anchor IDs"
@@ -189,7 +197,9 @@ class LighthouseEngine:
         score = min(100, score)
         return {
             "score": score,
-            "detail": ", ".join(details) if details else "Missing meta description and OpenGraph tags",
+            "detail": ", ".join(details)
+            if details
+            else "Missing meta description and OpenGraph tags",
         }
 
     def analyze_policy_pages(self) -> dict[str, Any]:
@@ -208,7 +218,10 @@ class LighthouseEngine:
         if "privacy" in found and "terms" in found:
             return {"score": 90, "detail": "Privacy policy and terms of service verified"}
         if "privacy" in found or "terms" in found:
-            return {"score": 65, "detail": "Partial legal docs verified (missing terms or refund policy)"}
+            return {
+                "score": 65,
+                "detail": "Partial legal docs verified (missing terms or refund policy)",
+            }
         return {"score": 40, "detail": "No privacy or terms links discovered"}
 
     def analyze_chunks_quality(self) -> dict[str, Any]:
@@ -229,7 +242,7 @@ class LighthouseEngine:
 
         concise = sum(1 for w in word_counts if 15 <= w <= 160)
         ratio = concise / len(word_counts)
-        score = int(round(max(40, min(100, ratio * 100 + 15))))
+        score = round(max(40, min(100, ratio * 100 + 15)))
         return {
             "score": score,
             "detail": f"{int(ratio * 100)}% of content blocks are concise and self-contained (<160 words)",
@@ -253,12 +266,14 @@ class LighthouseEngine:
         user_allowed = self.bot_map.get("chatgpt-user") == "allowed"
 
         allowed_count = sum([gpt_allowed, oai_allowed, user_allowed])
-        c_bot = int(round((allowed_count / 3.0) * 100))
+        c_bot = round((allowed_count / 3.0) * 100)
         bot_detail = f"GPTBot ({'allowed' if gpt_allowed else 'blocked'}), OAI-SearchBot ({'allowed' if oai_allowed else 'blocked'}), ChatGPT-User ({'allowed' if user_allowed else 'blocked'})"
 
         c_schema = schema_data["score"]
         schema_detail = (
-            f"Types: {', '.join(schema_data['types'])}" if schema_data["types"] else "No Schema.org JSON-LD detected"
+            f"Types: {', '.join(schema_data['types'])}"
+            if schema_data["types"]
+            else "No Schema.org JSON-LD detected"
         )
 
         c_answer = answerability_score
@@ -269,17 +284,15 @@ class LighthouseEngine:
 
         c_consist = consistency_score
         consist_detail = (
-            "Zero cross-page contradictions" if c_consist == 100 else f"{len(self.contradictions)} contradictions detected"
+            "Zero cross-page contradictions"
+            if c_consist == 100
+            else f"{len(self.contradictions)} contradictions detected"
         )
 
         total = (
-            0.25 * c_bot
-            + 0.30 * c_schema
-            + 0.25 * c_answer
-            + 0.10 * c_struct
-            + 0.10 * c_consist
+            0.25 * c_bot + 0.30 * c_schema + 0.25 * c_answer + 0.10 * c_struct + 0.10 * c_consist
         )
-        final_score = int(round(total))
+        final_score = round(total)
 
         return EngineScore(
             score=final_score,
@@ -318,22 +331,20 @@ class LighthouseEngine:
             else "Missing dateModified freshness signal in Schema.org"
         )
 
-        total = (
-            0.20 * c_bot
-            + 0.25 * c_schema
-            + 0.15 * c_answer
-            + 0.25 * c_entity
-            + 0.15 * c_fresh
-        )
-        final_score = int(round(total))
+        total = 0.20 * c_bot + 0.25 * c_schema + 0.15 * c_answer + 0.25 * c_entity + 0.15 * c_fresh
+        final_score = round(total)
 
         return EngineScore(
             score=final_score,
             tier=_get_tier(final_score),
             criteria={
                 "bot_access": CriterionDetail(score=c_bot, detail=bot_detail),
-                "schema_coverage": CriterionDetail(score=c_schema, detail=f"Schema graph score: {c_schema}/100"),
-                "answerability": CriterionDetail(score=c_answer, detail=f"{c_answer}% query entailment ratio"),
+                "schema_coverage": CriterionDetail(
+                    score=c_schema, detail=f"Schema graph score: {c_schema}/100"
+                ),
+                "answerability": CriterionDetail(
+                    score=c_answer, detail=f"{c_answer}% query entailment ratio"
+                ),
                 "entity_strength": CriterionDetail(score=c_entity, detail=entities_data["detail"]),
                 "freshness": CriterionDetail(score=c_fresh, detail=fresh_detail),
             },
@@ -351,31 +362,31 @@ class LighthouseEngine:
         """
         pplx_allowed = self.bot_map.get("perplexitybot") == "allowed"
         c_bot = 100 if pplx_allowed else 0
-        bot_detail = "PerplexityBot allowed" if pplx_allowed else "PerplexityBot blocked in robots.txt"
+        bot_detail = (
+            "PerplexityBot allowed" if pplx_allowed else "PerplexityBot blocked in robots.txt"
+        )
 
         c_schema = max(40, schema_data["score"])
         c_chunk = chunks_data["score"]
         c_anchor = anchors_data["score"]
         c_density = 85  # Factual density baseline
 
-        total = (
-            0.30 * c_bot
-            + 0.10 * c_schema
-            + 0.25 * c_chunk
-            + 0.20 * c_anchor
-            + 0.15 * c_density
-        )
-        final_score = int(round(total))
+        total = 0.30 * c_bot + 0.10 * c_schema + 0.25 * c_chunk + 0.20 * c_anchor + 0.15 * c_density
+        final_score = round(total)
 
         return EngineScore(
             score=final_score,
             tier=_get_tier(final_score),
             criteria={
                 "bot_access": CriterionDetail(score=c_bot, detail=bot_detail),
-                "schema_coverage": CriterionDetail(score=c_schema, detail="Structured data present"),
+                "schema_coverage": CriterionDetail(
+                    score=c_schema, detail="Structured data present"
+                ),
                 "chunk_quality": CriterionDetail(score=c_chunk, detail=chunks_data["detail"]),
                 "anchor_citations": CriterionDetail(score=c_anchor, detail=anchors_data["detail"]),
-                "factual_density": CriterionDetail(score=c_density, detail="High density of verifiable facts"),
+                "factual_density": CriterionDetail(
+                    score=c_density, detail="High density of verifiable facts"
+                ),
             },
         )
 
@@ -405,13 +416,9 @@ class LighthouseEngine:
         c_policy = policies_data["score"]
 
         total = (
-            0.20 * c_bot
-            + 0.15 * c_schema
-            + 0.20 * c_answer
-            + 0.30 * c_consist
-            + 0.15 * c_policy
+            0.20 * c_bot + 0.15 * c_schema + 0.20 * c_answer + 0.30 * c_consist + 0.15 * c_policy
         )
-        final_score = int(round(total))
+        final_score = round(total)
 
         return EngineScore(
             score=final_score,
@@ -419,8 +426,12 @@ class LighthouseEngine:
             criteria={
                 "bot_access": CriterionDetail(score=c_bot, detail=bot_detail),
                 "schema_coverage": CriterionDetail(score=c_schema, detail="Microdata & JSON-LD"),
-                "answerability": CriterionDetail(score=c_answer, detail="Direct answerability ratio"),
-                "consistency": CriterionDetail(score=c_consist, detail=f"{c_consist}% consistency confidence"),
+                "answerability": CriterionDetail(
+                    score=c_answer, detail="Direct answerability ratio"
+                ),
+                "consistency": CriterionDetail(
+                    score=c_consist, detail=f"{c_consist}% consistency confidence"
+                ),
                 "policy_docs": CriterionDetail(score=c_policy, detail=policies_data["detail"]),
             },
         )
@@ -556,8 +567,10 @@ class LighthouseEngine:
         """Run complete AI Lighthouse evaluation and return standardized response."""
         # Answerability from NLI evaluations
         if self.evaluations:
-            supported = sum(1 for e in self.evaluations if str(e.status).upper().endswith("SUPPORTED"))
-            answerability = int(round((supported / len(self.evaluations)) * 100))
+            supported = sum(
+                1 for e in self.evaluations if str(e.status).upper().endswith("SUPPORTED")
+            )
+            answerability = round((supported / len(self.evaluations)) * 100)
         else:
             answerability = 85
 
@@ -574,23 +587,13 @@ class LighthouseEngine:
         chunks_data = self.analyze_chunks_quality()
 
         # Compute per-engine scores
-        chatgpt_score = self.score_chatgpt(
-            schema_data, headings_data, answerability, consistency
-        )
-        gemini_score = self.score_gemini(
-            schema_data, entities_data, answerability
-        )
-        perplexity_score = self.score_perplexity(
-            schema_data, chunks_data, anchors_data
-        )
-        claude_score = self.score_claude(
-            schema_data, policies_data, answerability, consistency
-        )
+        chatgpt_score = self.score_chatgpt(schema_data, headings_data, answerability, consistency)
+        gemini_score = self.score_gemini(schema_data, entities_data, answerability)
+        perplexity_score = self.score_perplexity(schema_data, chunks_data, anchors_data)
+        claude_score = self.score_claude(schema_data, policies_data, answerability, consistency)
 
         # Compute audit checklist
-        audits = self.generate_audits(
-            schema_data, headings_data, anchors_data, consistency
-        )
+        audits = self.generate_audits(schema_data, headings_data, anchors_data, consistency)
 
         return LighthouseResponse(
             scan_id=self.scan_id,

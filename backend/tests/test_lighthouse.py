@@ -1,8 +1,12 @@
-import pytest
-
 from app.crawler.dom_chunker import ChunkData
 from app.engines.lighthouse import LighthouseEngine
-from app.schemas.intelligence import Contradiction, ContradictionSeverity, EntailmentStatus, IntentCategory, IntentEvaluation
+from app.schemas.intelligence import (
+    Contradiction,
+    ContradictionSeverity,
+    EntailmentStatus,
+    IntentCategory,
+    IntentEvaluation,
+)
 
 SAMPLE_HTML = """
 <!DOCTYPE html>
@@ -83,8 +87,20 @@ def test_lighthouse_scoring_complete():
     ]
 
     chunks = [
-        ChunkData(url="https://acme.ai", dom_path="body > main > section#features", content="Core Features High performance", tag="section", word_count=20),
-        ChunkData(url="https://acme.ai", dom_path="body > main > section#pricing", content="Pricing Plans Enterprise subscription starting at $99/mo.", tag="section", word_count=25),
+        ChunkData(
+            url="https://acme.ai",
+            dom_path="body > main > section#features",
+            content="Core Features High performance",
+            tag="section",
+            word_count=20,
+        ),
+        ChunkData(
+            url="https://acme.ai",
+            dom_path="body > main > section#pricing",
+            content="Pricing Plans Enterprise subscription starting at $99/mo.",
+            tag="section",
+            word_count=25,
+        ),
     ]
 
     engine = LighthouseEngine(

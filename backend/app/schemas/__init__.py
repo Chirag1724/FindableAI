@@ -18,6 +18,24 @@ from .intelligence import (
     Patch,
     ScanResult,
 )
+from .lighthouse import (
+    AuditDiagnostic,
+    AuditOpportunity,
+    AuditPassed,
+    BotAccessStatus,
+    BotCategory,
+    BotStatus,
+    CrawlerGovernance,
+    CriterionDetail,
+    EngineKey,
+    EngineScore,
+    LighthouseResponse,
+    ScoreTier,
+    ScrapingRisk,
+)
+from .lighthouse import (
+    AuditSummary as LighthouseAuditSummary,
+)
 from .patch import DOMSelectorAnchor, PatchProposal, PullRequestResult
 from .patching import (
     BusinessFacts,
@@ -40,22 +58,6 @@ from .patching import (
     SchemaRemediationTarget,
 )
 from .scan import AuditSummary, ScanRequest, ScanResponse, ScanStatus, ScanStatusEvent
-from .lighthouse import (
-    AuditDiagnostic,
-    AuditOpportunity,
-    AuditPassed,
-    AuditSummary as LighthouseAuditSummary,
-    BotAccessStatus,
-    BotCategory,
-    BotStatus,
-    CrawlerGovernance,
-    CriterionDetail,
-    EngineKey,
-    EngineScore,
-    LighthouseResponse,
-    ScoreTier,
-    ScrapingRisk,
-)
 from .scoring import (
     ContradictionSeverityWeights,
     SchemaOrgReport,
@@ -93,6 +95,7 @@ __all__ = [
     "IntentQuery",
     "JsonLdGenerationResult",
     "JsonLdSkip",
+    "LighthouseAuditSummary",
     "LighthouseResponse",
     "MenuItemFact",
     "OpeningHoursFact",

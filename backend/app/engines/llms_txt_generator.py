@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 from urllib.parse import urlparse
 
@@ -36,13 +35,26 @@ def _categorize_urls(urls: list[str]) -> dict[str, list[tuple[str, str, str]]]:
         slug = parts[-1].replace("-", " ").replace("_", " ").title()
 
         if any(k in path for k in ["doc", "docs", "guide", "tutorial", "api", "reference", "sdk"]):
-            categories["Docs"].append((slug or "Documentation", u, "Technical documentation and integration guides"))
-        elif any(k in path for k in ["pricing", "plan", "features", "solutions", "product", "demo"]):
-            categories["Product"].append((slug or "Product Overview", u, "Product details, capabilities, and pricing"))
-        elif any(k in path for k in ["privacy", "terms", "tos", "legal", "security", "compliance", "policy"]):
-            categories["Legal"].append((slug or "Policies", u, "Legal, compliance, and terms of service"))
+            categories["Docs"].append(
+                (slug or "Documentation", u, "Technical documentation and integration guides")
+            )
+        elif any(
+            k in path for k in ["pricing", "plan", "features", "solutions", "product", "demo"]
+        ):
+            categories["Product"].append(
+                (slug or "Product Overview", u, "Product details, capabilities, and pricing")
+            )
+        elif any(
+            k in path
+            for k in ["privacy", "terms", "tos", "legal", "security", "compliance", "policy"]
+        ):
+            categories["Legal"].append(
+                (slug or "Policies", u, "Legal, compliance, and terms of service")
+            )
         else:
-            categories["Resources"].append((slug or "Overview", u, "General information and resources"))
+            categories["Resources"].append(
+                (slug or "Overview", u, "General information and resources")
+            )
 
     return categories
 
@@ -80,12 +92,14 @@ def generate_llms_txt(
         if business_facts.get("address"):
             contact_points.append(f"Location: {business_facts['address']}")
         if contact_points:
-            lines.extend([
-                "## Organization Information",
-                "",
-                f"- **Verified Contacts:** {', '.join(contact_points)}",
-                "",
-            ])
+            lines.extend(
+                [
+                    "## Organization Information",
+                    "",
+                    f"- **Verified Contacts:** {', '.join(contact_points)}",
+                    "",
+                ]
+            )
 
     # Section ordering
     ordered_sections = ["Docs", "Product", "Legal", "Resources"]
@@ -137,20 +151,24 @@ def generate_llms_full_txt(
 
             url = getattr(chunk, "url", domain)
             tag = getattr(chunk, "tag", "section")
-            lines.extend([
-                f"### Entry {i + 1} ({tag.upper()} from {url})",
-                "",
-                normalized,
-                "",
-            ])
+            lines.extend(
+                [
+                    f"### Entry {i + 1} ({tag.upper()} from {url})",
+                    "",
+                    normalized,
+                    "",
+                ]
+            )
     else:
         urls = crawled_urls or []
         for u in urls[:10]:
-            lines.extend([
-                f"### Page: {u}",
-                "",
-                f"Verified resource located at {u}.",
-                "",
-            ])
+            lines.extend(
+                [
+                    f"### Page: {u}",
+                    "",
+                    f"Verified resource located at {u}.",
+                    "",
+                ]
+            )
 
     return "\n".join(lines).strip() + "\n"

@@ -66,9 +66,9 @@ class Settings(BaseSettings):
             return value
         v = value.strip()
         if v.startswith("postgres://"):
-            v = "postgresql+asyncpg://" + v[len("postgres://"):]
+            v = "postgresql+asyncpg://" + v[len("postgres://") :]
         elif v.startswith("postgresql://") and not v.startswith("postgresql+asyncpg://"):
-            v = "postgresql+asyncpg://" + v[len("postgresql://"):]
+            v = "postgresql+asyncpg://" + v[len("postgresql://") :]
         if "sslmode=require" in v:
             v = v.replace("sslmode=require", "ssl=require")
         return v

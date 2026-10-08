@@ -33,9 +33,14 @@ def test_resolve_query_persona_defaults():
 
 def test_resolve_query_persona_restricted_active():
     # If only procurement is active, policy maps to procurement
-    assert resolve_query_persona(IntentCategory.POLICY, active_personas=["procurement"]) == "procurement"
+    assert (
+        resolve_query_persona(IntentCategory.POLICY, active_personas=["procurement"])
+        == "procurement"
+    )
     # If only developer is active, policy maps to developer
-    assert resolve_query_persona(IntentCategory.POLICY, active_personas=["developer"]) == "developer"
+    assert (
+        resolve_query_persona(IntentCategory.POLICY, active_personas=["developer"]) == "developer"
+    )
 
 
 def test_validate_intent_batch_assigns_persona():

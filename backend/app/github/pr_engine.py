@@ -669,7 +669,9 @@ class GitHubPRService:
                                     content=component_content,
                                     opportunity_ids=self._opportunity_ids(grouped),
                                     schema_types=[
-                                        p.schema_type for patches in grouped.values() for p in patches
+                                        p.schema_type
+                                        for patches in grouped.values()
+                                        for p in patches
                                     ],
                                 )
                             ]

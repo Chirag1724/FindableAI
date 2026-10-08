@@ -1,5 +1,3 @@
-import pytest
-
 from app.crawler.dom_chunker import ChunkData
 from app.engines.llms_txt_generator import generate_llms_full_txt, generate_llms_txt
 

@@ -13,6 +13,8 @@ from .entailment_engine import (
 )
 from .intent_generator import IntentGenerationError, IntentGenerator, generate_intents
 from .jsonld_generator import JsonLdGenerator, JsonLdGeneratorError, generate_jsonld
+from .lighthouse import LighthouseEngine
+from .llms_txt_generator import generate_llms_full_txt, generate_llms_txt
 from .patch_formatter import PatchFormatter, PatchFormatterError, format_patches
 from .patch_prioritizer import (
     PatchPrioritizer,
@@ -26,8 +28,6 @@ from .projected_score import (
     project_score_for_generated,
     project_scores,
 )
-from .lighthouse import LighthouseEngine
-from .llms_txt_generator import generate_llms_full_txt, generate_llms_txt
 from .robots_analyzer import (
     analyze_robots_txt,
     classify_scraping_risk,
