@@ -2,7 +2,18 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Computed, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Computed,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -62,6 +73,26 @@ class Scan(Base):
     s_con: Mapped[float | None] = mapped_column(Float, nullable=True)
     s_str: Mapped[float | None] = mapped_column(Float, nullable=True)
     s_acc: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # P1: durable scan-integrity contract (nullable for legacy rows)
+    integrity_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    execution_mode: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    result_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    outcome: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    score_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    patches_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    remediation_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    intelligence_warnings: Mapped[list[Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    data_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    llm_calls_made: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dag_evaluations_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    synthetic_intents_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pages_crawled: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dom_chunks_extracted: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

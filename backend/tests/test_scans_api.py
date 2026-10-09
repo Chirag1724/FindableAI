@@ -69,9 +69,11 @@ async def test_create_scan_and_get_details():
 
 @pytest.mark.asyncio
 async def test_scan_subresources_endpoints():
+    """Without valid LLM credentials, subresources stay empty — no silent synthetic fill."""
+    import asyncio
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Create scan
         resp = await client.post(
             "/api/v1/scans",
             json={"url": "https://example-test.com", "max_pages": 2},
@@ -79,35 +81,50 @@ async def test_scan_subresources_endpoints():
         assert resp.status_code == 202
         scan_id = resp.json()["scan_id"]
 
-        # Chunks endpoint
+        # Wait for background pipeline to settle (no Groq → zero real evals).
+        detail = None
+        for _ in range(40):
+            detail_resp = await client.get(f"/api/v1/scans/{scan_id}")
+            assert detail_resp.status_code == 200
+            detail = detail_resp.json()
+            if detail.get("status") in ("completed", "failed"):
+                break
+            await asyncio.sleep(0.25)
+
+        assert detail is not None
+        assert detail.get("status") in ("completed", "failed")
+        # Honest outcome: not a successful real audit without evaluations.
+        assert detail.get("remediation_eligible") is not True
+        assert detail.get("outcome") in (None, "inconclusive", "failed", "partial")
+        assert (detail.get("summary") or {}).get("dag_evaluations_count", 0) in (0, None)
+
         chunks_resp = await client.get(f"/api/v1/scans/{scan_id}/chunks")
         assert chunks_resp.status_code == 200
         assert isinstance(chunks_resp.json(), list)
 
-        # Intents endpoint
         intents_resp = await client.get(f"/api/v1/scans/{scan_id}/intents")
         assert intents_resp.status_code == 200
         intents = intents_resp.json()
-        assert len(intents) >= 1
-        assert "query" in intents[0]
+        assert isinstance(intents, list)
+        # Default ALLOW_SYNTHETIC_DEMO=false → no fabricated intent rows.
+        assert len(intents) == 0
 
-        # Contradictions endpoint
         contra_resp = await client.get(f"/api/v1/scans/{scan_id}/contradictions")
         assert contra_resp.status_code == 200
-        contras = contra_resp.json()
-        assert isinstance(contras, list)
+        assert isinstance(contra_resp.json(), list)
 
-        # Patches endpoint
         patches_resp = await client.get(f"/api/v1/scans/{scan_id}/patches")
         assert patches_resp.status_code == 200
         patches = patches_resp.json()
-        assert len(patches) >= 1
-        assert "unified_diff" in patches[0]
+        assert isinstance(patches, list)
+        assert len(patches) == 0
 
-        # Apply patch PR endpoint should return 400 Bad Request when no repo_url is configured
         apply_resp = await client.post(f"/api/v1/scans/{scan_id}/patches/apply")
         assert apply_resp.status_code == 400
-        assert "No GitHub repository configured" in apply_resp.json()["detail"]
+        detail_msg = apply_resp.json()["detail"]
+        assert (
+            "No GitHub repository configured" in detail_msg or "not eligible" in detail_msg.lower()
+        )
 
 
 @pytest.mark.asyncio
@@ -196,6 +213,35 @@ async def test_apply_patches_validation_scenarios(monkeypatch):
         )
         assert resp_valid.status_code == 202
         scan_id_valid = resp_valid.json()["scan_id"]
+
+        # Freeze integrity + patches so this test exercises token validation,
+        # not a race with the background synthetic_fallback pipeline.
+        from app.api.v1.scans import SCANS_DB
+        from app.schemas.patch import DOMSelectorAnchor, PatchProposal, PatchType
+
+        frozen = SCANS_DB[scan_id_valid]
+        frozen.execution_mode = "real_llm"
+        frozen.result_source = "real_pipeline"
+        frozen.outcome = "success"
+        frozen.remediation_eligible = True
+        frozen.patches = [
+            PatchProposal(
+                patch_id="patch_test_apply",
+                patch_type=PatchType.SCHEMA_MICRODATA,
+                title="Test remediation",
+                rationale="Deterministic fixture for apply validation",
+                impact_score_delta=1.0,
+                dom_anchor=DOMSelectorAnchor(
+                    css_selector="head",
+                    tag_name="head",
+                    original_snippet="",
+                    suggested_snippet="",
+                ),
+                unified_diff="--- a/index.html\n+++ b/index.html\n",
+                applied=False,
+                is_synthetic=False,
+            )
+        ]
 
         apply_resp_valid = await client.post(f"/api/v1/scans/{scan_id_valid}/patches/apply")
         assert apply_resp_valid.status_code == 400

@@ -47,6 +47,19 @@ from app.models.database import (
     Scan as ScanModel,
 )
 from app.orchestration.dag import FindableAIDAG, ObservationInput
+from app.orchestration.scan_integrity import (
+    IntegrityInput,
+    PatchesSource,
+    ScoreSource,
+    decide_scan_integrity,
+    sanitize_public_error,
+    should_inject_synthetic_contradictions,
+    should_inject_synthetic_intents,
+)
+from app.orchestration.scan_persistence import (
+    apply_integrity_to_scan_row,
+    unpack_integrity_from_scan_row,
+)
 from app.orchestration.state import OrchestrationChunk
 from app.schemas.fscore import FScoreBreakdown, SubScoreMetric
 from app.schemas.github_pr import PREngineRequest
@@ -54,7 +67,6 @@ from app.schemas.intelligence import (
     Contradiction,
     ContradictionSeverity,
     EntailmentStatus,
-    EvidenceReference,
     IntentCategory,
     IntentEvaluation,
 )
@@ -112,38 +124,25 @@ def _generate_fallback_evaluations(
         IntentCategory.TRUST,
         IntentCategory.EDGE_CASES,
     ]
+    # Demo-only placeholders: never attach fabricated DOM evidence or retrieved chunks.
+    _ = chunks  # retained for call-site compatibility; unused intentionally
     evals = []
-    chunk_ids = [getattr(c, "id", f"chunk_{i}") for i, c in enumerate(chunks[:5])]
     for i in range(1, 31):
         cat = categories[(i - 1) % len(categories)]
-        status = (
-            EntailmentStatus.SUPPORTED
-            if i % 4 != 0
-            else (EntailmentStatus.PARTIALLY_SUPPORTED if i % 2 == 0 else EntailmentStatus.UNKNOWN)
-        )
-        evidence = []
-        if (
-            status in (EntailmentStatus.SUPPORTED, EntailmentStatus.PARTIALLY_SUPPORTED)
-            and chunk_ids
-        ):
-            cid = chunk_ids[(i - 1) % len(chunk_ids)]
-            evidence.append(
-                EvidenceReference(
-                    chunk_id=str(cid),
-                    dom_path=f"body > main > section:nth-of-type({(i % 3) + 1})",
-                )
-            )
+        status = EntailmentStatus.UNKNOWN
         persona = resolve_query_persona(cat, personas)
         evals.append(
             IntentEvaluation(
                 intent_id=f"intent_{i:02d}",
-                query=f"What are {domain}'s {cat.value} options and terms (query #{i})?",
+                query=f"[DEMO] Sample {cat.value} query #{i} for {domain}",
                 category=cat,
                 persona=persona,
                 status=status,
-                reasoning=f"Automated entailment analysis for {cat.value} intent from {persona} perspective.",
-                evidence=evidence,
-                confidence=0.88,
+                reasoning=(
+                    "Synthetic demo placeholder — not an NLI evaluation of retrieved website evidence."
+                ),
+                evidence=[],
+                confidence=0.0,
             )
         )
     return evals
@@ -248,6 +247,7 @@ def generate_mock_patches(url: str = "https://example.com", html: str = "") -> l
                 f"+  </script>\n</head>"
             ),
             applied=False,
+            is_synthetic=True,
         ),
     ]
 
@@ -274,6 +274,101 @@ async def _emit_event(
     for q in EVENT_QUEUES.get(scan_id, []):
         await q.put(event)
     return event
+
+
+async def _finalize_hard_failure(
+    scan_id: str,
+    scan_uuid: uuid.UUID,
+    exc: BaseException,
+) -> None:
+    """Fail-closed integrity for unexpected pipeline crashes; sanitize public errors."""
+    public_error = sanitize_public_error(str(exc)) or "Scan pipeline failed unexpectedly."
+    end_time = datetime.now(UTC)
+
+    prior = SCANS_DB.get(scan_id)
+    prior_dag = None
+    if prior and prior.summary:
+        prior_dag = prior.summary.dag_evaluations_count
+    if prior_dag is None and prior and prior.intents:
+        if getattr(prior, "result_source", None) != "synthetic_fallback":
+            prior_dag = len(prior.intents)
+
+    has_partial_real = bool(prior_dag and prior_dag > 0)
+    outcome = "partial" if has_partial_real else "failed"
+    result_source = "partial_real" if has_partial_real else "inconclusive"
+    execution_mode = (
+        "real_llm" if has_partial_real and (prior.llm_calls_made or 0) > 0 else "deterministic"
+    )
+    warnings = [
+        "Scan terminated by an unexpected error; remediation is not eligible.",
+    ]
+    if has_partial_real:
+        warnings.append(
+            "Preserved prior real evaluations are partial and unverified for remediation."
+        )
+
+    if scan_id in SCANS_DB:
+        record = SCANS_DB[scan_id]
+        record.status = ScanStatus.FAILED
+        record.completed_at = end_time
+        record.error = public_error
+        record.execution_mode = execution_mode
+        record.data_source = "live_pipeline" if has_partial_real else "synthetic_fallback"
+        record.result_source = result_source
+        record.outcome = outcome
+        record.score_source = record.score_source or "none"
+        record.patches_source = "none"
+        record.remediation_eligible = False
+        record.intelligence_warnings = warnings
+        if record.patches and any(getattr(p, "is_synthetic", False) for p in record.patches):
+            record.patches = []
+
+    try:
+        async with AsyncSessionLocal() as s:
+            async with s.begin():
+                db_scan = await s.get(ScanModel, scan_uuid)
+                if db_scan:
+                    db_scan.status = "failed"
+                    db_scan.completed_at = end_time
+                    apply_integrity_to_scan_row(
+                        db_scan,
+                        execution_mode=execution_mode,
+                        result_source=result_source,
+                        outcome=outcome,
+                        score_source="none",
+                        patches_source="none",
+                        remediation_eligible=False,
+                        intelligence_warnings=warnings,
+                        llm_calls_made=getattr(prior, "llm_calls_made", None) if prior else None,
+                        dag_evaluations_count=prior_dag,
+                        synthetic_intents_count=0,
+                        pages_crawled=(
+                            getattr(prior.summary, "pages_crawled", None)
+                            if prior and prior.summary
+                            else None
+                        ),
+                        dom_chunks_extracted=(
+                            getattr(prior.summary, "dom_chunks_extracted", None)
+                            if prior and prior.summary
+                            else None
+                        ),
+                        data_source="live_pipeline" if has_partial_real else "synthetic_fallback",
+                        error=public_error,
+                    )
+    except Exception as db_err:
+        logger.warning(
+            "Hard-failure integrity persist skipped for %s (DB unavailable): %s",
+            scan_id,
+            db_err,
+        )
+
+    await _emit_event(
+        scan_id,
+        ScanStatus.FAILED,
+        100,
+        "Scan Failed",
+        public_error,
+    )
 
 
 async def run_scan_pipeline(
@@ -450,38 +545,48 @@ async def run_scan_pipeline(
         )
         orch_result = await dag.run(obs)
 
-        evaluations: list[IntentEvaluation] = list(orch_result.evaluations)
+        # Preserve DAG outputs before any synthetic substitution.
+        dag_evaluations: list[IntentEvaluation] = list(orch_result.evaluations)
         contradictions: list[Contradiction] = list(orch_result.contradictions)
         score_breakdown = orch_result.score
+        dag_eval_count = len(dag_evaluations)
 
         is_prod = settings.ENVIRONMENT.lower() == "production"
-        execution_mode = (
-            "real_llm"
-            if evaluations and llm_client.calls_made > 0
-            else ("deterministic" if is_prod else "synthetic_fallback")
-        )
-        data_source = (
-            "live_pipeline"
-            if (evaluations and llm_client.calls_made > 0) or is_prod
-            else "synthetic_fallback"
-        )
+        allow_demo = bool(getattr(settings, "ALLOW_SYNTHETIC_DEMO", False))
+        used_synthetic_intents = False
+        used_synthetic_contradictions = False
+        synthetic_intents_count = 0
 
-        if not evaluations:
+        evaluations: list[IntentEvaluation] = list(dag_evaluations)
+        if should_inject_synthetic_intents(
+            is_production=is_prod,
+            dag_evaluation_count=dag_eval_count,
+            allow_synthetic_demo=allow_demo,
+        ):
+            # Explicit opt-in demo only — never on the normal scan path.
             evaluations = _generate_fallback_evaluations(url, extracted_chunks, personas=personas)
+            used_synthetic_intents = True
+            synthetic_intents_count = len(evaluations)
 
-        if not contradictions and orch_result.error:
+        if should_inject_synthetic_contradictions(
+            is_production=is_prod,
+            contradiction_count=len(contradictions),
+            dag_error=orch_result.error,
+            allow_synthetic_demo=allow_demo,
+        ):
             contradictions = _generate_fallback_contradictions(url)
+            used_synthetic_contradictions = True
 
-        # Build complete ScoreInputs
+        # Build ScoreInputs from real DAG evaluations only for audit-grade scoring.
         score_inputs = ScoreInputs(
-            intent_evaluations=evaluations,
-            contradictions=contradictions,
+            intent_evaluations=dag_evaluations,
+            contradictions=contradictions if not used_synthetic_contradictions else [],
             html_documents=html_docs,
             chunks=extracted_chunks,
         )
 
-        # Ensure score_breakdown is calculated via deterministic Scorer if available
-        if score_breakdown is None and evaluations:
+        # Never run the deterministic scorer on synthetic demo intents.
+        if score_breakdown is None and dag_evaluations and not used_synthetic_intents:
             try:
                 score_breakdown = Scorer().score(score_inputs)
             except Exception as scorer_err:
@@ -497,18 +602,24 @@ async def run_scan_pipeline(
         )
 
         f_score: FScoreBreakdown | None = None
-        if score_breakdown is not None:
-            f_score = adapt_score_breakdown_to_api(score_breakdown)
-        elif not is_prod:
-            logger.warning(
-                "Scorer execution returned None; using fallback F-score for %s in dev mode", scan_id
-            )
-            f_score = generate_mock_fscore(url)
-        else:
-            logger.warning(
-                "Scorer execution returned None; zero mock F-score in production for %s", scan_id
-            )
+        score_source = ScoreSource.NONE
+        if used_synthetic_intents:
+            # Demo path: no authoritative F-Score (do not label as deterministic_scorer).
+            if score_breakdown is not None:
+                logger.warning(
+                    "Discarding scorer output for synthetic demo scan %s (not audit-grade)",
+                    scan_id,
+                )
+            score_breakdown = None
             f_score = None
+            score_source = ScoreSource.NONE
+        elif score_breakdown is not None:
+            f_score = adapt_score_breakdown_to_api(score_breakdown)
+            score_source = ScoreSource.DETERMINISTIC_SCORER
+        else:
+            logger.warning("No F-score available for %s (scorer empty; mock suppressed)", scan_id)
+            f_score = None
+            score_source = ScoreSource.NONE
 
         # Phase 8: GENERATING_PATCHES
         await _emit_event(
@@ -516,13 +627,19 @@ async def run_scan_pipeline(
             ScanStatus.GENERATING_PATCHES,
             97,
             "Patch Synthesizer",
-            "Generating zero-hallucination Schema.org JSON-LD microdata and DOM code diffs...",
+            "Generating Schema.org JSON-LD microdata and DOM code diffs...",
         )
 
-        patches: list[PatchProposal] | None = None
-        if score_breakdown and html_docs:
+        patches: list[PatchProposal] = []
+        patches_source = PatchesSource.NONE
+        if (
+            score_breakdown
+            and html_docs
+            and not used_synthetic_intents
+            and score_source is ScoreSource.DETERMINISTIC_SCORER
+        ):
             try:
-                patches = assemble_real_patches(
+                assembled = assemble_real_patches(
                     html=html_docs[0],
                     url=url,
                     score_inputs=score_inputs,
@@ -530,42 +647,71 @@ async def run_scan_pipeline(
                     chunks=extracted_chunks,
                     contradictions=contradictions,
                 )
+                patches = list(assembled) if assembled is not None else []
+                patches_source = PatchesSource.ASSEMBLER
             except Exception as patch_err:
                 logger.warning("Real patch assembly error: %s", patch_err, exc_info=True)
-                patches = None
-
-        if patches is None:
-            if is_prod:
                 patches = []
-            else:
-                patches = generate_mock_patches(url=url, html=html_docs[0] if html_docs else "")
+                patches_source = PatchesSource.NONE
+        elif used_synthetic_intents and allow_demo:
+            # Explicit demo mocks only — marked is_synthetic; never remediation_eligible.
+            patches = generate_mock_patches(url=url, html=html_docs[0] if html_docs else "")
+            patches_source = PatchesSource.MOCK
+        else:
+            patches = []
+            patches_source = PatchesSource.NONE
 
-        # Phase 9: COMPLETED
+        integrity = decide_scan_integrity(
+            IntegrityInput(
+                dag_evaluation_count=dag_eval_count,
+                dag_success=bool(orch_result.success),
+                dag_error=orch_result.error,
+                dag_error_reason=orch_result.error_reason,
+                llm_calls_made=llm_client.calls_made,
+                used_synthetic_intents=used_synthetic_intents,
+                used_synthetic_contradictions=used_synthetic_contradictions,
+                final_evaluation_count=len(evaluations),
+                score_source=score_source,
+                patches_source=patches_source,
+                is_production=is_prod,
+            )
+        )
+
+        # Phase 9: terminal status
         end_time = datetime.now(UTC)
         exec_duration = (end_time - start_time).total_seconds()
 
-        final_status = ScanStatus.COMPLETED
-        final_error = None
-        if is_prod and orch_result.error and not evaluations:
-            final_status = ScanStatus.FAILED
-            final_error = orch_result.error
+        final_status = ScanStatus.FAILED if integrity.mark_status_failed else ScanStatus.COMPLETED
+        final_error = integrity.error_message
+
+        execution_mode = integrity.execution_mode.value
+        data_source = integrity.data_source
 
         summary = AuditSummary(
             pages_crawled=pages_crawled,
             dom_chunks_extracted=len(extracted_chunks),
-            intents_generated=len(evaluations),
-            contradictions_detected=len(contradictions),
+            # Real DAG evaluations only — synthetic demo rows are not "generated" intents.
+            intents_generated=dag_eval_count,
+            contradictions_detected=(
+                len(contradictions) if not used_synthetic_contradictions else 0
+            ),
             execution_time_seconds=round(exec_duration, 2),
             max_pages_requested=max_pages,
             crawled_pages=crawled_pages_detail,
+            dag_evaluations_count=dag_eval_count,
+            synthetic_intents_count=synthetic_intents_count,
         )
 
         llm_calls_made = llm_client.calls_made
         logger.info(
-            "Scan %s execution complete: execution_mode=%s, data_source=%s, llm_calls_made=%d/%d, budget_remaining=%d",
+            "Scan %s execution complete: execution_mode=%s, result_source=%s, outcome=%s, "
+            "data_source=%s, remediation_eligible=%s, llm_calls_made=%d/%d, budget_remaining=%d",
             scan_id,
             execution_mode,
+            integrity.result_source.value,
+            integrity.outcome.value,
             data_source,
+            integrity.remediation_eligible,
             llm_calls_made,
             budget_guard.limit,
             budget_guard.remaining,
@@ -602,17 +748,25 @@ async def run_scan_pipeline(
             record.contradictions = contradictions
             record.execution_mode = execution_mode
             record.data_source = data_source
+            record.result_source = integrity.result_source.value
+            record.outcome = integrity.outcome.value
+            record.score_source = integrity.score_source.value
+            record.patches_source = integrity.patches_source.value
+            record.remediation_eligible = integrity.remediation_eligible
+            record.intelligence_warnings = list(integrity.warnings)
             record.llm_calls_made = llm_calls_made
-            if final_error:
-                record.error = final_error
+            record.error = final_error
 
-        # Persist status to database if connected
+        # Persist status + integrity contract to database if connected
         try:
             async with AsyncSessionLocal() as s:
                 async with s.begin():
                     db_scan = await s.get(ScanModel, scan_uuid)
                     if db_scan:
-                        db_scan.status = "completed"
+                        db_scan.status = (
+                            "failed" if final_status is ScanStatus.FAILED else "completed"
+                        )
+                        db_scan.completed_at = end_time
                         if score_breakdown:
                             db_scan.f_score = score_breakdown.f_score
                             db_scan.s_ans = score_breakdown.s_ans
@@ -625,49 +779,70 @@ async def run_scan_pipeline(
                             db_scan.s_con = 100.0 - f_score.contradiction_penalty.score
                             db_scan.s_str = f_score.structural_clarity.score
                             db_scan.s_acc = f_score.entailment.score
-
-                    # Persist evaluated intents
-                    for eval_item in evaluations:
-                        status_str = (
-                            eval_item.status.value
-                            if hasattr(eval_item.status, "value")
-                            else str(eval_item.status)
+                        apply_integrity_to_scan_row(
+                            db_scan,
+                            execution_mode=execution_mode,
+                            result_source=integrity.result_source.value,
+                            outcome=integrity.outcome.value,
+                            score_source=integrity.score_source.value,
+                            patches_source=integrity.patches_source.value,
+                            remediation_eligible=integrity.remediation_eligible,
+                            intelligence_warnings=list(integrity.warnings),
+                            llm_calls_made=llm_calls_made,
+                            dag_evaluations_count=dag_eval_count,
+                            synthetic_intents_count=synthetic_intents_count,
+                            pages_crawled=pages_crawled,
+                            dom_chunks_extracted=len(extracted_chunks),
+                            data_source=data_source,
+                            error=final_error,
                         )
-                        cat_val = eval_item.category.value if eval_item.category else "general"
-                        s.add(
-                            IntentModel(
-                                id=uuid.uuid4(),
-                                scan_id=scan_uuid,
-                                category=cat_val,
-                                persona=eval_item.persona,
-                                query=eval_item.query,
-                                status=status_str,
-                                reasoning=eval_item.reasoning,
-                                confidence=eval_item.confidence,
+
+                    # Persist only real DAG evaluations (never synthetic demo rows).
+                    if not used_synthetic_intents:
+                        for eval_item in dag_evaluations:
+                            status_str = (
+                                eval_item.status.value
+                                if hasattr(eval_item.status, "value")
+                                else str(eval_item.status)
                             )
-                        )
-
-                    # Persist detected contradictions
-                    for con in contradictions:
-                        sev_str = (
-                            con.severity.value
-                            if hasattr(con.severity, "value")
-                            else str(con.severity)
-                        )
-                        s.add(
-                            ContradictionModel(
-                                id=uuid.uuid4(),
-                                scan_id=scan_uuid,
-                                entity=con.entity,
-                                conflict=con.conflict,
-                                values=con.values if isinstance(con.values, list) else [],
-                                severity=sev_str,
+                            cat_val = eval_item.category.value if eval_item.category else "general"
+                            s.add(
+                                IntentModel(
+                                    id=uuid.uuid4(),
+                                    scan_id=scan_uuid,
+                                    category=cat_val,
+                                    persona=eval_item.persona,
+                                    query=eval_item.query,
+                                    status=status_str,
+                                    reasoning=eval_item.reasoning,
+                                    confidence=eval_item.confidence,
+                                )
                             )
-                        )
 
-                    # Persist synthesized patches
-                    if patches:
+                    # Persist only non-synthetic contradictions
+                    if not used_synthetic_contradictions:
+                        for con in contradictions:
+                            sev_str = (
+                                con.severity.value
+                                if hasattr(con.severity, "value")
+                                else str(con.severity)
+                            )
+                            s.add(
+                                ContradictionModel(
+                                    id=uuid.uuid4(),
+                                    scan_id=scan_uuid,
+                                    entity=con.entity,
+                                    conflict=con.conflict,
+                                    values=con.values if isinstance(con.values, list) else [],
+                                    severity=sev_str,
+                                )
+                            )
+
+                    # Persist only non-synthetic assembler patches
+                    if patches and patches_source is PatchesSource.ASSEMBLER:
                         for p in patches:
+                            if getattr(p, "is_synthetic", False):
+                                continue
                             pt_str = (
                                 p.patch_type.value
                                 if hasattr(p.patch_type, "value")
@@ -686,26 +861,31 @@ async def run_scan_pipeline(
         except Exception as db_err:
             logger.info("Scan record DB update skipped (offline DB): %s", db_err)
 
-        await _emit_event(
-            scan_id,
-            ScanStatus.COMPLETED,
-            100,
-            "Audit Complete",
-            "Findability report and patches ready.",
-        )
+        if final_status is ScanStatus.FAILED:
+            await _emit_event(
+                scan_id,
+                ScanStatus.FAILED,
+                100,
+                "Scan Failed",
+                final_error or "Intelligence pipeline failed without real evaluations.",
+            )
+        else:
+            warn_note = (
+                f" ({integrity.outcome.value}; {integrity.result_source.value})"
+                if integrity.outcome.value != "success"
+                else ""
+            )
+            await _emit_event(
+                scan_id,
+                ScanStatus.COMPLETED,
+                100,
+                "Audit Complete",
+                f"Scan finished{warn_note}.",
+            )
 
     except Exception as e:
         logger.exception("Scan pipeline failed for %s: %s", scan_id, e)
-        if scan_id in SCANS_DB:
-            SCANS_DB[scan_id].status = ScanStatus.FAILED
-            SCANS_DB[scan_id].error = str(e)
-        await _emit_event(
-            scan_id,
-            ScanStatus.FAILED,
-            100,
-            "Scan Failed",
-            f"Error executing scan: {e}",
-        )
+        await _finalize_hard_failure(scan_id, scan_uuid, e)
     finally:
         for q in EVENT_QUEUES.get(scan_id, []):
             await q.put(None)
@@ -948,39 +1128,61 @@ async def get_scan(scan_id: str) -> ScanResponse:
                             ),
                         )
 
+                    integrity = unpack_integrity_from_scan_row(db_scan)
+
                     scan_status = (
                         ScanStatus(db_scan.status)
                         if db_scan.status in [e.value for e in ScanStatus]
                         else ScanStatus.COMPLETED
                     )
+                    pages_crawled = integrity.pages_crawled
+                    if pages_crawled is None:
+                        pages_crawled = 1 if scan_status == ScanStatus.COMPLETED else 0
+                    dom_chunks = integrity.dom_chunks_extracted
+                    if dom_chunks is None:
+                        dom_chunks = len(converted_intents)
                     crawled_fallback = [
                         CrawledPageDetail(
                             url=db_scan.url,
                             status_code=200,
-                            chunks_count=len(converted_intents),
+                            chunks_count=dom_chunks,
                         )
                     ]
+                    summary = None
+                    if db_scan.status in ("completed", "failed"):
+                        summary = AuditSummary(
+                            pages_crawled=pages_crawled,
+                            dom_chunks_extracted=dom_chunks,
+                            intents_generated=len(converted_intents),
+                            contradictions_detected=len(converted_cons),
+                            execution_time_seconds=0.0,
+                            max_pages_requested=pages_crawled or 1,
+                            crawled_pages=crawled_fallback,
+                            dag_evaluations_count=integrity.dag_evaluations_count,
+                            synthetic_intents_count=integrity.synthetic_intents_count,
+                        )
                     scan_resp = ScanResponse(
                         scan_id=scan_id,
                         target_url=db_scan.url,
                         status=scan_status,
                         created_at=db_scan.created_at,
+                        completed_at=getattr(db_scan, "completed_at", None),
                         f_score=f_score_obj,
-                        summary=AuditSummary(
-                            pages_crawled=1,
-                            dom_chunks_extracted=len(converted_intents),
-                            intents_generated=len(converted_intents),
-                            contradictions_detected=len(converted_cons),
-                            execution_time_seconds=0.0,
-                            max_pages_requested=1,
-                            crawled_pages=crawled_fallback,
-                        )
-                        if db_scan.status == "completed"
-                        else None,
+                        summary=summary,
                         crawled_pages=crawled_fallback,
                         patches=enrich_patches_with_framework(converted_patches, db_scan.repo_url),
                         intents=converted_intents,
                         contradictions=converted_cons,
+                        error=integrity.error,
+                        execution_mode=integrity.execution_mode,
+                        data_source=integrity.data_source,
+                        result_source=integrity.result_source,
+                        outcome=integrity.outcome,
+                        score_source=integrity.score_source,
+                        patches_source=integrity.patches_source,
+                        remediation_eligible=integrity.remediation_eligible,
+                        intelligence_warnings=list(integrity.intelligence_warnings),
+                        llm_calls_made=integrity.llm_calls_made,
                         repo_url=db_scan.repo_url,
                         github_repo_url=db_scan.repo_url,
                     )
@@ -1293,10 +1495,29 @@ async def apply_scan_patch(
         except Exception as db_e:
             logger.debug("Failed saving updated repo_url in database: %s", db_e)
 
+    # Fail closed: only an explicit True allows remediation (None/False/missing → reject).
+    if scan.remediation_eligible is not True:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Remediation is not eligible for this scan "
+                f"(execution_mode={scan.execution_mode!r}, "
+                f"result_source={scan.result_source!r}, "
+                f"outcome={scan.outcome!r}, "
+                f"remediation_eligible={scan.remediation_eligible!r}). "
+                "Synthetic, incomplete, or unverified results cannot open evidence-backed PRs."
+            ),
+        )
+
     if not scan.patches:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No remediation patches available to apply for this scan.",
+        )
+    if any(getattr(p, "is_synthetic", False) for p in scan.patches):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Scan patches are marked synthetic/mock and cannot be applied as remediations.",
         )
 
     # Required scopes for Personal Access Token (PAT):
