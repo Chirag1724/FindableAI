@@ -48,7 +48,7 @@ Every technology choice in FindableAI was evaluated against 5 criteria:
 │                        BACKEND                                   │
 │  Python 3.11+ · FastAPI · Pydantic v2 · Uvicorn (ASGI)         │
 │  HTTPX (async) · BeautifulSoup4 · lxml · Playwright (fallback) │
-│  Instructor · OpenAI SDK · rank-bm25                            │
+│  Instructor · LiteLLM · Postgres FTS (tsvector)                 │
 ├─────────────────────────────────────────────────────────────────┤
 │                        DATA LAYER                                │
 │  PostgreSQL 16+ · pgvector extension · SQLAlchemy 2.0           │
@@ -235,24 +235,15 @@ With `pgvector`, embeddings live directly in the `dom_chunks` table alongside al
 
 **Dev Fallback:** For zero-config local development, use SQLite + ChromaDB (in-memory) or `sqlite-vec`. This avoids the need for a running PostgreSQL instance during early development.
 
-### 2.7 rank-bm25 (Keyword Search)
+### 2.7 Keyword / full-text search (current implementation)
 
-For the BM25 component of hybrid search, we use the `rank-bm25` Python library. It provides an in-memory BM25Okapi implementation that operates on tokenized documents.
+The `rank-bm25` Python library is **not** a dependency of the current backend. Keyword retrieval in `backend/app/crawler/search.py` uses:
 
-```python
-from rank_bm25 import BM25Okapi
+1. PostgreSQL `to_tsvector` / `plainto_tsquery` / `ts_rank_cd` on `dom_chunks.content_tsv` when available.
+2. Token / ILIKE-style scoring over scan chunks as a supplement or fallback.
+3. In-memory keyword scoring over `CHUNKS_DB` if the database path fails.
 
-# Build index from chunk texts
-tokenized_corpus = [chunk.content.lower().split() for chunk in chunks]
-bm25 = BM25Okapi(tokenized_corpus)
-
-# Query
-tokenized_query = query.lower().split()
-scores = bm25.get_scores(tokenized_query)
-top_indices = scores.argsort()[-20:][::-1]
-```
-
-> **Note:** For production at scale, replace in-memory BM25 with PostgreSQL's `ts_rank()` operating on the `content_tsv` column. This eliminates the need to load all chunks into memory.
+Dense vector similarity at query time and Reciprocal Rank Fusion (RRF) are **not** implemented in this path. Embeddings may still be **written** via `store_dom_chunks`. See [LIMITATIONS_AND_READINESS.md](engineering/LIMITATIONS_AND_READINESS.md).
 
 ### 2.8 PyGithub
 
@@ -526,8 +517,7 @@ asyncpg==0.30.*
 pgvector==0.3.*
 alembic==1.14.*
 
-# Search
-rank-bm25==0.2.*
+# Search: Postgres tsvector / ts_rank_cd (see crawler/search.py; no rank-bm25 package)
 
 # GitHub Integration
 PyGithub==2.5.*

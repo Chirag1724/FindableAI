@@ -465,11 +465,22 @@ Delegates single-patch PR creation directly to the unified `apply_scan_patch` pi
 
 ## Execution Modes & Fallback Boundaries
 
-| Feature | Real Execution (`real_llm`) | Deterministic Fallback (`deterministic_fallback`) |
+Modes are set in `backend/app/api/v1/scans.py` after DAG execution. Canonical product semantics: [LIMITATIONS_AND_READINESS.md](LIMITATIONS_AND_READINESS.md).
+
+| Mode value | When set | Meaning |
 | :--- | :--- | :--- |
-| **Crawl Engine** | Headless Playwright Chromium extracting full rendered DOM. | Fallback to `httpx` + `BeautifulSoup` if browser binary unavailable. |
-| **Intent Generation** | Groq LPU (`qwen/qwen3.8-27b`) structured Pydantic schema generation. | Deterministic 30-query heuristic generator across 10 commercial categories. |
-| **NLI & Contradictions** | Semantic embedding cosine similarity + LLM entailment verification. | Heuristic keyword & regex pattern extraction. |
-| **Scoring Formula** | Canonical mathematical formula: `0.40*S_ans + 0.30*S_con + 0.20*S_str + 0.10*S_acc`. | Identical mathematical formula applied to heuristic evaluations. |
-| **Patch Generation** | Schema.org JSON-LD generation with precise DOM anchor injection. | Template-based standard Schema.org structures. |
-| **GitHub PR Engine** | Live PyGithub client pushing commits and opening real pull requests. | Live PyGithub client pushing commits and opening real pull requests. |
+| `real_llm` | Non-empty evaluations **and** `llm_calls_made > 0` | At least one budgeted LLM provider call ran successfully. |
+| `deterministic` | Not `real_llm` and `ENVIRONMENT=production` | Production label for non-real path. |
+| `synthetic_fallback` | Not `real_llm` and non-production | Dev label when LLM path did not count provider calls. |
+
+| Feature | Real Execution (`real_llm`) | Synthetic / mock fallback (non-`real_llm`) |
+| :--- | :--- | :--- |
+| **Crawl Engine** | Playwright (httpx fallback if needed). | Same crawl path — crawl does not require LLM. |
+| **Intent Generation** | `IntentGenerator` → structured `IntentBatch` (30 queries). | `_generate_fallback_evaluations` templates if DAG returns no evaluations. |
+| **Evidence selection** | Default DAG: first-*k* OBSERVE chunks (not dense+RRF). | Same or empty depending on stage failure. |
+| **NLI & Contradictions** | LLM entailment + contradiction detector when stages succeed. | Optional `_generate_fallback_contradictions` if DAG error and empty list. |
+| **Scoring Formula** | Deterministic: `0.40*S_ans + 0.30*S_con + 0.20*S_str + 0.10*S_acc` (components 0–100; **no** outer ×100). | Same formula on synthetic inputs, **or** `generate_mock_fscore` in non-prod if scorer returns None. |
+| **Patch Generation** | `assemble_real_patches` when score breakdown exists. | `generate_mock_patches` in non-prod if assembly returns `None`; prod uses `[]`. |
+| **GitHub PR Engine** | Separate apply endpoint; requires `GITHUB_TOKEN`. Not part of default scan DAG (`create_pr=False`). | Same — PR is not auto-run on scan complete. |
+
+**Do not** treat synthetic intents, mock F-scores, or mock patches as proof of a successful real-LLM audit.

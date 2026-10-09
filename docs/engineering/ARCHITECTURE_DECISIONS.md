@@ -17,8 +17,8 @@ This document records the foundational architectural decisions made in FindableA
 
 ### ADR-001: Canonical F-Score Weight Formulation
 
-- **Status:** Accepted (Unified in October 2026)
-- **Code Evidence:** [backend/app/schemas/scoring.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/schemas/scoring.py#L28-L32), [backend/app/engines/scorer.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/scorer.py), [backend/app/schemas/fscore.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/schemas/fscore.py).
+- **Status:** Accepted (canonical **code** formula). Documentation historically conflicted with README’s erroneous outer `×100`; docs must match code.
+- **Code Evidence:** [`backend/app/schemas/scoring.py`](../../backend/app/schemas/scoring.py), [`backend/app/engines/scorer.py`](../../backend/app/engines/scorer.py) (`calculate_f_score`, `derive_grade`), [`backend/app/schemas/fscore.py`](../../backend/app/schemas/fscore.py).
 
 #### Context
 Prior iterations had conflicting documentation and code regarding the mathematical weights assigned to the four sub-scores:
@@ -28,17 +28,27 @@ Prior iterations had conflicting documentation and code regarding the mathematic
 - Machine Accessibility & Extractability ($S_{acc}$)
 
 #### Decision
-Standardize on the canonical formula:
+Standardize on the canonical formula implemented by `calculate_f_score`:
+
 $$\text{F-Score} = 0.40 \times S_{ans} + 0.30 \times S_{con} + 0.20 \times S_{str} + 0.10 \times S_{acc}$$
 
-- $S_{ans}$ (40%): The primary metric for machine discoverability is whether an AI agent can find an explicit answer to synthetic commercial buyer queries.
-- $S_{con}$ (30%): Factual contradictions across pages directly induce hallucinated answers in LLMs; penalizing conflicts heavily prevents inaccurate indexing.
-- $S_{str}$ (20%): Machine-readable Schema.org microdata and clean heading hierarchies provide unambiguous semantic grounding.
-- $S_{acc}$ (10%): Raw extractability and accessibility of core business metadata (hours, address, contact).
+- Each component $S_*$ is already on a **0–100** scale.
+- The weighted sum is also on a **0–100** scale.
+- **Do not** apply an additional outer multiplication by 100.
+- Default weights: `w_ans=0.40`, `w_con=0.30`, `w_str=0.20`, `w_acc=0.10` (`ScoreWeights`).
+
+Component meanings (aligned with scorer semantics):
+- $S_{ans}$ (40%): Mean entailment contribution across intent evaluations (`SUPPORTED=100`, `PARTIALLY_SUPPORTED=50`, else `0`). Empty evaluations → `0`.
+- $S_{con}$ (30%): Consistency after contradiction impact; no contradictions → `100`.
+- $S_{str}$ (20%): Schema.org required-type coverage (see `analyze_schema_org`).
+- $S_{acc}$ (10%): Extractability heuristics over DOM chunks; empty chunks → `0`.
+
+Letter grades: `derive_grade` in `scorer.py` (e.g. S ≥ 95 with zero contradictions; answerability floor and hard-contradiction ceiling apply).
 
 #### Consequences
-- Eliminates discrepancy between API schemas, mock generators, and documentation.
-- All internal scoring engines and public API DTOs enforce `w_ans=0.40, w_con=0.30, w_str=0.20, w_acc=0.10`.
+- Documentation (README, API reference, playbooks) must cite this formula without an outer `×100`.
+- `ScoreWeights` docstring may still say *provisional* pending an explicit team sign-off comment cleanup — **behavior already uses these weights**.
+- Mock F-scores in non-production fallback paths are **not** evidence of a successful real-LLM scan.
 
 ---
 
