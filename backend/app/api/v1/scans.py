@@ -296,9 +296,9 @@ async def _finalize_hard_failure(
     has_partial_real = bool(prior_dag and prior_dag > 0)
     outcome = "partial" if has_partial_real else "failed"
     result_source = "partial_real" if has_partial_real else "inconclusive"
-    execution_mode = (
-        "real_llm" if has_partial_real and (prior.llm_calls_made or 0) > 0 else "deterministic"
-    )
+    # prior may be None (crash before SCANS_DB insert completed); never attribute-access blindly.
+    prior_llm_calls = (prior.llm_calls_made or 0) if prior is not None else 0
+    execution_mode = "real_llm" if has_partial_real and prior_llm_calls > 0 else "deterministic"
     warnings = [
         "Scan terminated by an unexpected error; remediation is not eligible.",
     ]
