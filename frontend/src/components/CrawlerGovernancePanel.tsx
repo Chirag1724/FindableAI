@@ -23,10 +23,9 @@ interface CrawlerGovernancePanelProps {
   governance: CrawlerGovernance;
 }
 
-// Static optimized robots.txt template
-// Placeholder pending backend task H-4 (generate_optimized_robots_txt in robots_analyzer.py)
-const OPTIMIZED_ROBOTS_TXT_PLACEHOLDER = `# FindableAI Optimized robots.txt
-# Generated autonomously to maximize AI discovery while protecting proprietary data
+// Recommended robots.txt configuration template
+const OPTIMIZED_ROBOTS_TXT_PLACEHOLDER = `# FindableAI Recommended robots.txt
+# Generated to maximize AI discovery while protecting proprietary data
 
 # 1. Search & Citation Bots (Allowed for direct RAG citations)
 User-agent: OAI-SearchBot

@@ -19,7 +19,7 @@ class FScoreBreakdown(BaseModel):
     )
     grade: str = Field(..., description="Letter grade: A, B, C, D, or F")
     coverage: SubScoreMetric = Field(
-        ..., description="Weight: 40% - Ratio of synthetic user queries answered by content"
+        ..., description="Weight: 40% - Ratio of intent queries answered by content"
     )
     contradiction_penalty: SubScoreMetric = Field(
         ..., description="Weight: 30% - Penalty for conflicting facts across DOM chunks"

@@ -1,12 +1,12 @@
-"""Elite-Tier Real-Time Patch Assembler.
+"""Remediation Patch Assembler.
 
-Assembles evidence-grounded PatchProposal items for live crawled sites.
+Assembles evidence-grounded PatchProposal items for audited sites.
 Coordinates:
-  1. Zero-hallucination fact extraction from DOM chunks (extract_business_facts)
-  2. Multi-objective prioritization (PatchPrioritizer)
-  3. Valid Schema.org JSON-LD generation (JsonLdGenerator)
-  4. In-memory virtual DOM patch formatting (format_jsonld_patch)
-  5. Mathematical Digital Twin F-score projection (project_score_for_generated)
+  1. Fact extraction from DOM chunks (extract_business_facts)
+  2. Remediation prioritization (PatchPrioritizer)
+  3. Schema.org JSON-LD generation (JsonLdGenerator)
+  4. Diff formatting for HTML, robots.txt, and llms.txt (format_jsonld_patch)
+  5. Projected F-score delta computation (project_score_for_generated)
 """
 
 from __future__ import annotations
@@ -22,9 +22,11 @@ from bs4 import BeautifulSoup
 
 from app.engines.fact_extractor import extract_business_facts
 from app.engines.jsonld_generator import JsonLdGenerator
+from app.engines.llms_txt_generator import generate_llms_txt
 from app.engines.patch_formatter import format_jsonld_patch
 from app.engines.patch_prioritizer import PatchPrioritizer
 from app.engines.projected_score import project_score_for_generated
+from app.engines.robots_analyzer import generate_optimized_robots_txt
 from app.engines.scorer import ScoreInputs
 from app.schemas.intelligence import Contradiction
 from app.schemas.patch import DOMSelectorAnchor, PatchProposal, PatchType
@@ -86,7 +88,7 @@ def assemble_real_patches(
         else "<!DOCTYPE html><html><head><title>App</title></head><body></body></html>"
     )
 
-    # 1. Zero-Hallucination Fact Extraction
+    # 1. Business Fact Extraction
     if facts_override is not None:
         facts = facts_override
     else:
@@ -116,7 +118,7 @@ def assemble_real_patches(
     proposals: list[PatchProposal] = []
     base_head_snippet = _extract_head_snippet(effective_html)
 
-    # 4. In-Memory Formatting & Digital Twin Simulation
+    # 4. Patch Formatting & Projected Score Calculation
     for gen in generation.generated:
         formatted = format_jsonld_patch(gen, html=effective_html, file_path="index.html")
         if formatted.status != PatchFormatStatus.APPLIED:
@@ -279,4 +281,92 @@ def assemble_real_patches(
             )
         )
 
-    return proposals[:3]
+    # 7. AI Crawler Access Governance (robots.txt) per Doc 5 §5.5
+    raw_domain = urlparse(url or "https://example.com").netloc or "example.com"
+    target_domain = raw_domain.split(":")[0] if ":" in raw_domain else raw_domain
+    robots_content = generate_optimized_robots_txt(
+        domain=target_domain,
+        site_name=facts.name or target_domain,
+    )
+    robots_lines = robots_content.splitlines()
+    robots_diff = (
+        f"--- /dev/null\n+++ b/robots.txt\n@@ -0,0 +1,{len(robots_lines)} @@\n"
+        + "\n".join(f"+{line}" for line in robots_lines)
+    )
+    proposals.append(
+        PatchProposal(
+            patch_id=f"patch_robots_{uuid.uuid4().hex[:8]}",
+            patch_type=PatchType.ROBOTS_GOVERNANCE,
+            title="Configure AI Crawler Access Rules (robots.txt)",
+            rationale=(
+                "Allows citation bots (Perplexity, ChatGPT-User, Claude-SearchBot) while "
+                "blocking aggressive scraping harvesters (Bytespider, CCBot) to protect intellectual property."
+            ),
+            impact_score_delta=8.0,
+            dom_anchor=DOMSelectorAnchor(
+                css_selector="robots.txt",
+                tag_name="robots.txt",
+                original_snippet="",
+                suggested_snippet=robots_content,
+            ),
+            unified_diff=robots_diff,
+            applied=False,
+            target_file="robots.txt",
+        )
+    )
+
+    # 8. Machine Knowledge Manifest (/llms.txt) per Doc 5 §6
+    business_facts_dict: dict[str, Any] = {}
+    if facts.name:
+        business_facts_dict["name"] = facts.name
+    if facts.telephone:
+        business_facts_dict["phone"] = facts.telephone
+    if facts.email:
+        business_facts_dict["email"] = facts.email
+    if facts.street_address:
+        business_facts_dict["address"] = facts.street_address
+
+    crawled_urls = [url] if url else []
+    if chunks:
+        seen_urls = set(crawled_urls)
+        for c in chunks:
+            c_url = getattr(c, "url", None) or (c.get("url") if isinstance(c, dict) else None)
+            if c_url and c_url not in seen_urls:
+                seen_urls.add(c_url)
+                crawled_urls.append(c_url)
+
+    clean_org_title = facts.name or target_domain
+    llms_content = generate_llms_txt(
+        domain=target_domain,
+        title=clean_org_title,
+        description=f"Official AI search and agent knowledge manifest for {clean_org_title}.",
+        crawled_urls=crawled_urls,
+        business_facts=business_facts_dict if business_facts_dict else None,
+    )
+    llms_lines = llms_content.splitlines()
+    llms_diff = f"--- /dev/null\n+++ b/llms.txt\n@@ -0,0 +1,{len(llms_lines)} @@\n" + "\n".join(
+        f"+{line}" for line in llms_lines
+    )
+    proposals.append(
+        PatchProposal(
+            patch_id=f"patch_llms_{uuid.uuid4().hex[:8]}",
+            patch_type=PatchType.LLMS_MANIFEST,
+            title="Publish /llms.txt Machine Knowledge Manifest",
+            rationale=(
+                "Standardized Markdown index following the Jeremy Howard specification "
+                "enabling LLM reasoning agents to efficiently retrieve core site documentation and facts."
+            ),
+            impact_score_delta=6.0,
+            dom_anchor=DOMSelectorAnchor(
+                css_selector="llms.txt",
+                tag_name="llms.txt",
+                original_snippet="",
+                suggested_snippet=llms_content,
+            ),
+            unified_diff=llms_diff,
+            applied=False,
+            target_file="llms.txt",
+        )
+    )
+
+    return proposals[:5]

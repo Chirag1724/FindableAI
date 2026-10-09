@@ -1,7 +1,7 @@
-"""Zero-Hallucination Fact Extractor.
+"""DOM Business Fact Extractor.
 
-Extracts evidence-grounded BusinessFacts from crawled HTML and DOM chunks
-without inventing or hallucinating data.
+Extracts structured business facts (name, contact info, operating hours, FAQs)
+directly from crawled HTML and DOM chunks.
 """
 
 from __future__ import annotations
@@ -80,8 +80,8 @@ def extract_business_facts(
     intent_evaluations: Sequence[IntentEvaluation] = (),
 ) -> BusinessFacts:
     """
-    Extracts evidence-grounded business facts from HTML and DOM chunks.
-    Guarantees no hallucination: only attributes backed by explicit DOM evidence are returned.
+    Extracts structured business facts from HTML and DOM chunks.
+    Only attributes backed by explicit DOM evidence are populated.
     """
     soup = BeautifulSoup(html or "", "lxml")
 

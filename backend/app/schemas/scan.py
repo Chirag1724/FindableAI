@@ -12,6 +12,7 @@ class ScanStatus(StrEnum):
     PENDING = "pending"
     CRAWLING = "crawling"
     EXTRACTING_DOM = "extracting_dom"
+    AUDITED = "audited"
     SYNTHESIZING_INTENTS = "synthesizing_intents"
     HYBRID_RETRIEVAL = "hybrid_retrieval"
     NLI_EVALUATION = "nli_evaluation"
@@ -26,11 +27,15 @@ class ScanRequest(BaseModel):
     max_pages: int = Field(default=5, ge=1, le=25, description="Max depth of page crawling")
     personas: list[str] | None = Field(
         default=["cto", "developer", "procurement"],
-        description="Buyer/user personas to simulate for synthetic search queries",
+        description="Buyer/user personas to simulate for intent queries",
     )
     repo_url: str | None = Field(
         default=None,
         description="Optional connected GitHub repository URL for automated PR generation",
+    )
+    auto_evaluate: bool = Field(
+        default=True,
+        description="Whether to automatically proceed to LLM intent & entailment evaluation stage",
     )
 
 

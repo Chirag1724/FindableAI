@@ -38,8 +38,10 @@ export function LighthouseTab({ scanId }: LighthouseTabProps) {
           );
         } else {
           setIsInProgress(false);
-          setError(apiErr?.message || "Failed to load AI Lighthouse assessment.");
+          const msg = err instanceof Error ? err.message : apiErr?.message;
+          setError(msg || "Failed to load AI Lighthouse assessment.");
         }
+        setData(null);
       } finally {
         if (!signal?.aborted) {
           setLoading(false);

@@ -150,38 +150,116 @@ const PATCH_TYPE_LABELS: Record<string, string> = {
   schema_microdata: "Schema",
   heading_structure: "Heading",
   factual_conflict_resolution: "Conflict Fix",
+  robots_governance: "Crawler Governance",
+  llms_manifest: "LLMs Manifest",
 };
+
+interface PrFileItem {
+  filePath: string;
+  displayName: string;
+  type: "diff" | "new_component";
+  diffText?: string;
+  content?: string;
+  patchId: string;
+}
+
+function extractPrFiles(
+  primaryPatch: PatchProposal,
+  allPatches: PatchProposal[]
+): PrFileItem[] {
+  const patchesToInspect = allPatches.length > 0 ? allPatches : [primaryPatch];
+  const files: PrFileItem[] = [];
+  const seenPaths = new Set<string>();
+
+  const hasFrameworkFiles = patchesToInspect.some(
+    (p) => Boolean(p.framework || (p.auxiliary_files && p.auxiliary_files.length > 0))
+  );
+
+  const addTargetFile = (p: PatchProposal) => {
+    if (!p.target_file) return;
+    if (hasFrameworkFiles && (p.target_file === "index.html" || p.target_file.endsWith(".html"))) {
+      return;
+    }
+    if (!seenPaths.has(p.target_file)) {
+      seenPaths.add(p.target_file);
+      files.push({
+        filePath: p.target_file,
+        displayName: p.target_file.split("/").pop() || p.target_file,
+        type: "diff",
+        diffText: p.code_diff || p.unified_diff,
+        patchId: p.patch_id,
+      });
+    }
+  };
+
+  const addAuxFiles = (p: PatchProposal) => {
+    if (!p.auxiliary_files) return;
+    for (const aux of p.auxiliary_files) {
+      if (!seenPaths.has(aux.file_path)) {
+        seenPaths.add(aux.file_path);
+        files.push({
+          filePath: aux.file_path,
+          displayName: aux.file_path.split("/").pop() || aux.file_path,
+          type: "new_component",
+          content: aux.content,
+          patchId: p.patch_id,
+        });
+      }
+    }
+  };
+
+  // 1. Primary patch target file & aux files first
+  addTargetFile(primaryPatch);
+  addAuxFiles(primaryPatch);
+
+  // 2. Additional files across remaining patches
+  for (const p of patchesToInspect) {
+    if (p.patch_id === primaryPatch.patch_id) continue;
+    addTargetFile(p);
+    addAuxFiles(p);
+  }
+
+  return files;
+}
 
 function PatchCard({
   patch,
   totalUnifiedCount,
   totalPrDelta,
+  allPatches = [],
 }: {
   patch: PatchProposal;
   totalUnifiedCount?: number;
   totalPrDelta?: number;
+  allPatches?: PatchProposal[];
 }) {
-  const hasFrameworkPatch = Boolean(patch.target_file || patch.code_diff);
-  const auxiliaryFiles = patch.auxiliary_files ?? [];
+  const prFiles = extractPrFiles(patch, allPatches);
+  const hasFrameworkPatch = Boolean(
+    patch.target_file || patch.code_diff || prFiles.length > 0
+  );
   const isMultiPatchPR = Boolean(hasFrameworkPatch && totalUnifiedCount && totalUnifiedCount > 1);
 
-  // Active file tab in framework PR view: target file (e.g. layout.tsx) or auxiliary file (e.g. JsonLd.tsx)
+  // Active file tab in framework PR view
   const [selectedFile, setSelectedFile] = useState<string>(
-    patch.target_file || (auxiliaryFiles[0]?.file_path ?? "")
+    prFiles[0]?.filePath ?? patch.target_file ?? ""
   );
 
   useEffect(() => {
-    if (hasFrameworkPatch && patch.target_file) {
-      setSelectedFile(patch.target_file);
+    if (prFiles.length > 0 && !prFiles.some((f) => f.filePath === selectedFile)) {
+      setSelectedFile(prFiles[0].filePath);
     }
-  }, [hasFrameworkPatch, patch.target_file]);
+  }, [prFiles, selectedFile]);
+
+  const frameworkPatch =
+    allPatches.find((p) => Boolean(p.framework)) ??
+    (patch.framework ? patch : null);
 
   const frameworkLabel =
-    patch.framework === "nextjs_app_router"
+    frameworkPatch?.framework === "nextjs_app_router"
       ? "Next.js App Router"
-      : patch.framework === "nextjs_pages"
+      : frameworkPatch?.framework === "nextjs_pages"
         ? "Next.js Pages Router"
-        : patch.framework || (hasFrameworkPatch ? "Framework Native" : null);
+        : frameworkPatch?.framework || (hasFrameworkPatch ? "Framework Native" : null);
 
   const displayTitle = isMultiPatchPR
     ? `Pull Request Remediation (${totalUnifiedCount} Unified Patches)`
@@ -191,9 +269,16 @@ function PatchCard({
     ? (totalPrDelta ?? patch.impact_score_delta)
     : patch.impact_score_delta;
 
+  const fileSummary =
+    prFiles.length > 0
+      ? ` (${prFiles.map((f) => f.displayName).join(" & ")})`
+      : "";
+
   const displayRationale = isMultiPatchPR
-    ? `Consolidates all ${totalUnifiedCount} remediation patches into a single PR branch (layout.tsx & JsonLd.tsx) for machine discoverability.`
+    ? `Consolidates all ${totalUnifiedCount} remediation patches into a single PR branch${fileSummary} for machine discoverability.`
     : patch.rationale;
+
+  const activeFile = prFiles.find((f) => f.filePath === selectedFile) ?? prFiles[0];
 
   return (
     <div className="space-y-3" data-testid={`patch-card-${patch.patch_id}`}>
@@ -235,50 +320,45 @@ function PatchCard({
         </div>
       </div>
 
-      {/* Case 1: Primary Framework Patch - Show ONLY the exact PR files being modified/created */}
-      {hasFrameworkPatch ? (
+      {/* Case 1: Primary Framework Patch - Show the exact PR files being modified/created */}
+      {hasFrameworkPatch && prFiles.length > 0 ? (
         <div className="space-y-2 border-b border-white/[0.08] pb-2.5">
           {/* Sub-tabs for exact files modified/created in PR */}
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar">
-              {patch.target_file && (
-                <button
-                  type="button"
-                  data-testid={`tab-${patch.target_file}`}
-                  onClick={() => setSelectedFile(patch.target_file!)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono transition-colors ${
-                    selectedFile === patch.target_file
-                      ? "bg-blue-950/70 text-blue-300 border border-blue-800/50 font-medium shadow-sm"
-                      : "text-text-muted hover:text-text-primary hover:bg-white/5"
-                  }`}
-                >
-                  <FileCode size={13} className="text-blue-400" />
-                  <span>{patch.target_file.split("/").pop()}</span>
-                  <span className="text-[10px] bg-blue-900/60 text-blue-200 border border-blue-700/40 px-1 rounded">
-                    diff
-                  </span>
-                </button>
-              )}
-
-              {auxiliaryFiles.map((aux) => (
-                <button
-                  key={aux.file_path}
-                  type="button"
-                  data-testid={`tab-${aux.file_path}`}
-                  onClick={() => setSelectedFile(aux.file_path)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono transition-colors ${
-                    selectedFile === aux.file_path
-                      ? "bg-emerald-950/70 text-emerald-300 border border-emerald-800/50 font-medium shadow-sm"
-                      : "text-text-muted hover:text-text-primary hover:bg-white/5"
-                  }`}
-                >
-                  <FileCode size={13} className="text-emerald-400" />
-                  <span>{aux.file_path.split("/").pop()}</span>
-                  <span className="text-[10px] bg-emerald-900/60 text-emerald-200 border border-emerald-700/40 px-1 rounded">
-                    + new component
-                  </span>
-                </button>
-              ))}
+              {prFiles.map((file) => {
+                const isSelected = activeFile?.filePath === file.filePath;
+                return (
+                  <button
+                    key={file.filePath}
+                    type="button"
+                    data-testid={`tab-${file.filePath}`}
+                    onClick={() => setSelectedFile(file.filePath)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono transition-colors ${
+                      isSelected
+                        ? file.type === "new_component"
+                          ? "bg-emerald-950/70 text-emerald-300 border border-emerald-800/50 font-medium shadow-sm"
+                          : "bg-blue-950/70 text-blue-300 border border-blue-800/50 font-medium shadow-sm"
+                        : "text-text-muted hover:text-text-primary hover:bg-white/5"
+                    }`}
+                  >
+                    <FileCode
+                      size={13}
+                      className={file.type === "new_component" ? "text-emerald-400" : "text-blue-400"}
+                    />
+                    <span>{file.displayName}</span>
+                    <span
+                      className={`text-[10px] px-1 rounded border ${
+                        file.type === "new_component"
+                          ? "bg-emerald-900/60 text-emerald-200 border border-emerald-700/40"
+                          : "bg-blue-900/60 text-blue-200 border border-blue-700/40"
+                      }`}
+                    >
+                      {file.type === "new_component" ? "+ new component" : "diff"}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="text-[11px] text-text-muted font-mono flex items-center gap-1.5">
@@ -288,28 +368,26 @@ function PatchCard({
           </div>
 
           {/* Active File Display */}
-          {selectedFile === patch.target_file ? (
-            <div className="space-y-2 pt-1">
-              <div className="flex items-center justify-between text-xs px-1 text-text-muted font-mono">
-                <span className="text-text-secondary flex items-center gap-1.5">
-                  <FileCode size={13} className="text-blue-400" />
-                  {patch.target_file}
-                </span>
-                <span className="text-[10px] text-blue-400/80">Unified Git Diff</span>
+          {activeFile && (
+            activeFile.type === "new_component" ? (
+              <div className="pt-1">
+                <CodeFileViewer
+                  content={activeFile.content || ""}
+                  filePath={activeFile.filePath}
+                />
               </div>
-              <DiffRenderer diffText={patch.code_diff || patch.unified_diff} />
-            </div>
-          ) : (
-            auxiliaryFiles
-              .filter((aux) => aux.file_path === selectedFile)
-              .map((aux) => (
-                <div key={aux.file_path} className="pt-1">
-                  <CodeFileViewer
-                    content={aux.content}
-                    filePath={aux.file_path}
-                  />
+            ) : (
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between text-xs px-1 text-text-muted font-mono">
+                  <span className="text-text-secondary flex items-center gap-1.5">
+                    <FileCode size={13} className="text-blue-400" />
+                    {activeFile.filePath}
+                  </span>
+                  <span className="text-[10px] text-blue-400/80">Unified Git Diff</span>
                 </div>
-              ))
+                <DiffRenderer diffText={activeFile.diffText || ""} />
+              </div>
+            )
           )}
         </div>
       ) : (
@@ -371,9 +449,11 @@ export function PatchModal({
   );
   const projectedScore = Math.min(100, currentScore + totalDelta);
 
-  const primaryFrameworkPatch = resolvedPatches.find(
-    (p) => Boolean(p.target_file || p.code_diff)
-  );
+  const primaryFrameworkPatch =
+    resolvedPatches.find(
+      (p) => Boolean(p.framework || (p.auxiliary_files && p.auxiliary_files.length > 0))
+    ) ??
+    resolvedPatches.find((p) => Boolean(p.target_file || p.code_diff));
   const hasFrameworkPR = Boolean(primaryFrameworkPatch);
 
   const handleAnimatedClose = useCallback(() => {
@@ -595,6 +675,7 @@ export function PatchModal({
                 patch={primaryFrameworkPatch!}
                 totalUnifiedCount={resolvedPatches.length}
                 totalPrDelta={totalDelta}
+                allPatches={resolvedPatches}
               />
 
               {/* Remediations Bundled in this PR */}

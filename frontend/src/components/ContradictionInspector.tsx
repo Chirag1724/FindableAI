@@ -183,7 +183,7 @@ export function ContradictionInspector() {
           <Zap className="h-4 w-4 text-emerald-400 shrink-0" />
           <div className="text-xs space-y-0.5">
             <span className="font-mono text-[10px] uppercase text-emerald-400 font-semibold tracking-wider block">
-              Autonomous Recommendation
+              Recommended Remediation
             </span>
             <p className="text-text-muted text-[11px]">
               {activeConflict.fixRecommendation}
