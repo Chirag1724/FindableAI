@@ -3,7 +3,7 @@
 > **Document Version:** 1.0  
 > **Classification:** Internal Engineering Reference  
 > **Authors:** FindableAI Core Team  
-> **Last Updated:** September 2026  
+> **Last Updated:** October 2026  
 
 ---
 
