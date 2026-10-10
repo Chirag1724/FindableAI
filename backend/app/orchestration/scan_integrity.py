@@ -106,9 +106,9 @@ _sanitize_public_error = sanitize_public_error
 def decide_scan_integrity(inp: IntegrityInput) -> IntegrityDecision:
     """Compute honest mode/provenance/outcome from pipeline facts."""
     warnings: list[str] = []
-    dag_n = max(0, int(inp.dag_evaluation_count))
-    calls = max(0, int(inp.llm_calls_made))
-    final_n = max(0, int(inp.final_evaluation_count))
+    dag_n = max(0, inp.dag_evaluation_count)
+    calls = max(0, inp.llm_calls_made)
+    final_n = max(0, inp.final_evaluation_count)
 
     has_real_evals = dag_n > 0 and not inp.used_synthetic_intents
     mock_score = inp.score_source is ScoreSource.MOCK

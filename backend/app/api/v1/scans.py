@@ -120,6 +120,9 @@ SCANS_DB: dict[str, ScanResponse] = {}
 CHUNKS_DB: dict[str, list[ChunkData]] = {}
 LIGHTHOUSE_DB: dict[str, LighthouseResponse] = {}
 ROBOTS_DB: dict[str, str] = {}
+HTML_DB: dict[str, list[str]] = {}
+SCORE_INPUTS_DB: dict[str, Any] = {}
+SCORE_BREAKDOWN_DB: dict[str, Any] = {}
 EVENT_LOGS: dict[str, list[ScanStatusEvent]] = {}
 EVENT_QUEUES: dict[str, list[asyncio.Queue[ScanStatusEvent | None]]] = {}
 
@@ -492,6 +495,9 @@ async def run_scan_pipeline(
         CHUNKS_DB[scan_id] = extracted_chunks
         CHUNKS_DB[str(scan_uuid)] = extracted_chunks
         CHUNKS_DB[scan_uuid.hex] = extracted_chunks
+        HTML_DB[scan_id] = html_docs
+        HTML_DB[str(scan_uuid)] = html_docs
+        HTML_DB[scan_uuid.hex] = html_docs
 
         # Phase 3: Embedding & Vector Indexing (remains under EXTRACTING_DOM status)
         await _emit_event(
@@ -631,6 +637,12 @@ async def run_scan_pipeline(
         )
 
         # Never run the deterministic scorer on synthetic demo intents.
+        SCORE_INPUTS_DB[scan_id] = score_inputs
+        SCORE_INPUTS_DB[str(scan_uuid)] = score_inputs
+        if score_breakdown is not None:
+            SCORE_BREAKDOWN_DB[scan_id] = score_breakdown
+            SCORE_BREAKDOWN_DB[str(scan_uuid)] = score_breakdown
+
         if score_breakdown is None and dag_evaluations and not used_synthetic_intents:
             try:
                 score_breakdown = Scorer().score(score_inputs)
@@ -2264,3 +2276,137 @@ async def get_scan_lighthouse(scan_id: str) -> LighthouseResponse:
         status_code=status.HTTP_404_NOT_FOUND,
         detail=f"Scan '{scan_id}' not found.",
     )
+
+
+@router.get("", response_model=list[ScanResponse])
+async def list_scans() -> list[ScanResponse]:
+    """Fetches list of active and recent scans."""
+    unique_scans: dict[str, ScanResponse] = {}
+    for s in SCANS_DB.values():
+        unique_scans[s.scan_id] = s
+    return list(unique_scans.values())
+
+
+class EvaluateScanRequest(BaseModel):
+    personas: list[str] | None = None
+
+
+async def run_stage_crawl(
+    scan_id: str,
+    scan_uuid: uuid.UUID,
+    url: str,
+    max_pages: int,
+    auto_evaluate: bool = True,
+) -> bool:
+    await run_scan_pipeline(
+        scan_id=scan_id,
+        scan_uuid=scan_uuid,
+        url=url,
+        max_pages=max_pages,
+        personas=None,
+    )
+    return True
+
+
+async def run_stage_evaluate(
+    scan_id: str,
+    scan_uuid: uuid.UUID,
+    personas: list[str] | None = None,
+    auto_remediate: bool = True,
+) -> bool:
+    record = SCANS_DB.get(scan_id) or SCANS_DB.get(str(scan_uuid))
+    url = record.target_url if record else "https://example.com"
+    await run_scan_pipeline(
+        scan_id=scan_id,
+        scan_uuid=scan_uuid,
+        url=url,
+        max_pages=1,
+        personas=personas,
+    )
+    return True
+
+
+async def run_stage_remediate(
+    scan_id: str,
+    scan_uuid: uuid.UUID,
+) -> list[PatchProposal]:
+    extracted_chunks = CHUNKS_DB.get(scan_id) or CHUNKS_DB.get(str(scan_uuid)) or []
+    html_docs = HTML_DB.get(scan_id) or HTML_DB.get(str(scan_uuid)) or []
+    score_inputs = SCORE_INPUTS_DB.get(scan_id) or SCORE_INPUTS_DB.get(str(scan_uuid))
+    score_breakdown = SCORE_BREAKDOWN_DB.get(scan_id) or SCORE_BREAKDOWN_DB.get(str(scan_uuid))
+    record = SCANS_DB.get(scan_id) or SCANS_DB.get(str(scan_uuid))
+    url = record.target_url if record else ""
+
+    patches: list[PatchProposal] = []
+    if score_breakdown and html_docs and score_inputs:
+        try:
+            real_patches = assemble_real_patches(
+                html=html_docs[0],
+                url=url,
+                score_inputs=score_inputs,
+                score_breakdown=score_breakdown,
+                chunks=extracted_chunks,
+                contradictions=score_inputs.contradictions,
+            )
+            patches = list(real_patches) if real_patches else []
+        except Exception as patch_err:
+            logger.warning("Real patch assembly error in run_stage_remediate: %s", patch_err)
+    if record:
+        record.patches = patches
+    return patches
+
+
+@router.post(
+    "/{scan_id}/evaluate",
+    response_model=ScanResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(verify_api_key), Depends(rate_limit_scans)],
+)
+async def evaluate_scan(
+    scan_id: str,
+    background_tasks: BackgroundTasks,
+    payload: EvaluateScanRequest | None = None,
+) -> ScanResponse:
+    scan_uuid = resolve_scan_uuid(scan_id)
+    if not scan_uuid:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Scan '{scan_id}' not found.",
+        )
+
+    record = SCANS_DB.get(scan_id) or SCANS_DB.get(str(scan_uuid))
+    if not record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Scan '{scan_id}' not found in active memory.",
+        )
+
+    personas = payload.personas if payload and payload.personas else None
+    record.status = ScanStatus.SYNTHESIZING_INTENTS
+
+    background_tasks.add_task(
+        run_stage_evaluate,
+        scan_id=scan_id,
+        scan_uuid=scan_uuid,
+        personas=personas,
+        auto_remediate=True,
+    )
+    return record
+
+
+@router.post(
+    "/{scan_id}/remediate",
+    response_model=list[PatchProposal],
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_api_key), Depends(rate_limit_mutating)],
+)
+async def remediate_scan(
+    scan_id: str,
+) -> list[PatchProposal]:
+    scan_uuid = resolve_scan_uuid(scan_id)
+    if not scan_uuid:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Scan '{scan_id}' not found.",
+        )
+    return await run_stage_remediate(scan_id=scan_id, scan_uuid=scan_uuid)

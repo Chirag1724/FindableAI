@@ -102,6 +102,10 @@ def validate_target_url(url: str, allow_private: bool = False) -> str:
     # 3. Check if hostname is directly an IP literal
     try:
         ip = ipaddress.ip_address(hostname_lower)
+    except ValueError:
+        ip = None
+
+    if ip is not None:
         if ip in ipaddress.ip_network("169.254.0.0/16"):
             raise SSRFSecurityException(
                 f"Prohibited cloud metadata IP address: '{ip}'. Access is blocked."
@@ -111,9 +115,6 @@ def validate_target_url(url: str, allow_private: bool = False) -> str:
                 f"Prohibited target IP address: '{ip}'. Private/internal destinations are blocked."
             )
         return url
-    except ValueError:
-        # Hostname is a domain name, proceed to DNS resolution
-        pass
 
     # 4. Resolve DNS and check all resolved IP addresses
     if not allow_private:

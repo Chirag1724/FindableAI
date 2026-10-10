@@ -14,7 +14,7 @@ import re
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from app.schemas.patch import PatchProposal
+from app.schemas.patch import PatchProposal, PatchType
 
 logger = logging.getLogger(__name__)
 
@@ -389,64 +389,154 @@ def resolve_framework_patches(
     """Decorates patch proposals with framework-native file targets and exact git diffs.
 
     Ensures 1:1 parity between UI preview and the code committed by the PR Engine.
+    Handles:
+      1. Schema microdata: transforms to components/JsonLd.tsx + layout.tsx when framework present
+      2. AI crawler governance: maps robots.txt -> public/robots.txt (if framework or public/ dir exists)
+      3. AI agent manifest: maps llms.txt -> public/llms.txt (if framework or public/ dir exists)
     """
     if not patches or not tree_files:
         return list(patches)
 
     framework_target = locate_framework_layout(tree_files)
-    if not framework_target:
-        return list(patches)
 
-    layout_file, component_file, import_path = framework_target
+    # Detect public static directory in repository
+    public_prefix = ""
+    for f in tree_files:
+        f_norm = f.replace("\\", "/").lower()
+        if f_norm.startswith("frontend/public/"):
+            public_prefix = "frontend/"
+            break
+        elif f_norm.startswith("client/public/"):
+            public_prefix = "client/"
+            break
+        elif f_norm.startswith("src/public/"):
+            public_prefix = "src/"
+            break
 
-    try:
-        remote_layout = get_file_content(layout_file)
-    except Exception as exc:
-        logger.info("Could not fetch %s for framework patch resolution: %s", layout_file, exc)
-        return list(patches)
-
-    component_content = synthesize_framework_component(patches)
-    if not component_content:
-        return list(patches)
-
-    patched_layout = inject_component_into_layout(
-        remote_layout,
-        component_name="JsonLd",
-        import_path=import_path,
+    has_public = any(
+        f.replace("\\", "/").lower().startswith("public/")
+        or "/public/" in f.replace("\\", "/").lower()
+        for f in tree_files
     )
 
-    # Post-injection syntax validation safety net
-    if not validate_framework_layout_syntax(remote_layout, patched_layout):
-        logger.warning(
-            "Framework layout validation failed for %s; skipping direct layout modification",
-            layout_file,
-        )
-        return list(patches)
+    if framework_target or has_public:
+        target_robots_file = f"{public_prefix}public/robots.txt"
+        target_llms_file = f"{public_prefix}public/llms.txt"
+    else:
+        target_robots_file = "robots.txt"
+        target_llms_file = "llms.txt"
 
-    layout_diff = generate_git_diff(remote_layout, patched_layout, layout_file)
-    framework_name = "nextjs_app_router" if "/app/" in layout_file else "nextjs_pages"
+    # Resolve framework layout if present
+    layout_file = None
+    component_file = None
+    layout_diff = None
+    component_content = None
+    framework_name = None
+
+    if framework_target:
+        cand_layout, cand_comp, import_path = framework_target
+        try:
+            remote_layout = get_file_content(cand_layout)
+            cand_content = synthesize_framework_component(patches)
+            if cand_content:
+                patched_layout = inject_component_into_layout(
+                    remote_layout,
+                    component_name="JsonLd",
+                    import_path=import_path,
+                )
+                if validate_framework_layout_syntax(remote_layout, patched_layout):
+                    layout_file = cand_layout
+                    component_file = cand_comp
+                    component_content = cand_content
+                    layout_diff = generate_git_diff(remote_layout, patched_layout, layout_file)
+                    framework_name = (
+                        "nextjs_app_router" if "/app/" in layout_file else "nextjs_pages"
+                    )
+                else:
+                    logger.warning(
+                        "Framework layout validation failed for %s; skipping direct layout modification",
+                        cand_layout,
+                    )
+        except Exception as exc:
+            logger.info("Could not fetch %s for framework patch resolution: %s", cand_layout, exc)
 
     resolved: list[PatchProposal] = []
-    for i, patch in enumerate(patches):
+    primary_schema_assigned = False
+
+    for patch in patches:
         p_dict = patch.model_dump()
-        if i == 0:
-            # Primary patch carries the layout modification and the new component auxiliary file
-            p_dict["target_file"] = layout_file
-            p_dict["code_diff"] = layout_diff
-            p_dict["framework"] = framework_name
-            p_dict["auxiliary_files"] = [
-                {
-                    "file_path": component_file,
-                    "content": component_content,
-                    "action": "create",
-                }
-            ]
-        else:
-            # Secondary patches contribute to the consolidated PR without duplicating the layout.tsx diff block
-            p_dict["target_file"] = None
-            p_dict["code_diff"] = None
-            p_dict["framework"] = None
+        is_robots = patch.patch_type == PatchType.ROBOTS_GOVERNANCE or "robots" in (
+            patch.title.lower() + patch.patch_id.lower()
+        )
+        is_llms = patch.patch_type == PatchType.LLMS_MANIFEST or "llms" in (
+            patch.title.lower() + patch.patch_id.lower()
+        )
+        is_schema = patch.patch_type == PatchType.SCHEMA_MICRODATA
+
+        if is_robots:
+            p_dict["target_file"] = target_robots_file
+            diff_text = patch.unified_diff
+            if target_robots_file in tree_files:
+                try:
+                    remote_text = get_file_content(target_robots_file)
+                    suggested_text = patch.dom_anchor.suggested_snippet
+                    diff_text = generate_git_diff(remote_text, suggested_text, target_robots_file)
+                except Exception as e:
+                    logger.debug("Failed getting remote robots file content: %s", e)
+            elif (
+                diff_text and "--- a/robots.txt" in diff_text and target_robots_file != "robots.txt"
+            ):
+                diff_text = diff_text.replace(
+                    "--- a/robots.txt", f"--- a/{target_robots_file}"
+                ).replace("+++ b/robots.txt", f"+++ b/{target_robots_file}")
+            elif (
+                diff_text and "+++ b/robots.txt" in diff_text and target_robots_file != "robots.txt"
+            ):
+                diff_text = diff_text.replace("+++ b/robots.txt", f"+++ b/{target_robots_file}")
+
+            p_dict["code_diff"] = diff_text
+            p_dict["unified_diff"] = diff_text
             p_dict["auxiliary_files"] = []
+            p_dict["framework"] = framework_name
+        elif is_llms:
+            p_dict["target_file"] = target_llms_file
+            diff_text = patch.unified_diff
+            if target_llms_file in tree_files:
+                try:
+                    remote_text = get_file_content(target_llms_file)
+                    suggested_text = patch.dom_anchor.suggested_snippet
+                    diff_text = generate_git_diff(remote_text, suggested_text, target_llms_file)
+                except Exception as e:
+                    logger.debug("Failed getting remote llms file content: %s", e)
+            elif diff_text and "--- a/llms.txt" in diff_text and target_llms_file != "llms.txt":
+                diff_text = diff_text.replace(
+                    "--- a/llms.txt", f"--- a/{target_llms_file}"
+                ).replace("+++ b/llms.txt", f"+++ b/{target_llms_file}")
+            elif diff_text and "+++ b/llms.txt" in diff_text and target_llms_file != "llms.txt":
+                diff_text = diff_text.replace("+++ b/llms.txt", f"+++ b/{target_llms_file}")
+
+            p_dict["code_diff"] = diff_text
+            p_dict["unified_diff"] = diff_text
+            p_dict["auxiliary_files"] = []
+            p_dict["framework"] = framework_name
+        elif is_schema and layout_file and component_file and component_content and layout_diff:
+            if not primary_schema_assigned:
+                primary_schema_assigned = True
+                p_dict["target_file"] = layout_file
+                p_dict["code_diff"] = layout_diff
+                p_dict["framework"] = framework_name
+                p_dict["auxiliary_files"] = [
+                    {
+                        "file_path": component_file,
+                        "content": component_content,
+                        "action": "create",
+                    }
+                ]
+            else:
+                p_dict["target_file"] = None
+                p_dict["code_diff"] = None
+                p_dict["framework"] = None
+                p_dict["auxiliary_files"] = []
         resolved.append(PatchProposal(**p_dict))
 
     return resolved

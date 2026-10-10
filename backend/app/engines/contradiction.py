@@ -785,7 +785,8 @@ class ContradictionDetector:
                     {"role": "system", "content": SEMANTIC_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_retries=0,
+                max_retries=1,
+                max_tokens=600,
             )
         except BudgetExhausted:
             raise
@@ -882,10 +883,15 @@ class ContradictionDetector:
 
         semantic_results: list[Contradiction] = []
         if semantic_pairs:
-            tasks = [
-                self._classify_semantic_pair(left, right, chunk_map=chunk_map)
-                for left, right in semantic_pairs
-            ]
+            sem = asyncio.Semaphore(3)
+
+            async def _classify_with_sem(
+                left: ExtractedFact, right: ExtractedFact
+            ) -> Contradiction | None:
+                async with sem:
+                    return await self._classify_semantic_pair(left, right, chunk_map=chunk_map)
+
+            tasks = [_classify_with_sem(left, right) for left, right in semantic_pairs]
             judged = await asyncio.gather(*tasks)
             semantic_results = [item for item in judged if item is not None]
 

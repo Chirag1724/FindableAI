@@ -4,6 +4,7 @@ export type ScanStatus =
   | "pending"
   | "crawling"
   | "extracting_dom"
+  | "audited"
   | "synthesizing_intents"
   | "hybrid_retrieval"
   | "nli_evaluation"
@@ -50,7 +51,9 @@ export type PatchType =
   | "content_clarification"
   | "schema_microdata"
   | "heading_structure"
-  | "factual_conflict_resolution";
+  | "factual_conflict_resolution"
+  | "robots_governance"
+  | "llms_manifest";
 
 export interface AuxiliaryFile {
   file_path: string;

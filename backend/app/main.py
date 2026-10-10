@@ -23,14 +23,19 @@ if sys.platform == "win32":
 async def lifespan(app: FastAPI):
     # Startup: Connect to DB / Redis / Browser pool
     print(f"Starting {settings.PROJECT_NAME} API v{settings.VERSION} [{settings.ENVIRONMENT}]")
-    yield
-    # Shutdown: Clean up resources
-    print(f"Shutting down {settings.PROJECT_NAME} API")
+    try:
+        yield
+    except (asyncio.CancelledError, GeneratorExit):
+        # Gracefully handle reload/shutdown task cancellation on Windows
+        pass
+    finally:
+        # Shutdown: Clean up resources
+        print(f"Shutting down {settings.PROJECT_NAME} API")
 
 
 app = FastAPI(
     title="FindableAI API",
-    description="Evidence-Grounded Autonomous Machine-Discoverability Optimization (MDO) Engine",
+    description="Machine Discoverability Optimization (MDO) API",
     version=settings.VERSION,
     docs_url="/docs",
     redoc_url="/redoc",

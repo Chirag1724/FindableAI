@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import inspect
 import logging
+import re
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -63,8 +64,11 @@ class ObservationInput:
 
 
 def _observe_chunks_retriever(chunks: Sequence[OrchestrationChunk]) -> Retriever:
-    """Fallback: first-k OBSERVE chunks when query-time retrieval returns empty."""
+    """Fallback OBSERVE retriever when query-time hybrid_search returns empty.
 
+    Ranks in-memory chunks against the query using term-frequency / keyword
+    matching so ACT still gets relevant evidence without a DB index.
+    """
     snapshot = list(chunks)
 
     async def _retrieve(
@@ -72,15 +76,86 @@ def _observe_chunks_retriever(chunks: Sequence[OrchestrationChunk]) -> Retriever
         scan_id: uuid.UUID,
         k: int = DEFAULT_TOP_K,
     ) -> Sequence[OrchestrationChunk]:
-        _ = (query, scan_id)
-        limit = max(0, int(k))
+        _ = scan_id
+        limit = max(1, int(k))
+        if not snapshot:
+            return []
+
+        cleaned = (query or "").strip().lower()
+        stopwords = {
+            "a",
+            "an",
+            "the",
+            "in",
+            "on",
+            "at",
+            "for",
+            "to",
+            "of",
+            "and",
+            "or",
+            "is",
+            "are",
+            "was",
+            "were",
+            "what",
+            "how",
+            "why",
+            "when",
+            "where",
+            "which",
+            "who",
+            "does",
+            "do",
+            "can",
+            "could",
+            "would",
+            "should",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "with",
+            "from",
+            "by",
+            "this",
+            "that",
+            "these",
+            "those",
+            "their",
+            "there",
+            "about",
+        }
+        tokens = [w for w in re.findall(r"\w+", cleaned) if len(w) > 2 and w not in stopwords]
+        if not tokens:
+            tokens = [w for w in re.findall(r"\w+", cleaned) if len(w) > 1]
+
+        scored: list[tuple[float, OrchestrationChunk]] = []
+        for chunk in snapshot:
+            text = (chunk.content or "").lower()
+            if not text:
+                continue
+            score = 0.0
+            for t in tokens:
+                if t in text:
+                    score += 2.0 if re.search(rf"\b{re.escape(t)}\b", text) else 1.0
+            if score > 0:
+                norm_score = score / (1.0 + 0.02 * chunk.word_count)
+                scored.append((norm_score, chunk))
+
+        if scored:
+            scored.sort(key=lambda item: item[0], reverse=True)
+            return [item[1] for item in scored[:limit]]
+
         return snapshot[:limit]
 
     return _retrieve
 
 
 def build_act_retriever(chunks: Sequence[OrchestrationChunk]) -> Retriever:
-    """Prefer Contract-1 hybrid_search (dense+lexical+RRF); fall back to first-k.
+    """Prefer Contract-1 hybrid_search (dense+lexical+RRF); fall back to OBSERVE TF.
 
     Fallback is explicit: used only when hybrid returns no candidates (offline DB,
     empty index, or retrieval failure already logged inside hybrid_search).
@@ -162,7 +237,9 @@ class FindableAIDAG:
         pr_engine: GitHubPRService | None = None,
         retriever: Retriever | None = None,
         markdown_generator: Callable[[PRReportData], str] | None = None,
+        progress_callback: Callable[[int, int, Any], Awaitable[None]] | None = None,
     ) -> None:
+        self._progress_callback = progress_callback
         # One scan-scoped BudgetGuard shared by every LLM consumer in this DAG.
         if llm_client is not None and budget_guard is not None:
             if llm_client.budget_guard is not budget_guard:
@@ -355,6 +432,7 @@ class FindableAIDAG:
         self._entailment = EntailmentEngine(
             llm_client=self._llm,
             retriever=retriever,
+            concurrency=3,
         )
         return self._entailment
 
@@ -365,10 +443,13 @@ class FindableAIDAG:
         scan_uuid = _parse_scan_uuid(ctx.scan_id)
         entailment = self._resolve_entailment(ctx)
         try:
-            evaluations = await entailment.evaluate_intents(
-                intents=ctx.intents.queries,
-                scan_id=scan_uuid,
-            )
+            eval_kwargs: dict[str, Any] = {
+                "intents": ctx.intents.queries,
+                "scan_id": scan_uuid,
+            }
+            if self._progress_callback is not None:
+                eval_kwargs["progress_callback"] = self._progress_callback
+            evaluations = await entailment.evaluate_intents(**eval_kwargs)
         except LLMBudgetExceededError as exc:
             raise StageExecutionError(
                 f"ACT budget exhausted: {exc}",

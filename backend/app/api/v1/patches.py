@@ -35,7 +35,7 @@ class ApplyPatchRequest(BaseModel):
 )
 async def apply_patch_as_pr(request: ApplyPatchRequest) -> PullRequestResult:
     """
-    Triggers autonomous GitHub Pull Request creation by delegating to unified scan PR handler.
+    Triggers automated GitHub Pull Request creation by delegating to unified scan PR handler.
     Checks in-memory cache and falls back to persistent database to resolve scan context.
     """
     if not request.github_repo_url or not request.github_repo_url.strip():

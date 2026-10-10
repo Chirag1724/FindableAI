@@ -28,12 +28,22 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
-    # LLM Providers (Groq + Qwen default)
+    # LLM Providers & Configurable Models
+    OPENROUTER_API_KEY: str = ""
     GROQ_API_KEY: str = ""
-    DEFAULT_LLM_MODEL: str = "groq/qwen/qwen3.8-27b"
+    GEMINI_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
-    GEMINI_API_KEY: str = ""
+
+    # Primary & Fallback model selections (fully configurable via .env)
+    DEFAULT_LLM_MODEL: str = "openrouter/google/gemini-2.5-flash"
+    FALLBACK_LLM_MODEL: str = "groq/qwen/qwen3.8-27b"
+
+    # Provider default models (used when model prefix or fallback references provider)
+    OPENROUTER_MODEL: str = "google/gemini-2.5-flash"
+    GROQ_MODEL: str = "qwen/qwen3.8-27b"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    OPENAI_MODEL: str = "gpt-4o-mini"
 
     # GitHub App / Token
     GITHUB_TOKEN: str = ""
@@ -43,7 +53,7 @@ class Settings(BaseSettings):
     SCAN_TIMEOUT_SECONDS: int = 60
     LLM_BUDGET_CAP_USD: float = 0.01
     # Hard global LLM provider-call cap per scan (P2-4.2). Not per-engine.
-    MAX_LLM_CALLS_PER_SCAN: int = 35
+    MAX_LLM_CALLS_PER_SCAN: int = 60
 
     # Explicit opt-in for non-production synthetic demo fill (never remediation-eligible).
     # Normal scans must not inject fabricated intents/scores/patches unless this is true.

@@ -141,6 +141,28 @@ export async function applyPatches(
   });
 }
 
+export async function evaluateScan(
+  scanId: string,
+  personas?: string[],
+  signal?: AbortSignal
+): Promise<ScanResponse> {
+  return request<ScanResponse>(`/scans/${scanId}/evaluate`, {
+    method: "POST",
+    body: personas ? JSON.stringify({ personas }) : undefined,
+    signal,
+  });
+}
+
+export async function remediateScan(
+  scanId: string,
+  signal?: AbortSignal
+): Promise<PatchProposal[]> {
+  return request<PatchProposal[]>(`/scans/${scanId}/remediate`, {
+    method: "POST",
+    signal,
+  });
+}
+
 export async function validatePatches(
   scanId: string,
   signal?: AbortSignal

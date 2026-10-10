@@ -281,6 +281,7 @@ def analyze_robots_txt(robots_txt: str, llms_txt_present: bool = False) -> Crawl
 def generate_optimized_robots_txt(
     domain: str = "example.com",
     sitemap_url: str | None = None,
+    site_name: str | None = None,
 ) -> str:
     """
     Pareto-optimal robots.txt generator per §5.5 balancing citation access vs scraping protection.
@@ -288,8 +289,9 @@ def generate_optimized_robots_txt(
     sitemap_directive = (
         f"Sitemap: {sitemap_url}" if sitemap_url else f"Sitemap: https://{domain}/sitemap.xml"
     )
+    header_suffix = f" for {site_name}" if site_name else ""
 
-    return f"""# === FindableAI Optimized robots.txt ===
+    return f"""# === FindableAI Optimized robots.txt{header_suffix} ===
 # Strategy: Maximize AI search citations, block training scrapers
 
 # --- AI Search & Citation Bots (ALLOW) ---

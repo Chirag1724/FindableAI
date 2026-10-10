@@ -248,3 +248,124 @@ async def test_retries_consume_budget_per_provider_attempt():
     assert result.answer == "ok"
     assert client.calls_made == 2
     assert handler.await_count == 2
+
+
+def test_provider_chain_prefers_gemini_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.core.config.settings.GROQ_API_KEY", "")
+    monkeypatch.setattr("app.core.config.settings.GEMINI_API_KEY", "test-gemini-key")
+    client = LLMClient()
+    chain = client._get_provider_chain()
+    assert len(chain) >= 1
+    assert chain[0].name == "gemini"
+    assert chain[0].model in ("gemini-2.5-flash", "gemini-3.6-flash")
+
+
+def test_provider_chain_fallback_order_with_groq_and_gemini(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.core.config.settings.GROQ_API_KEY", "gsk_test123")
+    monkeypatch.setattr("app.core.config.settings.GEMINI_API_KEY", "test-gemini-key")
+    client = LLMClient(model="groq/qwen/qwen3.8-27b")
+    chain = client._get_provider_chain()
+    assert len(chain) == 2
+    assert chain[0].name == "groq"
+    assert chain[1].name == "gemini"
+
+
+def test_provider_chain_only_groq_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.core.config.settings.GROQ_API_KEY", "gsk_test123")
+    monkeypatch.setattr("app.core.config.settings.GEMINI_API_KEY", "")
+    monkeypatch.setattr("app.core.config.settings.OPENAI_API_KEY", "")
+    client = LLMClient(model="groq/qwen/qwen3.8-27b")
+    chain = client._get_provider_chain()
+    assert len(chain) == 1
+    assert chain[0].name == "groq"
+
+
+def test_provider_chain_neither_present_fails_fast(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.core.config.settings.GROQ_API_KEY", "")
+    monkeypatch.setattr("app.core.config.settings.GEMINI_API_KEY", "")
+    monkeypatch.setattr("app.core.config.settings.OPENAI_API_KEY", "")
+    client = LLMClient()
+    with pytest.raises(RuntimeError, match=r"(?i)either.*key.*is required"):
+        client._get_provider_chain()
+
+
+def test_provider_chain_circuit_breaker_fails_over_remaining_claims(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    LLMClient.reset_tripped_providers()
+    monkeypatch.setattr("app.core.config.settings.GROQ_API_KEY", "gsk_test123")
+    monkeypatch.setattr("app.core.config.settings.GEMINI_API_KEY", "test-gemini-key")
+    client = LLMClient(model="groq/qwen/qwen3.8-27b")
+    # Initially healthy: groq first
+    initial_chain = client._get_provider_chain()
+    assert initial_chain[0].name == "groq"
+    assert initial_chain[1].name == "gemini"
+
+    # Trip groq (e.g. 429 rate limit mid-scan)
+    client._tripped_providers.add("groq")
+
+    # Subsequent claims automatically put gemini first
+    next_chain = client._get_provider_chain()
+    assert next_chain[0].name == "gemini"
+    assert next_chain[1].name == "groq"
+
+    # Any new LLMClient instance (e.g. created by another engine or stage) also inherits tripped status
+    another_client = LLMClient(model="groq/qwen/qwen3.8-27b")
+    assert another_client._get_provider_chain()[0].name == "gemini"
+
+    # Clean up
+    LLMClient.reset_tripped_providers()
+    assert client._get_provider_chain()[0].name == "groq"
+
+
+def test_provider_chain_dynamic_env_switching(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure changing DEFAULT_LLM_MODEL and FALLBACK_LLM_MODEL switches chain ordering and models without code changes."""
+    monkeypatch.setattr("app.core.config.settings.GROQ_API_KEY", "gsk_test123")
+    monkeypatch.setattr("app.core.config.settings.GEMINI_API_KEY", "test-gemini-key")
+
+    # Case 1: Primary Gemini, Fallback Groq
+    monkeypatch.setattr("app.core.config.settings.DEFAULT_LLM_MODEL", "gemini/gemini-3.6-flash")
+    monkeypatch.setattr("app.core.config.settings.FALLBACK_LLM_MODEL", "groq/openai/gpt-oss-120b")
+    client1 = LLMClient()
+    chain1 = client1._get_provider_chain()
+    assert chain1[0].name == "gemini"
+    assert chain1[0].model == "gemini-3.6-flash"
+    assert chain1[1].name == "groq"
+    assert chain1[1].model == "openai/gpt-oss-120b"
+
+    # Case 2: Primary Groq with custom model, Fallback Gemini
+    monkeypatch.setattr(
+        "app.core.config.settings.DEFAULT_LLM_MODEL", "groq/llama-3.3-70b-versatile"
+    )
+    monkeypatch.setattr("app.core.config.settings.FALLBACK_LLM_MODEL", "gemini/gemini-2.5-flash")
+    client2 = LLMClient()
+    chain2 = client2._get_provider_chain()
+    assert chain2[0].name == "groq"
+    assert chain2[0].model == "llama-3.3-70b-versatile"
+    assert chain2[1].name == "gemini"
+    assert chain2[1].model == "gemini-2.5-flash"
+
+
+def test_provider_chain_provider_model_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure GROQ_MODEL, GEMINI_MODEL, and OPENAI_MODEL env variables are respected."""
+    monkeypatch.setattr("app.core.config.settings.GROQ_API_KEY", "gsk_test123")
+    monkeypatch.setattr("app.core.config.settings.GEMINI_API_KEY", "test-gemini-key")
+    monkeypatch.setattr("app.core.config.settings.OPENAI_API_KEY", "sk-test-openai")
+
+    monkeypatch.setattr("app.core.config.settings.GROQ_MODEL", "custom-groq-model")
+    monkeypatch.setattr("app.core.config.settings.GEMINI_MODEL", "custom-gemini-model")
+    monkeypatch.setattr("app.core.config.settings.OPENAI_MODEL", "custom-openai-model")
+
+    monkeypatch.setattr("app.core.config.settings.DEFAULT_LLM_MODEL", "groq")
+    monkeypatch.setattr("app.core.config.settings.FALLBACK_LLM_MODEL", "gemini")
+
+    client = LLMClient()
+    chain = client._get_provider_chain()
+    assert chain[0].name == "groq"
+    assert chain[0].model == "custom-groq-model"
+    assert chain[1].name == "gemini"
+    assert chain[1].model == "custom-gemini-model"
+    assert chain[2].name == "openai"
+    assert chain[2].model == "custom-openai-model"

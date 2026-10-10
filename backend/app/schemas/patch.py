@@ -9,6 +9,8 @@ class PatchType(StrEnum):
     SCHEMA_MICRODATA = "schema_microdata"
     HEADING_STRUCTURE = "heading_structure"
     FACTUAL_CONFLICT_RESOLUTION = "factual_conflict_resolution"
+    ROBOTS_GOVERNANCE = "robots_governance"
+    LLMS_MANIFEST = "llms_manifest"
 
 
 class DOMSelectorAnchor(BaseModel):

@@ -49,8 +49,9 @@ def _report(**overrides: object) -> PRReportData:
         ],
         opportunity_titles=["Add FAQPage schema"],
     )
+    # pyrefly: ignore [no-matching-overload]
     base.update(overrides)
-    return PRReportData(**base)  # type: ignore[arg-type]
+    return PRReportData(**base)
 
 
 def test_score_and_delta_rendering():

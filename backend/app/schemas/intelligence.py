@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class IntentCategory(StrEnum):
-    """Ten taxonomy classes used by the synthetic intent generator."""
+    """Ten taxonomy classes used by the intent generator."""
 
     ELIGIBILITY = "eligibility"
     POLICY = "policy"
@@ -60,7 +60,17 @@ class IntentBatch(BaseModel):
         ...,
         min_length=30,
         max_length=30,
-        description="Exactly 30 synthetic intent queries (3 per taxonomy category)",
+        description="Batch of 30 intent queries (3 per taxonomy category)",
+    )
+
+
+class PersonaIntentBatch(BaseModel):
+    business_type: str = Field(..., min_length=1, description="Inferred business category")
+    queries: list[IntentQuery] = Field(
+        ...,
+        min_length=10,
+        max_length=10,
+        description="10 intent queries: exactly 1 per taxonomy category for the assigned persona",
     )
 
 
@@ -87,6 +97,38 @@ class IntentEvaluation(BaseModel):
         default=None, description="Originating persona: cto, developer, or procurement"
     )
 
+    @field_validator("status", mode="before")
+    @classmethod
+    def _normalize_status(cls, v: Any) -> Any:
+        if isinstance(v, list) and v:
+            v = v[0]
+        if isinstance(v, str):
+            v_clean = v.strip().upper()
+            if v_clean in EntailmentStatus._value2member_map_:
+                return EntailmentStatus(v_clean)
+        return v
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _normalize_category(cls, v: Any) -> Any:
+        if isinstance(v, list) and v:
+            v = v[0]
+        if isinstance(v, str):
+            v_clean = v.strip().lower()
+            if v_clean in IntentCategory._value2member_map_:
+                return IntentCategory(v_clean)
+            return None
+        return v
+
+    @field_validator("persona", mode="before")
+    @classmethod
+    def _normalize_persona(cls, v: Any) -> Any:
+        if isinstance(v, list) and v:
+            v = v[0]
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
+
     @property
     def evidence_chunk_ids(self) -> list[str]:
         return [item.chunk_id for item in self.evidence]
@@ -94,6 +136,13 @@ class IntentEvaluation(BaseModel):
     @property
     def cited_dom_paths(self) -> list[str]:
         return [item.dom_path for item in self.evidence]
+
+
+class IntentEvaluationBatch(BaseModel):
+    evaluations: list[IntentEvaluation] = Field(
+        ...,
+        description="Batch of evaluated intent claims grounded in evidence",
+    )
 
 
 class Contradiction(BaseModel):
