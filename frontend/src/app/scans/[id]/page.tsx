@@ -191,7 +191,31 @@ export default function ScanDashboardPage() {
   }, [isCompleted, isDataReady, dataReadyTimedOut]);
 
   const showCompletedDashboard = isCompleted && (isDataReady || dataReadyTimedOut);
-  const patchCount = patches.data?.length ?? displayScan?.patches.length ?? 0;
+  const remediationEligible = displayScan?.remediation_eligible === true;
+  const isRealLlm = displayScan?.execution_mode === "real_llm";
+  const scanOutcome = displayScan?.outcome;
+  const resultSource = displayScan?.result_source;
+  const scoreSource = displayScan?.score_source;
+  const integrityWarnings = displayScan?.intelligence_warnings ?? [];
+  const evaluatedIntentCount =
+    displayScan?.summary?.dag_evaluations_count ??
+    (isRealLlm ? intents.data?.length ?? displayScan?.summary?.intents_generated ?? 0 : 0);
+  const hasAuthoritativeScore =
+    scoreSource === "deterministic_scorer" &&
+    (resultSource === "real_pipeline" || resultSource === "partial_real") &&
+    evaluatedIntentCount > 0;
+  const realPatches = (patches.data ?? displayScan?.patches ?? []).filter(
+    (p) => p.is_synthetic !== true
+  );
+  const patchCount = realPatches.length;
+  const ctaDisabled =
+    patches.loading ||
+    !remediationEligible ||
+    scanOutcome === "failed" ||
+    scanOutcome === "inconclusive" ||
+    resultSource === "synthetic_fallback";
+  // Eligible + zero real patches: informational CTA copy (button stays disabled).
+  const showNoFixesRequired = remediationEligible && !patches.loading && patchCount === 0;
 
   // Not found state
   if (notFound) {
@@ -395,22 +419,26 @@ export default function ScanDashboardPage() {
             {displayScan.execution_mode && (
               <span
                 className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border ${
-                  displayScan.execution_mode === "real_llm"
+                  isRealLlm && scanOutcome === "success"
                     ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
                     : "border-amber-500/20 bg-amber-500/10 text-amber-400"
                 }`}
                 title={
-                  displayScan.execution_mode === "real_llm"
-                    ? `Real LLM Pipeline active (${displayScan.llm_calls_made ?? 0} calls)`
-                    : "Deterministic Fallback Mode (LLM rate-limited or unconfigured)"
+                  isRealLlm
+                    ? `Real LLM (${displayScan.llm_calls_made ?? 0} calls); outcome=${scanOutcome ?? "n/a"}; source=${resultSource ?? "n/a"}`
+                    : `Not a successful real-LLM audit (mode=${displayScan.execution_mode}; outcome=${scanOutcome ?? "n/a"}; source=${resultSource ?? "n/a"}). Synthetic/mock results are not evidence-backed.`
                 }
               >
                 <span
                   className={`h-1.5 w-1.5 rounded-full ${
-                    displayScan.execution_mode === "real_llm" ? "bg-emerald-400" : "bg-amber-400"
+                    isRealLlm && scanOutcome === "success" ? "bg-emerald-400" : "bg-amber-400"
                   }`}
                 />
-                {displayScan.execution_mode === "real_llm" ? "Real LLM" : "Fallback Mode"}
+                {isRealLlm && scanOutcome === "success"
+                  ? "Real LLM"
+                  : isRealLlm && scanOutcome === "partial"
+                    ? "Partial Real LLM"
+                    : "Fallback / Incomplete"}
               </span>
             )}
 
@@ -535,20 +563,28 @@ export default function ScanDashboardPage() {
                   <SummaryStats summary={displayScan.summary} />
                 )}
 
-                {/* Findability Analytics Matrix (2x2) */}
-                {(() => {
-                  const fs = displayScan.f_score ?? scan.data?.f_score;
-                  return fs ? <ScoreGauge fScore={fs} /> : null;
-                })()}
+                {/* Findability Analytics Matrix (2x2) — only authoritative real scores */}
+                {hasAuthoritativeScore && (displayScan.f_score ?? scan.data?.f_score) ? (
+                  <ScoreGauge fScore={(displayScan.f_score ?? scan.data?.f_score)!} />
+                ) : (
+                  <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-200/90 font-mono">
+                    {scoreSource === "mock"
+                      ? "F-Score unavailable: mock/demo score suppressed (not an audit-grade result)."
+                      : evaluatedIntentCount === 0
+                        ? "F-Score unavailable: no real intent evaluations were completed for this scan."
+                        : "F-Score unavailable: score provenance is incomplete or non-authoritative."}
+                  </div>
+                )}
 
-                {/* Intent Evaluations */}
+                {/* Intent Evaluations — real DAG rows only */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between pb-1 border-b border-white/[0.06]">
                     <h2 className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-text-primary">
                       Intent Vector Evaluations
                     </h2>
                     <span className="font-mono text-[11px] text-text-muted">
-                      {intents.data?.length ?? displayScan.summary?.intents_generated ?? 30} Simulated Vectors
+                      {evaluatedIntentCount}
+                      {isRealLlm ? " Real Evaluations" : " (no verified real evaluations)"}
                     </span>
                   </div>
                   {intents.error ? (
@@ -556,6 +592,15 @@ export default function ScanDashboardPage() {
                       message={intents.error}
                       onRetry={intents.retry}
                     />
+                  ) : evaluatedIntentCount === 0 ||
+                    resultSource === "synthetic_fallback" ||
+                    resultSource === "inconclusive" ? (
+                    <p className="rounded-lg border border-white/[0.08] bg-surface-secondary px-4 py-6 text-center text-xs text-text-muted">
+                      No evaluation completed against retrieved website evidence.
+                      {displayScan.summary?.synthetic_intents_count
+                        ? ` ${displayScan.summary.synthetic_intents_count} demo placeholders were not treated as real findings.`
+                        : ""}
+                    </p>
                   ) : (
                     <IntentMatrix intents={intents.data ?? []} />
                   )}
@@ -600,30 +645,48 @@ export default function ScanDashboardPage() {
 
       {/* Sticky patches button (ONLY shown when dashboard is fully loaded) */}
       {showCompletedDashboard && (
-        <div className="fixed bottom-0 inset-x-0 flex justify-center px-4 py-3 sm:py-3.5 z-30 bg-background/90 backdrop-blur-lg border-t border-white/[0.08] shadow-2xl pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
+        <div className="fixed bottom-0 inset-x-0 flex flex-col items-center gap-2 px-4 py-3 sm:py-3.5 z-30 bg-background/90 backdrop-blur-lg border-t border-white/[0.08] shadow-2xl pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
+          {integrityWarnings.length > 0 && (
+            <p className="max-w-xl text-center text-[11px] text-amber-300/90 font-mono">
+              {integrityWarnings[0]}
+            </p>
+          )}
           <button
             type="button"
-            onClick={() => setPatchModalOpen(true)}
-            disabled={patchCount === 0 && !patches.loading}
+            onClick={() => {
+              if (!ctaDisabled && patchCount > 0) setPatchModalOpen(true);
+            }}
+            disabled={ctaDisabled || (showNoFixesRequired && patchCount === 0)}
             className="flex items-center justify-center gap-2 rounded-lg bg-white text-black px-6 py-3 sm:py-2.5 text-xs font-bold tracking-wider uppercase shadow-lg transition-all duration-150 hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500 active:scale-95 w-full sm:w-auto max-w-sm"
           >
             <GitPullRequest size={15} aria-hidden="true" />
             {patches.loading
               ? "Loading fixes..."
-              : patchCount > 0
-                ? "Review Suggested Fixes"
-                : "No fixes required"}
+              : showNoFixesRequired
+                ? "No fixes required"
+                : !remediationEligible ||
+                    scanOutcome === "failed" ||
+                    scanOutcome === "inconclusive" ||
+                    resultSource === "synthetic_fallback"
+                  ? evaluatedIntentCount === 0
+                    ? "Audit incomplete — no real evaluations"
+                    : "Remediation unavailable (synthetic/incomplete)"
+                  : patchCount > 0
+                    ? "Review Suggested Fixes"
+                    : "No fixes required"}
           </button>
         </div>
       )}
 
-      {/* Patch modal */}
-      {patchModalOpen && scanId && (
+      {/* Patch modal — non-synthetic patches only; gated by remediation eligibility */}
+      {patchModalOpen && scanId && remediationEligible && (
         <PatchModal
           scanId={scanId}
-          patches={patches.data ?? displayScan.patches}
+          patches={realPatches}
           currentScore={
-            (displayScan.f_score?.overall_score ?? scan.data?.f_score?.overall_score) ?? 0
+            hasAuthoritativeScore
+              ? (displayScan.f_score?.overall_score ?? scan.data?.f_score?.overall_score) ?? 0
+              : 0
           }
           repoUrl={displayScan.repo_url ?? displayScan.github_repo_url ?? scan.data?.repo_url ?? scan.data?.github_repo_url}
           onClose={() => setPatchModalOpen(false)}

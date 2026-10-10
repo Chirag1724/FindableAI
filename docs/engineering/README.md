@@ -8,14 +8,17 @@ Welcome to the FindableAI engineering documentation hub. This directory contains
 
 | Document | Description |
 | :--- | :--- |
-| [SYSTEM_FLOW.md](SYSTEM_FLOW.md) | Comprehensive end-to-end architecture flow, Mermaid sequence diagram, and step-by-step lifecycle from URL submission to GitHub PR. |
-| [API_REFERENCE.md](API_REFERENCE.md) | Technical reference for all REST and Server-Sent Events (SSE) endpoints, schemas, authentication, rate limits, and status codes. |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Production infrastructure architecture, multi-stage Docker containers, environment variable matrix, Playwright dependencies, and security headers. |
-| [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md) | Step-by-step onboarding guide for configuring Python 3.11+, Node 20+, PostgreSQL/pgvector, Redis, and local development servers. |
-| [ARCHITECTURE_DECISIONS.md](ARCHITECTURE_DECISIONS.md) | Formal Architecture Decision Records (ADRs) detailing the F-Score formula, Git push strategies, framework route fallbacks, and DAG state orchestration. |
-| [TESTING.md](TESTING.md) | Test philosophy, coverage metrics, test suite breakdowns (pytest and Vitest), mock fixtures, and execution commands. |
-| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Root-cause analysis and verified fixes for Playwright headless binaries, lxml parsing, Alembic imports, GitHub PAT scopes, and Groq rate limits. |
-| [ROADMAP.md](ROADMAP.md) | Current implementation audit against the Phase 5-8 release gate, highlighting delivered components and forward-looking scalability initiatives. |
+| [LIMITATIONS_AND_READINESS.md](LIMITATIONS_AND_READINESS.md) | **Canonical** implementation status, execution modes, retrieval truth, persistence map, and release readiness (hackathon vs beta vs production). |
+| [FRONTEND_INTEGRITY_CONTRACT.md](FRONTEND_INTEGRITY_CONTRACT.md) | API fields the scan UI must use for real vs synthetic/partial audits (P0 honesty). |
+| [ENVIRONMENT.md](ENVIRONMENT.md) | **Canonical** environment-variable reference derived from `config.py` and `.env.example`. |
+| [SYSTEM_FLOW.md](SYSTEM_FLOW.md) | End-to-end architecture flow and lifecycle from URL submission through scoring and optional GitHub PR (with incomplete stages labeled). |
+| [API_REFERENCE.md](API_REFERENCE.md) | REST and SSE endpoints, schemas, authentication, rate limits, and execution-mode notes. |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Docker/Compose, env matrix, and deployment guidance. Existence of Dockerfiles ≠ verified production deploy. |
+| [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md) | Local onboarding for Python, Node, PostgreSQL/pgvector, and dev servers. |
+| [ARCHITECTURE_DECISIONS.md](ARCHITECTURE_DECISIONS.md) | ADRs (F-Score, Git push strategy, framework patches, DAG, BudgetGuard). |
+| [TESTING.md](TESTING.md) | Test philosophy, suite catalogs, and commands. Do not treat listed counts as a live CI certificate unless re-run. |
+| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common failure modes (Playwright, Alembic, Groq limits, GitHub PAT). |
+| [ROADMAP.md](ROADMAP.md) | Near-term engineering priorities; read alongside LIMITATIONS_AND_READINESS (ROADMAP “delivered” rows can lag code truth). |
 
 ---
 

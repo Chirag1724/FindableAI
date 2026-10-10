@@ -13,6 +13,7 @@ This runbook documents verified solutions for real issues encountered during the
 5. [Groq Output Tokens Per Minute (OTPM) Rate Limit](#5-groq-output-tokens-per-minute-otpm-rate-limit)
 6. [Alembic Module Resolution Error on Headless Execution](#6-alembic-module-resolution-error-on-headless-execution)
 7. [F-Score Delta Floating-Point Validation Error](#7-f-score-delta-floating-point-validation-error)
+8. [Scan Completes in Fallback Mode with Synthetic or Empty Intents](#8-scan-completes-in-fallback-mode-with-synthetic-or-empty-intents)
 
 ---
 
@@ -107,3 +108,17 @@ This runbook documents verified solutions for real issues encountered during the
   `delta` was prematurely rounded with `round(..., 2)` in `build_report_data()`, causing Pydantic's strict model validator (`abs(delta - expected) > 1e-9`) to reject the report object.
 - **Fix:**
   `build_report_data()` computes `delta = projected - current` without premature rounding, matching the internal float representation of `PRReportData`.
+
+---
+
+### 8. Scan Completes in Fallback Mode with Synthetic or Empty Intents
+
+- **Symptom:**
+  UI shows **Fallback Mode**, crawled pages/chunks look real, but intents are synthetic or zero, and the sticky button may say **No fixes required**.
+- **Root Cause:**
+  Crawl/chunk succeed without an LLM. `execution_mode` is `real_llm` only when evaluations exist **and** `llm_calls_made > 0`. Missing/`GROQ` auth/rate-limit/budget failures leave the scan on a non-real path; `_generate_fallback_evaluations` / mock score/patches may still populate a **completed** response. Frontend treats empty patches as “no fixes” without requiring real evaluations.
+- **What to check:**
+  1. `GROQ_API_KEY` set and valid; inspect backend logs for LLM / `BudgetGuard` errors.
+  2. `GET /api/v1/scans/{id}` → `execution_mode`, `llm_calls_made`, `data_source`.
+  3. `GET /api/v1/scans/{id}/intents` vs summary `intents_generated` (multi-worker / restart hydrate can diverge).
+- **Product note:** Synthetic or empty intelligence is **not** a successful real-LLM audit. This is a known honesty gap — see [LIMITATIONS_AND_READINESS.md](LIMITATIONS_AND_READINESS.md). Do not “fix” it by documenting it as success.

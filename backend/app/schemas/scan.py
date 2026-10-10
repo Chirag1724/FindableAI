@@ -62,6 +62,15 @@ class AuditSummary(BaseModel):
     crawled_pages: list[CrawledPageDetail] = Field(
         default_factory=list, description="Details of each URL crawled during scan"
     )
+    # Integrity / coverage (additive; optional for older clients)
+    dag_evaluations_count: int | None = Field(
+        default=None,
+        description="Intent evaluations produced by the DAG before any synthetic fill",
+    )
+    synthetic_intents_count: int | None = Field(
+        default=None,
+        description="Count of synthetically injected intent evaluations (0 if none)",
+    )
 
 
 class ScanResponse(BaseModel):
@@ -81,11 +90,48 @@ class ScanResponse(BaseModel):
     error: str | None = None
     execution_mode: str | None = Field(
         default=None,
-        description="Execution mode: 'real_llm' or 'deterministic_fallback'",
+        description=(
+            "How intelligence ran: 'real_llm' only when DAG evaluations exist, "
+            "LLM calls were made, and no synthetic/mock intelligence was substituted. "
+            "Otherwise 'synthetic_fallback' or 'deterministic'."
+        ),
     )
-    data_source: str = Field(
-        default="live_pipeline",
-        description="Data provenance: 'live_pipeline' or 'synthetic_fallback'",
+    data_source: str | None = Field(
+        default=None,
+        description=(
+            "Provenance once integrity is decided: 'live_pipeline' or 'synthetic_fallback'. "
+            "None/unset until the scan finishes — never imply live pipeline before that."
+        ),
+    )
+    result_source: str | None = Field(
+        default=None,
+        description=(
+            "Intent/evaluation provenance: real_pipeline | partial_real | "
+            "synthetic_fallback | inconclusive"
+        ),
+    )
+    outcome: str | None = Field(
+        default=None,
+        description="Scan outcome: success | partial | inconclusive | failed",
+    )
+    score_source: str | None = Field(
+        default=None,
+        description="F-Score provenance: deterministic_scorer | mock | none",
+    )
+    patches_source: str | None = Field(
+        default=None,
+        description="Patch provenance: assembler | mock | none",
+    )
+    remediation_eligible: bool | None = Field(
+        default=None,
+        description=(
+            "True only when patches (including an empty real assembler result) "
+            "may be treated as evidence-backed remediation from a real_llm audit"
+        ),
+    )
+    intelligence_warnings: list[str] = Field(
+        default_factory=list,
+        description="Human-readable integrity warnings for API/UI consumers",
     )
     llm_calls_made: int | None = Field(
         default=0,

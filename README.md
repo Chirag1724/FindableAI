@@ -17,15 +17,16 @@
 
 <p align="center">
   <b>Bridging the gap between the modern web and AI search engines.</b><br/>
-  FindableAI autonomously audits web content against AI answer engines (Perplexity, SearchGPT, Gemini, ChatGPT Search), computes an evidence-grounded Findability F-Score, and generates precise, zero-hallucination GitHub pull requests with DOM-anchored patches.
+  FindableAI audits public websites for machine discoverability: crawl → DOM chunks → intent/NLI (when LLM configured) → deterministic F-Score → optional remediation patches / GitHub PRs.
+  It does <b>not</b> guarantee AI-search rankings, citations, or fully verified remediations.
 </p>
 
 [Architecture Deep Dive](docs/01_ARCHITECTURE_AND_SYSTEM_DESIGN.md) •
-[Tech Stack & Implementation](docs/02_TECH_STACK_AND_IMPLEMENTATION.md) •
-[Execution Playbook](docs/03_EXECUTION_PLAYBOOK.md) •
+[Known Limitations & Readiness](docs/engineering/LIMITATIONS_AND_READINESS.md) •
+[System Flow](docs/engineering/SYSTEM_FLOW.md) •
+[Environment Reference](docs/engineering/ENVIRONMENT.md) •
 [Team Task Allocation](docs/04_TEAM_TASK_ALLOCATION.md) •
-[AI Lighthouse & ML Crawler Governance](docs/05_AI_LIGHTHOUSE_FEATURE_SPEC.md) •
-[Engineering Documentation](docs/engineering/README.md) •
+[Engineering Docs](docs/engineering/README.md) •
 [Security Policy](SECURITY.md)
 
 </div>
@@ -70,7 +71,7 @@ FindableAI is the first autonomous engine designed to diagnose, score, and remed
               [ Synthetic Intent Engine ] (Persona & Query Generation)
                             │
                             ▼
-           [ Hybrid Retrieval ] (pgvector dense + BM25 sparse + RRF)
+           [ Evidence selection ] (default: first-k chunks; FTS helper exists; no RRF)
                             │
                             ▼
          [ NLI Entailment & Contradiction Engine ] (LLM-based Entailment Classification)
@@ -93,8 +94,8 @@ FindableAI is the first autonomous engine designed to diagnose, score, and remed
 2. **Synthetic Intent Simulation**
    - Simulates diverse buyer personas (skeptical CTO, procurement officer, developer evaluator) generating realistic high-intent queries that AI search users ask.
 
-3. **Hybrid Retrieval with Reciprocal Rank Fusion (RRF)**
-   - Combines dense vector similarity (`text-embedding-3-small` / pgvector) with lexical BM25 retrieval to mirror how state-of-the-art AI answer engines assemble context windows.
+3. **Evidence selection for NLI (not full hybrid+RRF today)**
+   - **Live path:** the DAG defaults to the first *k* OBSERVE DOM chunks for entailment. `hybrid_search` provides Postgres full-text (`tsvector`) + keyword fallbacks. Embeddings may be **stored** but are **not queried** at scan time. **RRF is not implemented** in the runtime path. Details: [LIMITATIONS_AND_READINESS.md](docs/engineering/LIMITATIONS_AND_READINESS.md).
 
 4. **Natural Language Inference (NLI) & Contradiction Detection**
    - Assesses retrieved page context against target queries using NLI:
@@ -105,23 +106,25 @@ FindableAI is the first autonomous engine designed to diagnose, score, and remed
 5. **Findability F-Score (0-100 Mathematical Metric)**
    - Transparent, deterministic formula balancing query coverage, consistency penalties, structural clarity, and extractability.
 
-6. **Autonomous Code Remediations (Direct GitHub PRs)**
-   - Instead of generic marketing advice, FindableAI generates actionable unified diffs (DOM additions, content clarifications, Schema.org JSON-LD) and opens ready-to-merge GitHub Pull Requests.
+6. **Remediation proposals & optional GitHub PRs**
+   - Generates unified diffs / Schema.org patches and can open a GitHub PR when credentials allow. **Opening a PR does not verify that the original defect is fixed.**
 
 ## Findability F-Score Breakdown
 
 FindableAI evaluates content across four mathematically rigorous sub-scores:
 
-$$\text{F-Score} = 100 \times \left( 0.40 \cdot S_{\text{ans}} + 0.30 \cdot S_{\text{con}} + 0.20 \cdot S_{\text{str}} + 0.10 \cdot S_{\text{acc}} \right)$$
+$$\text{F-Score} = 0.40 \cdot S_{\text{ans}} + 0.30 \cdot S_{\text{con}} + 0.20 \cdot S_{\text{str}} + 0.10 \cdot S_{\text{acc}}$$
 
-1. **Answerability ($S_{\text{ans}}$, 40%)**: Ratio and depth of critical synthetic buyer and researcher queries answered by crawled content.
-2. **Consistency ($S_{\text{con}}$, 30%)**: Absence of factual conflicts across pages (operating hours, pricing, policies, contact details).
-3. **Structure ($S_{\text{str}}$, 20%)**: Coverage and syntactic validity of Schema.org JSON-LD microdata across core entity types.
-4. **Extractability & Accessibility ($S_{\text{acc}}$, 10%)**: Clean machine readability and DOM structural clarity of key entity metadata.
+Each component \(S_*\) is already on a **0–100** scale; the result is **0–100**. Do **not** apply an additional outer multiplication by 100. Canonical reference: [ADR-001](docs/engineering/ARCHITECTURE_DECISIONS.md#adr-001-canonical-f-score-weight-formulation).
+
+1. **Answerability ($S_{\text{ans}}$, 40%)**: Mean entailment contribution across intent evaluations.
+2. **Consistency ($S_{\text{con}}$, 30%)**: Absence / penalty of factual conflicts across pages.
+3. **Structure ($S_{\text{str}}$, 20%)**: Coverage and validity of Schema.org JSON-LD for required types.
+4. **Extractability ($S_{\text{acc}}$, 10%)**: Machine readability and DOM extractability heuristics.
 
 ## Project Architecture
 
-FindableAI is built as an asynchronous, event-driven, multi-tier system that bridges client-side dynamic rendering, vector-based RAG retrieval, structured LLM inference, and automated version control operations.
+FindableAI is an asynchronous multi-tier system: Next.js UI, FastAPI gateway, crawl/chunk pipeline, LLM-backed intelligence DAG (with synthetic fallback), deterministic scoring, and optional GitHub remediation. See [SYSTEM_FLOW.md](docs/engineering/SYSTEM_FLOW.md) for the verified stage list and [LIMITATIONS_AND_READINESS.md](docs/engineering/LIMITATIONS_AND_READINESS.md) for incomplete stages.
 
 ### High-Level Architectural Topology
 
@@ -153,7 +156,7 @@ flowchart TB
     subgraph Storage ["Persistence & Retrieval Layer"]
         PG[("PostgreSQL 16 + pgvector<br/>(HNSW Vector Indexing)")]
         BM25["BM25 Lexical Keyword Search"]
-        RRF["Reciprocal Rank Fusion (RRF)<br/>Hybrid Retrieval Engine"]
+        RET["Evidence selection<br/>(first-k chunks / FTS helper)"]
     end
 
     subgraph AI ["AI / NLI & Scoring Engines"]
@@ -184,9 +187,9 @@ flowchart TB
     IntentGen -->|"Prompt LLM"| Groq
     Groq --> IntentGen
     
-    DAG --> RRF
-    PG & BM25 -->|"Dense + Sparse Results"| RRF
-    RRF -->|"Top Context Chunks"| NLI
+    DAG --> RET
+    PG & BM25 -->|"Stored embeddings + FTS (RRF not implemented)"| RET
+    RET -->|"Evidence chunks"| NLI
     NLI -->|"Entailment & Contradictions"| Scorer
     
     Scorer --> PatchGen
@@ -229,7 +232,7 @@ sequenceDiagram
     LLM-->>DAG: Structured Intent List (Pydantic validated)
 
     DAG-->>Frontend: SSE: Status = HYBRID_RETRIEVAL (75%)
-    DAG->>VectorDB: Hybrid Search (pgvector dense + BM25 sparse via RRF)
+    DAG->>VectorDB: Evidence selection (default first-k chunks; optional FTS hybrid_search)
     VectorDB-->>DAG: Top candidate chunks with CSS selector trace
 
     DAG-->>Frontend: SSE: Status = NLI_EVALUATION (85%)
@@ -257,9 +260,9 @@ sequenceDiagram
 | :--- | :--- | :--- | :--- |
 | **Presentation Layer** | Real-time audit dashboard, reactive F-Score gauge, intent breakdown grid, interactive DOM patch diff viewer, and 1-click PR trigger. | Next.js 14 App Router, TypeScript, TailwindCSS, Lucide Icons | [`frontend/src/app/page.tsx`](frontend/src/app/page.tsx)<br/>[`frontend/src/hooks/useScanStream.ts`](frontend/src/hooks/useScanStream.ts)<br/>[`frontend/src/components/ScoreGauge.tsx`](frontend/src/components/ScoreGauge.tsx) |
 | **Gateway & Security** | Ingestion endpoints, Server-Sent Events broker, Pydantic v2 validation contracts, and SSRF prevention blocking internal IP ranges and cloud metadata endpoints. | FastAPI, Uvicorn, Pydantic v2, `socket` DNS resolution | [`backend/app/main.py`](backend/app/main.py)<br/>[`backend/app/api/v1/scans.py`](backend/app/api/v1/scans.py)<br/>[`backend/app/core/security.py`](backend/app/core/security.py) |
-| **DAG Orchestration** | Asynchronous execution pipeline implementing an Observe-Plan-Act-Verify-Reflect state machine with budget guarding and graceful fallbacks. | Python `asyncio`, FastAPI `BackgroundTasks`, LiteLLM | [`backend/app/orchestration/dag.py`](backend/app/orchestration/dag.py)<br/>[`backend/app/core/budget_guard.py`](backend/app/core/budget_guard.py) |
+| **DAG Orchestration** | Asynchronous execution pipeline implementing an Observe-Plan-Act-Verify-Reflect state machine with budget guarding and graceful fallbacks. | Python `asyncio`, FastAPI `BackgroundTasks`, LiteLLM | [`backend/app/orchestration/dag.py`](backend/app/orchestration/dag.py)<br/>[`backend/app/core/budget.py`](backend/app/core/budget.py) |
 | **Crawling & Chunking** | Headless JavaScript rendering, domain-bounded BFS crawling, semantic DOM decomposition, and deterministic CSS selector path calculation. | Playwright (Chromium), BeautifulSoup4, `httpx` | [`backend/app/crawler/crawler.py`](backend/app/crawler/crawler.py)<br/>[`backend/app/crawler/dom_chunker.py`](backend/app/crawler/dom_chunker.py) |
-| **Hybrid Search & Storage** | Dense vector similarity search combined with sparse BM25 keyword matching using Reciprocal Rank Fusion (RRF). | PostgreSQL 16 + pgvector, SQLAlchemy 2.0, Alembic, Redis | [`backend/app/crawler/search.py`](backend/app/crawler/search.py)<br/>[`backend/app/core/embeddings.py`](backend/app/core/embeddings.py)<br/>[`backend/app/models/`](backend/app/models/) |
+| **Search & Storage** | Postgres + pgvector store; embeddings written on chunk insert; `hybrid_search` = FTS/keyword (no RRF; embeddings not used at query time). Redis composed but unused by app code. | PostgreSQL 16 + pgvector, SQLAlchemy 2.0, Alembic | [`backend/app/crawler/search.py`](backend/app/crawler/search.py)<br/>[`backend/app/core/embeddings.py`](backend/app/core/embeddings.py)<br/>[`backend/app/models/`](backend/app/models/) |
 | **AI / NLI & Scoring** | High-speed synthetic intent generation (30 queries, 10 taxonomies), NLI entailment classification, contradiction detection, and 100% deterministic F-Score calculation. | Groq (Qwen 2.5 72B / Llama 3), Instructor, NumPy | [`backend/app/engines/intent_generator.py`](backend/app/engines/intent_generator.py)<br/>[`backend/app/engines/entailment_engine.py`](backend/app/engines/entailment_engine.py)<br/>[`backend/app/engines/scorer.py`](backend/app/engines/scorer.py) |
 | **Remediation & Git Engine** | Deterministic Schema.org JSON-LD microdata synthesis, unified diff generation, automated repository tree inspection, and 1-click GitHub Pull Request creation. | PyGithub, GitHub REST API, Schema.org specifications | [`backend/app/engines/patch_assembler.py`](backend/app/engines/patch_assembler.py)<br/>[`backend/app/github/pr_engine.py`](backend/app/github/pr_engine.py)<br/>[`backend/app/github/client.py`](backend/app/github/client.py) |
 
@@ -273,11 +276,11 @@ Each audit execution progresses through strict pipeline phases streamed directly
 | `CRAWLING` | 15% | Headless Playwright Chromium BFS crawl fetching DOM snapshots. | Falls back to async `httpx` if headless browser times out. |
 | `EXTRACTING_DOM` | 30%–45% | Semantic element parsing, CSS selector derivation, and vector embedding. | In-memory pseudo-embeddings if external embedding API unreachable. |
 | `SYNTHESIZING_INTENTS` | 60% | Simulating 30 user/evaluator queries across 10 discovery taxonomies. | Rule-based canonical query generation if LLM budget exceeded. |
-| `HYBRID_RETRIEVAL` | 75% | Reciprocal Rank Fusion (RRF) blending dense pgvector and sparse BM25. | In-memory cosine similarity ranking if database vector extension unavailable. |
+| `HYBRID_RETRIEVAL` | 75% | SSE milestone name only; default ACT uses first-*k* OBSERVE chunks. | Optional `hybrid_search` = FTS/token/in-memory keywords (not cosine RRF). |
 | `NLI_EVALUATION` | 85% | NLI classification (`SUPPORTED`, `CONTRADICTED`, `UNKNOWN`) and fact checking. | Deterministic substring/lexical entailment heuristics if rate-limited. |
 | `COMPUTING_FSCORE` | 92% | Deterministic calculation of Answerability, Consistency, Structure, Extractability. | Zero LLM calls; guaranteed mathematical determinism. |
 | `GENERATING_PATCHES` | 97% | Schema.org JSON-LD generation, DOM-anchored unified diffs, and score deltas. | High-priority microdata templates (Organization, LocalBusiness, FAQPage). |
-| `COMPLETED` | 100% | Audit finalized; complete metrics, contradictions, and patches saved. | Results persisted in database and cached for fast recall. |
+| `COMPLETED` | 100% | Audit finalized in-process; best-effort DB writes. | Summary/`execution_mode` are memory-primary; cold hydrate is lossy. Synthetic/mock paths may still complete. |
 
 ## Tech Stack Summary
 
@@ -287,7 +290,7 @@ Each audit execution progresses through strict pipeline phases streamed directly
 | **Realtime Stream**         | Server-Sent Events (SSE) via `EventSource`                     | Realtime progress updates during 10-second audits                                                                   |
 | **Backend API**             | FastAPI (Python 3.11), Pydantic v2, Instructor                 | Async API, schema enforcement, structured LLM outputs                                                               |
 | **Crawler & Extraction**    | Playwright (Python async), BeautifulSoup4                      | JavaScript-rendered DOM harvesting with CSS path derivation                                                         |
-| **Database & Vector Store** | PostgreSQL 16 + pgvector, SQLAlchemy 2.0 (async), Alembic      | Relational audit storage + hybrid BM25 / vector embeddings                                                          |
+| **Database & Vector Store** | PostgreSQL 16 + pgvector, SQLAlchemy 2.0 (async), Alembic      | Relational storage; embeddings column + FTS; query-time dense/RRF hybrid **not** wired                              |
 | **Job Queue & Cache**       | Redis 7 in `docker-compose` (optional local service)           | Reserved for cache/rate-limit; **scans currently use FastAPI `BackgroundTasks`** (no Celery/ARQ worker in-repo yet) |
 | **AI / LLM Orchestration**  | Groq (Qwen 2.5 72B) via LiteLLM & Instructor                   | Ultra-fast (~500 tps) synthetic intent generation, NLI classification, patch creation                               |
 | **VCS Automation**          | PyGithub / GitHub REST API                                     | Automated branch creation, patch application, and Pull Request opening                                              |
@@ -428,27 +431,27 @@ Visit `http://localhost:3000` to access the FindableAI Scan Console.
 FindableAI maintains a production-grade test suite covering API contracts, DOM parsing, DAG orchestration, NLI entailment, AI Lighthouse scoring, and UI interactions:
 
 ```bash
-# Backend Test Suite (348 tests)
+# Backend (from repo root)
 cd backend
+# use project venv if present
 pytest -v
 
-# Frontend Test Suite (305 tests)
+# Frontend
 cd frontend
 npm run test
 ```
 
-| Layer | Framework | Passed Tests | Key Coverage Areas |
-| :--- | :--- | :--- | :--- |
-| **Backend** | `pytest` + `pytest-asyncio` | **348 passed** | SSRF filters, DAG state runner, Scorer formula, AI Lighthouse engine, Budget guard, PyGithub PR service |
-| **Frontend** | `vitest` + React Testing Library | **305 passed** | Intent Matrix, AI Lighthouse gauges, Crawler governance panel, Patch Modal, Live SSE Console, ScoreGauge |
-| **TOTAL** | Multi-Tier Automated CI | **653 PASSED** | End-to-end reliability verification |
+Test suite sizes and “passed” badges in marketing copy can drift. Re-run the commands above for current counts. Unit/integration tests with fakes do **not** prove live Groq, GitHub, or production deploy success. See [docs/engineering/TESTING.md](docs/engineering/TESTING.md).
 
-### 6. Production Cloud Deployment
+### 6. Deployment (not production-certified)
 
-FindableAI is production-ready for deployment on **Railway / Render** (FastAPI + PostgreSQL pgvector + Redis) and **Vercel** (Next.js 14):
+Dockerfiles and Compose exist (`backend/Dockerfile`, `frontend/Dockerfile`, `docker-compose.yml`). CI workflow files exist under `.github/workflows/`.
 
-- Follow the detailed step-by-step instructions in the [Production Deployment Guide](docs/DEPLOYMENT_GUIDE.md).
-- Turnkey deployment configurations included: [`backend/railway.json`](backend/railway.json), [`render.yaml`](render.yaml), and [`frontend/vercel.json`](frontend/vercel.json).
+- Operational guide: [docs/engineering/DEPLOYMENT.md](docs/engineering/DEPLOYMENT.md)
+- Readiness / gaps: [docs/engineering/LIMITATIONS_AND_READINESS.md](docs/engineering/LIMITATIONS_AND_READINESS.md)
+- Env vars: [docs/engineering/ENVIRONMENT.md](docs/engineering/ENVIRONMENT.md)
+
+**This repository does not currently include** `docs/DEPLOYMENT_GUIDE.md`, `backend/railway.json`, `render.yaml`, or `frontend/vercel.json`. Do not claim a live cloud deploy succeeded unless you have run and verified it.
 
 ## Team Roles & Ownership
 

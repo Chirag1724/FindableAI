@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     # Hard global LLM provider-call cap per scan (P2-4.2). Not per-engine.
     MAX_LLM_CALLS_PER_SCAN: int = 35
 
+    # Explicit opt-in for non-production synthetic demo fill (never remediation-eligible).
+    # Normal scans must not inject fabricated intents/scores/patches unless this is true.
+    ALLOW_SYNTHETIC_DEMO: bool = False
+
     # Security & Authentication
     API_KEY: str = ""
 

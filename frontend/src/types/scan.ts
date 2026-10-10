@@ -71,6 +71,8 @@ export interface PatchProposal {
   code_diff?: string | null;
   auxiliary_files?: AuxiliaryFile[];
   framework?: string | null;
+  /** Demo/mock artifact — not evidence-backed remediation */
+  is_synthetic?: boolean;
 }
 
 
@@ -91,7 +93,19 @@ export interface AuditSummary {
   execution_time_seconds: number;
   max_pages_requested?: number;
   crawled_pages?: CrawledPageDetail[];
+  /** Evaluations from DAG before any synthetic fill */
+  dag_evaluations_count?: number;
+  /** Synthetically injected intent count (0 if none) */
+  synthetic_intents_count?: number;
 }
+
+export type ScanOutcome = "success" | "partial" | "inconclusive" | "failed" | string;
+export type ResultSource =
+  | "real_pipeline"
+  | "partial_real"
+  | "synthetic_fallback"
+  | "inconclusive"
+  | string;
 
 export interface ScanResponse {
   scan_id: string;
@@ -104,7 +118,17 @@ export interface ScanResponse {
   crawled_pages?: CrawledPageDetail[];
   patches: PatchProposal[];
   error?: string;
-  execution_mode?: "real_llm" | "deterministic_fallback" | string;
+  /** real_llm only when DAG evals + LLM calls + no synthetic/mock intelligence */
+  execution_mode?: "real_llm" | "synthetic_fallback" | "deterministic" | string;
+  /** Unset until integrity is decided — do not assume live_pipeline while pending */
+  data_source?: "live_pipeline" | "synthetic_fallback" | string | null;
+  result_source?: ResultSource;
+  outcome?: ScanOutcome;
+  score_source?: "deterministic_scorer" | "mock" | "none" | string;
+  patches_source?: "assembler" | "mock" | "none" | string;
+  /** False for synthetic/mock scans — do not treat as evidence-backed remediation */
+  remediation_eligible?: boolean;
+  intelligence_warnings?: string[];
   llm_calls_made?: number;
   repo_url?: string;
   github_repo_url?: string;

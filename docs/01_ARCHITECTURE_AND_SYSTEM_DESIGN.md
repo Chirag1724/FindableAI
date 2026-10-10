@@ -337,26 +337,28 @@ CREATE INDEX idx_chunks_embedding ON dom_chunks USING hnsw (embedding vector_cos
 CREATE INDEX idx_chunks_tsv ON dom_chunks USING gin (content_tsv);
 ```
 
-**Hybrid Search via Reciprocal Rank Fusion (RRF):**
+**Hybrid search — design target vs current implementation:**
 
-> **Research Note:** Vector scores and BM25/keyword scores are mathematically incomparable — they operate in different metric spaces. The industry-standard solution is **Reciprocal Rank Fusion (RRF)**, which normalizes by rank position rather than raw score. Formula: `RRF(d) = Σ 1/(k + rank(d))` where `k=60` is a smoothing constant.
+> **Status (implementation evidence):** Reciprocal Rank Fusion (RRF) and dense vector *query* search are **not** implemented in the live runtime path. See [docs/engineering/LIMITATIONS_AND_READINESS.md](engineering/LIMITATIONS_AND_READINESS.md) and [`backend/app/crawler/search.py`](../backend/app/crawler/search.py).
+>
+> **What exists today:**
+> - Embeddings may be **written** on chunk store (`store_dom_chunks` + `get_embeddings_batch`).
+> - `hybrid_search` uses PostgreSQL `tsvector` / `ts_rank_cd`, then token/ILIKE scoring, then in-memory keyword fallback — **no** RRF loop, **no** cosine ANN at query time.
+> - Live `FindableAIDAG` ACT defaults to `_observe_chunks_retriever` (first-*k* OBSERVE chunks), not `hybrid_search`.
+>
+> **Research note (planned / historical design):** Vector scores and BM25/keyword scores are incomparable; RRF (`RRF(d) = Σ 1/(k + rank(d))`, often `k=60`) is a common fusion approach. The pseudocode below is a **design sketch**, not a transcript of current production code.
 
 ```python
-async def hybrid_search(query: str, scan_id: str, k: int = 5) -> list[DOMChunk]:
+# DESIGN SKETCH ONLY — not the current hybrid_search implementation
+async def hybrid_search_rrf_design(query: str, scan_id: str, k: int = 5) -> list[DOMChunk]:
     query_embedding = await embed(query)
-    
-    # Parallel: semantic search + keyword search
     semantic_results = await vector_search(query_embedding, scan_id, top_n=20)
     keyword_results = await bm25_search(query, scan_id, top_n=20)
-    
-    # Reciprocal Rank Fusion
     rrf_scores = {}
     for rank, chunk in enumerate(semantic_results):
         rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0) + 1 / (60 + rank)
     for rank, chunk in enumerate(keyword_results):
         rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0) + 1 / (60 + rank)
-    
-    # Return top-k by fused score
     sorted_ids = sorted(rrf_scores, key=rrf_scores.get, reverse=True)[:k]
     return await fetch_chunks_by_ids(sorted_ids)
 ```
@@ -433,6 +435,8 @@ class IntentEvaluation(BaseModel):
 
 ```
 F = 0.40 × S_ans + 0.30 × S_con + 0.20 × S_str + 0.10 × S_acc
+
+(Components \(S_*\) are already on a 0–100 scale; the result is 0–100. Do **not** apply an additional outer ×100. Canonical ADR: [docs/engineering/ARCHITECTURE_DECISIONS.md](engineering/ARCHITECTURE_DECISIONS.md#adr-001-canonical-f-score-weight-formulation).)
 ```
 
 | Sub-Score | Weight | Formula | What It Measures |
@@ -657,7 +661,7 @@ OBSERVE ──▶ PLAN ──▶ ACT ──▶ VERIFY ──▶ REFLECT ──�
 | Schema.org LocalBusiness Best Practices | schema.org, Google Rich Results Test |
 | NLI: SNLI / MultiNLI / FEVER Benchmarks | nlpprogress.com |
 | Instructor Library (Pydantic + LLM) | github.com/jxnl/instructor |
-| pgvector Hybrid Search + RRF | github.com/pgvector/pgvector |
+| pgvector (embedding storage; query-time RRF not implemented) | github.com/pgvector/pgvector |
 | Cross-Encoder NLI Models | Hugging Face sentence-transformers |
 | SSRF Prevention (OWASP) | owasp.org |
 | SSE in Next.js (Route Handlers) | Next.js Documentation |

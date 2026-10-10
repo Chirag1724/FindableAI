@@ -1,68 +1,61 @@
 # Engineering Roadmap & Production Readiness
 
-This document tracks the delivery status of production milestones and outlines the forward-looking engineering roadmap for FindableAI.
+This document tracks near-term engineering priorities. For the **authoritative** description of what is implemented versus overstated, see [LIMITATIONS_AND_READINESS.md](LIMITATIONS_AND_READINESS.md). For task IDs and owners, see [docs/04_TEAM_TASK_ALLOCATION.md §10](../04_TEAM_TASK_ALLOCATION.md#10-production-readiness-roadmap).
+
+**Rule:** Existence of a module, Dockerfile, CI workflow, or unit test ≠ production-ready product capability.
 
 ---
 
-## 1. Verified Delivery Status (Phases 5-7)
+## 1. Honest delivery snapshot (documentation audit)
 
-Based on direct codebase verification, the following core production capabilities have been fully delivered:
-
-| Milestone ID | Feature / Component | Delivery Evidence in Codebase |
+| Milestone | Claim historically | Current evidence-based status |
 | :--- | :--- | :--- |
-| **PROD-5.1** | DAG Pipeline Integration | `FindableAIDAG` orchestrates real intent generation, entailment checks, contradiction detection, and patch generation in [backend/app/api/v1/scans.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/api/v1/scans.py). |
-| **PROD-5.2** | Canonical F-Score Specification | Unified at `0.40 / 0.30 / 0.20 / 0.10` across [backend/app/schemas/scoring.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/schemas/scoring.py), [backend/app/schemas/fscore.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/schemas/fscore.py), frontend types, and README. |
-| **PROD-5.4** | API Intelligence Contract Alignment | `ScanResponse` exposes typed score breakdowns, 30 buyer intents, cross-page contradictions, and ranked patches. |
-| **PROD-5.5** | Failure Isolation | Failures during GitHub PR creation or upstream LLM rate limits never wipe already-computed scan intelligence. |
-| **PROD-5.6** | Interactive Frontend Dashboard | Next.js 14 dashboard implements `ScoreGauge`, `IntentMatrix`, `ContradictionCard`, `PatchModal`, `EvidenceViewer`, and SSE progress bars. |
-| **PROD-6.1** | SSRF & Crawler Protection | [backend/app/core/security.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/core/security.py) enforces private IP blocking, cloud metadata blocking, and scheme validation. |
-| **PROD-6.2** | API Abuse Controls & Security Headers | Sliding-window rate limiting in [backend/app/core/rate_limiter.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/core/rate_limiter.py), `X-API-Key` auth in [backend/app/core/auth.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/core/auth.py), and security headers in [backend/app/main.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/main.py). |
-| **PROD-6.4** | Secrets & Log Sanitization | Automated PR engine tests verify that GitHub tokens and auth headers are stripped from log outputs. |
-| **PROD-7.1** | Production Containers | Multi-stage Dockerfiles in [backend/Dockerfile](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/Dockerfile) and [frontend/Dockerfile](file:///c:/Users/LENOVO/Desktop/FindableAI/frontend/Dockerfile), orchestrated via `docker-compose.yml`. |
-| **PROD-7.2** | Continuous Integration CI | Automated GitHub Actions in [.github/workflows/backend-ci.yml](file:///c:/Users/LENOVO/Desktop/FindableAI/.github/workflows/backend-ci.yml) and [.github/workflows/frontend-ci.yml](file:///c:/Users/LENOVO/Desktop/FindableAI/.github/workflows/frontend-ci.yml) running linting, type checks, unit tests, and production builds. |
+| **PROD-5.1** DAG in scan API | “Delivered” | **Partial.** `FindableAIDAG` is called from `run_scan_pipeline`, but mock F-score/patches and synthetic intents remain on failure / non-prod paths. AC “remove mocks from happy path” **not met**. |
+| **PROD-5.2** Canonical F-Score | “Unified across README” | **Partial.** Code uses `0.40/0.30/0.20/0.10` without outer ×100. Docs updated to match; `ScoreWeights` still says *provisional*. |
+| **PROD-5.3** Intelligence regression fixtures | Open | **Missing** as a dedicated suite (engine unit tests exist). |
+| **PROD-5.4** API ↔ UI contract | Partial | ScanResponse exposes scores/intents/patches; hydrate after restart is lossy. |
+| **PROD-5.5** Failure isolation | Partial | DAG error results + separate PR apply; UI can still present fallback as a completed audit. |
+| **PROD-5.6** Frontend dashboard | Largely present | Components exist; honesty of Fallback Mode / empty intents still weak. |
+| **PROD-6.1** SSRF | Implemented | `backend/app/core/security.py` + tests. |
+| **PROD-6.2** Rate limit / API key / headers | Partial | In-memory rate limit + optional API key; review prod CORS/headers separately. |
+| **PROD-6.3** Prompt-injection fixtures | Open | Instructional NLI gates exist; adversarial suite **missing**. |
+| **PROD-6.4** Secrets / GitHub safety | Partial | Log sanitization in LLM client; PR path tests with fakes. |
+| **PROD-7.1** Dockerfiles | Files exist | `backend/Dockerfile`, `frontend/Dockerfile`, Compose — **deploy success unverified**. |
+| **PROD-7.2** CI workflows | Files exist | `.github/workflows/backend-ci.yml`, `frontend-ci.yml` — **CI green status unverified in doc pass**. |
+| **PROD-7.3** Migrations on deploy | Open | Alembic present; auto-migrate on container start not established. |
+| **PROD-7.4** Structured observability | Open | Request IDs / logs partial; no full per-stage telemetry product. |
+| **PROD-8.1** Clean-env demo-site E2E gate | Open | `demo-site/` exists; automated release E2E gate not established. |
 
 ---
 
-## 2. Near-Term Engineering Priorities
+## 2. Near-term priorities (do these in engineering tasks, not docs)
 
-The following items represent the immediate operational and hardening roadmap:
-
-### PROD-7.3: Database Migration Automation on Deployment
-- **Goal:** Ensure automated execution of Alembic migrations (`alembic upgrade head`) on container startup before Uvicorn workers bind to the port.
-- **Implementation:** Add an entrypoint wrapper script in `backend/Dockerfile` that runs database migrations with exponential backoff if the PostgreSQL instance is initializing.
-
-### PROD-7.4: Structured Scan Latency & Token Observability
-- **Goal:** Provide detailed per-stage timing breakdown (crawl duration, NLI inference time, patch generation latency) and token count histograms in the audit summary response.
-- **Implementation:** Extend `AuditSummary` in [backend/app/schemas/scan.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/schemas/scan.py) with structured telemetry metadata.
-
-### PROD-8.1: Continuous E2E Regression Gate
-- **Goal:** Automated end-to-end smoke test executing a live crawl against the bundled `demo-site/` corpus during release tagging.
+1. Honest execution modes + UI (synthetic ≠ real).
+2. Persist `execution_mode`, summary, evidence; fix cold hydrate.
+3. Wire or permanently demote hybrid retrieval (dense query + optional RRF remain **unimplemented**).
+4. Intelligence regression fixtures (PROD-5.3) and prompt-injection fixtures (PROD-6.3).
+5. Alembic-on-boot + verified deploy runbook execution (PROD-7.3).
+6. Optional post-PR re-audit (verification loop).
 
 ---
 
-## 3. Medium-to-Longer-Term Strategic Enhancements
+## 3. Medium-term ideas (planned only)
 
-### Distributed Asynchronous Worker Pool (Celery / ARQ)
-- **Context:** The backend currently executes background scans via FastAPI's in-process `BackgroundTasks`. While sufficient for low-to-medium concurrency, high-concurrency multi-tenant workloads can exhaust process CPU and memory.
-- **Plan:** Introduce a Celery or ARQ worker pool backed by the existing Redis service (`redis://localhost:6379/0`), allowing crawler and NLI workers to scale independently from the FastAPI REST layer.
+### Distributed workers (Celery / ARQ)
+- **Status:** Planned. Scans today use FastAPI `BackgroundTasks`. Redis is composed but unused by app code.
+- **docs/04** explicitly rejects a Celery rewrite “for prestige” until BackgroundTasks is proven insufficient.
 
-### Dynamic Multi-Provider LLM Failover
-- **Context:** When primary Groq LPUs reach Output Tokens Per Minute (OTPM) rate limits, the system currently activates the deterministic heuristic engine.
-- **Plan:** Implement seamless dynamic failover:
-  1. Primary: Groq LPUs (`qwen/qwen3.8-27b`).
-  2. Secondary: OpenAI (`gpt-4o-mini`) or Anthropic (`claude-3-haiku`).
-  3. Tertiary: Google Gemini (`gemini-1.5-flash`).
-  4. Quaternary: Deterministic heuristic engine.
+### Dynamic multi-provider LLM failover
+- **Status:** Planned. Env keys exist; automatic Groq→OpenAI→Anthropic→Gemini chain is **not** implemented. Current degradation is synthetic/heuristic fallback after LLM failure / budget exhaustion.
 
-### Webhook Notification Dispatcher
-- **Context:** Enterprise users and CI/CD pipelines need automated notifications when audits complete.
-- **Plan:** Add an optional `webhook_url` field to `ScanRequest` that posts the finalized `ScanResponse` JSON payload upon scan completion.
+### Webhook notification dispatcher
+- **Status:** Planned. Not implemented.
 
 ---
 
-## 4. Explicit Non-Goals & Architecture Anti-Patterns
+## 4. Explicit non-goals
 
-To maintain senior engineering focus and minimize operational complexity, the following architectural choices remain explicitly out of scope:
-- **No Kubernetes / Service Mesh:** Docker Compose and single-container deployments (Render / Vercel) provide sufficient scalability without orchestration overhead.
-- **No Heavy Vector Database:** PostgreSQL with `pgvector` fully satisfies semantic search requirements; standalone vector databases (Pinecone, Weaviate) are unnecessary.
-- **No Proprietary Third-Party APM Platforms:** Native structured logging with `X-Request-ID` and standard Prometheus metrics endpoints are preferred over heavy vendor agents.
+- Kubernetes / service mesh for this project scope.
+- Standalone vector DB (pgvector remains the store; query-time ANN still incomplete).
+- Heavy proprietary APM as a prerequisite.
+- Claiming guaranteed AI-search ranking or citations.

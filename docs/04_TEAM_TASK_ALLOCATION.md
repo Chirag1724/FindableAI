@@ -186,7 +186,7 @@ FindableAI/
 | P1-2.2 | SSE Streaming Endpoint | Critical | `GET /api/scans/{id}/stream`: Stream DAG phase transitions to frontend |
 | P1-2.3 | Evidence API | High | `GET /api/scans/{id}/intents`, `GET /api/scans/{id}/contradictions` |
 | P1-2.4 | Patches API | High | `GET /api/scans/{id}/patches`, `POST /api/scans/{id}/patches/apply` |
-| P1-2.5 | Database query helpers | High | Hybrid search function (vector + BM25 + RRF), chunk retrieval by IDs |
+| P1-2.5 | Database query helpers | High | `hybrid_search` exists (FTS + keyword; **RRF / dense query not implemented**). Chunk retrieval by IDs as needed. |
 
 #### Phase 5-6: DevOps & Deployment
 
@@ -234,7 +234,7 @@ FindableAI/
 | Task ID | Task | Priority | Details |
 | :--- | :--- | :--- | :--- |
 | P2-2.1 | Intent Generator | Critical | ✅ **DONE** — `intent_generator.py`: **ONE LLM call** → exactly 30 `IntentQuery` across 10 categories (3 each), structured `IntentBatch`, deterministic validation (duplicates, distribution, answer-like rejection). Architecture: `business_context → IntentGenerator → LLMClient → IntentBatch → validation` |
-| P2-2.2 | Hybrid Retrieval | Critical | ✅ **DONE (consumer)** — `entailment_engine.py` calls Contract-1 `hybrid_search(query, scan_id, k=5)` from `app.crawler.search`. Does **not** re-implement vector/BM25/RRF (still owned by crawler/search). |
+| P2-2.2 | Hybrid Retrieval | Critical | ⚠️ **DONE (consumer API) / PARTIAL (runtime)** — `EntailmentEngine` *can* call Contract-1 `hybrid_search`. Live `FindableAIDAG` defaults to `_observe_chunks_retriever` (first-*k* chunks). `hybrid_search` itself has **no RRF** and does not query embeddings. See LIMITATIONS_AND_READINESS. |
 | P2-2.3 | NLI Entailment Engine | Critical | ✅ **DONE** — `backend/app/engines/entailment_engine.py`. Flow: `Intent → hybrid_search(..., k=5) → top-5 chunks → LLMClient NLI → IntentEvaluation`. Concurrent `evaluate_intents` via `asyncio.gather`; shared `LLMClient` budget preserved. |
 | P2-2.4 | Anti-Hallucination Guardrails | Critical | ✅ **DONE** — evidence-only `NLI_SYSTEM_PROMPT`; zero-chunk → deterministic UNKNOWN (0 LLM calls); non-UNKNOWN must cite retrieved IDs; fabricated IDs rejected; no LLM repair/retry (`max_retries=0`) |
 | P2-2.5 | Contradiction Detector | High | ✅ **DONE** — `backend/app/engines/contradiction.py`. Hybrid: deterministic structured facts first; LLM only for semantic ambiguity. Severities: HARD_CONTRADICTION / SOFT_INCONSISTENCY. Flow: chunks → extract → normalize → compare → optional semantic LLM → deduped `Contradiction`. |
@@ -465,7 +465,7 @@ class DOMChunkDB(SQLModel):
 
 # Himanshu Raj provides this function for Shiv Raj Singh:
 async def hybrid_search(query: str, scan_id: UUID, k: int = 5) -> list[DOMChunkDB]:
-    """Returns top-k chunks by RRF-fused vector + BM25 search."""
+    """Contract-1: returns top-k chunks (current impl: FTS/keyword; RRF not implemented)."""
     ...
 ```
 
@@ -641,20 +641,21 @@ Chirag Dwivedi should **not wait** for the backend to be complete. Instead:
 
 ## 10. Production Readiness Roadmap
 
-> **Audit basis (`main`, Sep 2026):** Shiv's intelligence/orchestration engines are **17/17 complete**. The system is **not** production-ready because the scan API still uses **mock F-score/patches**, the frontend is largely a **shell**, and **CI/Docker/deploy** are missing. This section is the single production roadmap. It **does not** recreate P2-0.* / P2-2.* / P2-3.* / P2-4.*.
+> **Audit basis (updated documentation pass):** Shiv's assigned intelligence/orchestration engines remain **17/17 complete at unit/engine scope**. The **product** is **not** production-ready. Canonical status: [docs/engineering/LIMITATIONS_AND_READINESS.md](engineering/LIMITATIONS_AND_READINESS.md). This section is the production roadmap. It **does not** recreate P2-0.* / P2-2.* / P2-3.* / P2-4.*.
 
 ### Current state (evidence-based)
 
 | Area | State | Evidence |
 | :--- | :--- | :--- |
-| LLM + BudgetGuard + engines + DAG | ✅ Implemented | `app/core/llm.py`, `budget.py`, `engines/*`, `orchestration/*`, extensive unit tests |
-| Crawler / chunker / SSRF / embeddings / hybrid_search | ✅ Largely implemented | `crawler/*`, `security.py`, `embeddings.py`, `search.py`, `demo-site/` |
-| Scan API + SSE | ✅ Implemented | Real crawl→chunk→store; FindableAIDAG orchestrates real intent, entailment, contradiction, scorer and patch generation (`api/v1/scans.py`) |
-| Frontend dashboard | ⚠️ Shell | `page.tsx` + types only; no ScoreGauge/IntentMatrix/PatchModal components |
-| Redis/Celery workers | ❌ Not used in app | `docker-compose` has Redis; no Celery/ARQ code path (BackgroundTasks only) |
-| CI/CD | ❌ Missing | No `.github/workflows/` |
-| App Dockerfile | ❌ Missing | Compose = Postgres+Redis only |
-| Canonical F-score | ✅ Finalized | Implementation and README unified at `0.40/0.30/0.20/0.10` |
+| LLM + BudgetGuard + engines + DAG | ✅ Implemented (unit) | `app/core/llm.py`, `budget.py`, `engines/*`, `orchestration/*`, extensive unit tests |
+| Crawler / chunker / SSRF / embeddings | ✅ Largely implemented | `crawler/*`, `security.py`, `embeddings.py`, `demo-site/` |
+| Hybrid search / RRF | ⚠️ Partial / overclaimed historically | `hybrid_search` = FTS + token fallback (**no RRF**, embeddings not queried). Live DAG ACT uses first-*k* OBSERVE chunks by default |
+| Scan API + SSE | ⚠️ Partial | Real crawl→chunk→DAG wiring; synthetic intents + mock F-score/patches still on non-prod / failure paths (`api/v1/scans.py`) |
+| Frontend dashboard | ✅ Largely implemented | ScoreGauge, IntentMatrix, PatchModal, SSE; Fallback Mode honesty still weak |
+| Redis/Celery workers | ❌ Not used in app | Compose has Redis; scans use FastAPI `BackgroundTasks` only |
+| CI/CD | ✅ Workflows present | `.github/workflows/backend-ci.yml`, `frontend-ci.yml` (live CI green status **unverified** in doc pass) |
+| App Dockerfiles | ✅ Present | `backend/Dockerfile`, `frontend/Dockerfile` + Compose app services (deploy success **unverified**) |
+| Canonical F-score | ✅ Code formula; docs aligned | `F = 0.40*S_ans+…` (0–100 components, **no** outer ×100). See ADR-001 |
 
 ### Priorities
 
@@ -724,7 +725,7 @@ Do **not** start a new independent intelligence engine.
 
 > **Count note:** Shiv Phase 2 = seven tasks (`P2-2.1`–`P2-2.7`). Shiv Phase 4 = two tasks (`P2-4.1`, `P2-4.2`). The prior summary that showed Phase 2 = 9 and Phase 4 = — double-counted the DAG/budget work under Phase 2 and understated completion (9/17).
 >
-> **Production readiness:** Shiv's **17/17** completed tasks mean the assigned AI/ML + patch + orchestration roadmap is done in-repo. They do **not** imply the full product is production-ready. See **[§10 Production Readiness Roadmap](#10-production-readiness-roadmap)** (`PROD-5.*`–`PROD-8.*`). Critical gap today: scan API still returns **mock** F-score/patches until **PROD-5.1**.
+> **Production readiness:** Shiv's **17/17** completed tasks mean the assigned AI/ML + patch + orchestration roadmap is done in-repo at engine scope. They do **not** imply the full product is production-ready. See **[§10](#10-production-readiness-roadmap)** and [LIMITATIONS_AND_READINESS.md](engineering/LIMITATIONS_AND_READINESS.md). Critical remaining gaps: honest fallback UX, durable persistence/hydrate, retrieval wiring truth, regression fixtures; mock F-score/patches still exist on non-prod / failure paths after DAG wiring.
 
 ---
 

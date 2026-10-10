@@ -51,6 +51,13 @@ class PatchProposal(BaseModel):
         default=None,
         description="Detected repository framework, e.g. nextjs_app_router",
     )
+    is_synthetic: bool = Field(
+        default=False,
+        description=(
+            "True when this patch is a demo/mock artifact and must not be treated "
+            "as evidence-backed remediation"
+        ),
+    )
 
 
 class PullRequestResult(BaseModel):

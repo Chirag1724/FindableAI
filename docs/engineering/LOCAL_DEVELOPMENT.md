@@ -2,13 +2,19 @@
 
 This guide walks through configuring, running, and testing FindableAI locally from a clean clone.
 
+**Also read:** [ENVIRONMENT.md](ENVIRONMENT.md) (canonical env vars) · [LIMITATIONS_AND_READINESS.md](LIMITATIONS_AND_READINESS.md) (what “working” means).
+
+**Port pitfall:** `backend/app/core/config.py` defaults `DATABASE_URL` to port **5433**, while `.env.example` / Compose typically use **5432**. Set `DATABASE_URL` explicitly after copying `.env.example`.
+
+Commands below are taken from project scripts/config. Full-suite pass/fail counts are **not verified** in the documentation pass unless you re-run them.
+
 ---
 
 ## Prerequisites
 
 Ensure the following tools are installed on your host system:
-- **Python:** Version `3.11+` (verified in [backend/pyproject.toml](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/pyproject.toml))
-- **Node.js:** Version `20+` with `npm 10+` (verified in [frontend/package.json](file:///c:/Users/LENOVO/Desktop/FindableAI/frontend/package.json))
+- **Python:** Version `3.11+` (see [backend/pyproject.toml](../../backend/pyproject.toml))
+- **Node.js:** Version `20+` with `npm 10+` (see [frontend/package.json](../../frontend/package.json))
 - **Docker & Docker Compose:** Required if running local PostgreSQL (pgvector) and Redis containers.
 - **Git:** Standard CLI client.
 
@@ -77,7 +83,7 @@ cd backend
 alembic upgrade head
 ```
 
-*Note: FindableAI includes a memory-backed cache fallback (`SCANS_DB`). The backend will run and execute scans even if PostgreSQL or Redis are temporarily offline.*
+*Note: FindableAI includes a process-local memory store (`SCANS_DB`). The backend can run scans if PostgreSQL is offline, but results will not survive restart / multi-worker handoff. Redis is optional and **unused by application code** today (rate limits are in-memory; jobs use FastAPI `BackgroundTasks`).*
 
 ---
 

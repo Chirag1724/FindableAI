@@ -119,12 +119,14 @@ flowchart TD
   3. Queries are generated from specific perspective personas (`cto`, `developer`, `procurement`, `compliance`, `end_user`) configured for the scan.
   4. The `BudgetGuard` tracks token consumption to prevent API budget exhaustion.
 
-### Stage 7: Hybrid Dense Vector + Sparse BM25 Retrieval
-- **Components Responsible:** [`backend/app/crawler/search.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/crawler/search.py) (`hybrid_search()`), [`backend/app/orchestration/dag.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/orchestration/dag.py)
-- **Execution:**
-  1. The worker emits `ScanStatus.HYBRID_RETRIEVAL` (75% progress).
-  2. For each of the 30 simulated queries, reciprocal rank fusion (RRF) combines cosine similarity vector search results with BM25 keyword search results over the crawled DOM chunks.
-  3. The top relevant chunks are collected alongside their CSS selector paths as candidate evidence.
+### Stage 7: Evidence Selection for NLI (progress label: `HYBRID_RETRIEVAL`)
+- **Components Responsible:** [`backend/app/orchestration/dag.py`](../../backend/app/orchestration/dag.py) (`_observe_chunks_retriever`, `_resolve_entailment`), optional [`backend/app/crawler/search.py`](../../backend/app/crawler/search.py) (`hybrid_search`), [`backend/app/engines/entailment_engine.py`](../../backend/app/engines/entailment_engine.py) (`default_hybrid_retriever`).
+- **Actual live scan path (default):**
+  1. The worker emits `ScanStatus.HYBRID_RETRIEVAL` (75% progress) as an SSE milestone name.
+  2. `FindableAIDAG` builds `EntailmentEngine` with `_observe_chunks_retriever`: returns the first *k* OBSERVE DOM chunks in stable order (**query text is ignored**). Dense ANN search and **RRF are not used**.
+  3. `hybrid_search` (Postgres `tsvector` / `ts_rank_cd`, then token/ILIKE, then in-memory keyword scoring) exists as Contract-1 and is the default only when an `EntailmentEngine` is constructed **without** a custom retriever. The scan pipeline does **not** inject it today.
+  4. Embeddings may be written at Stage 5 (`store_dom_chunks`) but are **not queried** inside `hybrid_search`.
+- **Status:** Partially implemented / not fully wired. See [LIMITATIONS_AND_READINESS.md](LIMITATIONS_AND_READINESS.md).
 
 ### Stage 8: NLI Entailment Classification & Contradiction Detection
 - **Components Responsible:** [`backend/app/engines/entailment_engine.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/entailment_engine.py), [`backend/app/engines/contradiction.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/contradiction.py)
@@ -137,9 +139,11 @@ flowchart TD
 - **Components Responsible:** [`backend/app/engines/scorer.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/scorer.py) (`Scorer.score()`, `adapt_score_breakdown_to_api()`)
 - **Execution:**
   1. The worker emits `ScanStatus.COMPUTING_FSCORE` (92% progress).
-  2. The deterministic scorer evaluates the 4 canonical metrics without LLM invocations:
+  2. The deterministic scorer evaluates the 4 canonical metrics without LLM invocations. Components are 0–100; **no outer ×100**:
      $$F = 0.40 \cdot S_{\text{ans}} + 0.30 \cdot S_{\text{con}} + 0.20 \cdot S_{\text{str}} + 0.10 \cdot S_{\text{acc}}$$
-  3. Letter grades (S, A, B, C, D, F) and sub-score metrics are derived.
+     Canonical detail: [ADR-001](ARCHITECTURE_DECISIONS.md#adr-001-canonical-f-score-weight-formulation).
+  3. Letter grades via `derive_grade` (S/A+/A/…/F with answerability and contradiction guardrails) and API sub-score metrics are derived.
+  4. If the scorer returns nothing in non-production, `generate_mock_fscore` may fabricate a score — that is **fallback/mock**, not a real audit.
 
 ### Stage 10: Deterministic AI Lighthouse & Crawler Governance Assessment
 - **Components Responsible:** [`backend/app/engines/lighthouse.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/lighthouse.py) (`LighthouseEngine.evaluate()`), [`backend/app/engines/robots_analyzer.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/robots_analyzer.py), [`backend/app/engines/llms_txt_generator.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/llms_txt_generator.py)
