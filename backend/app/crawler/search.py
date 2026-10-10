@@ -1,10 +1,23 @@
+"""Chunk persistence and query-time retrieval (dense + lexical + RRF).
+
+Contract: ACT consumes ``hybrid_search`` fused candidates when the DB/index is
+available. Modes are explicit — lexical-only is never labelled as dense/RRF.
+"""
+
+from __future__ import annotations
+
 import logging
+import math
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass, field
+from typing import Literal, overload
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.embeddings import EMBEDDING_DIM, get_embedding
 from app.db import AsyncSessionLocal
 from app.models.database import DOMChunk
 
@@ -12,15 +25,71 @@ from .dom_chunker import ChunkData
 
 logger = logging.getLogger(__name__)
 
+MODE_RRF_HYBRID = "rrf_hybrid"
+MODE_DENSE_ONLY = "dense_only"
+MODE_LEXICAL_ONLY = "lexical_only"
+MODE_MEMORY_FALLBACK = "memory_fallback"
+MODE_EMPTY = "empty"
+
+
+@dataclass
+class RetrievalMeta:
+    """Honest description of which retrieval algorithms actually ran."""
+
+    mode: str
+    dense_hits: int = 0
+    lexical_hits: int = 0
+    fused_hits: int = 0
+    warnings: list[str] = field(default_factory=list)
+    rrf_k: int = 60
+
+
+def reciprocal_rank_fusion(
+    ranked_id_lists: Sequence[Sequence[uuid.UUID]],
+    *,
+    rrf_k: int | None = None,
+    limit: int = 5,
+) -> list[tuple[uuid.UUID, float]]:
+    """Fuse ranked candidate lists with Reciprocal Rank Fusion.
+
+    score(d) = sum 1/(rrf_k + rank). Ties broken by UUID string for stability.
+    """
+    k = int(rrf_k if rrf_k is not None else getattr(settings, "RETRIEVAL_RRF_K", 60))
+    if k < 1:
+        k = 60
+    scores: dict[uuid.UUID, float] = {}
+    for ranked in ranked_id_lists:
+        for rank, cid in enumerate(ranked, start=1):
+            if not isinstance(cid, uuid.UUID):
+                continue
+            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank)
+    ordered = sorted(scores.items(), key=lambda item: (-item[1], str(item[0])))
+    return ordered[: max(0, int(limit))]
+
+
+def _cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = 0.0
+    na = 0.0
+    nb = 0.0
+    for x, y in zip(a, b, strict=True):
+        fx = float(x)
+        fy = float(y)
+        dot += fx * fy
+        na += fx * fx
+        nb += fy * fy
+    if na <= 0.0 or nb <= 0.0:
+        return 0.0
+    return dot / (math.sqrt(na) * math.sqrt(nb))
+
 
 async def store_dom_chunks(
     scan_id: uuid.UUID,
     chunks: Sequence[ChunkData],
     session: AsyncSession | None = None,
 ) -> list[DOMChunk]:
-    """
-    Persist extracted DOM chunks into the database associated with a scan.
-    """
+    """Persist extracted DOM chunks into the database associated with a scan."""
     if not chunks:
         return []
 
@@ -54,33 +123,22 @@ async def store_dom_chunks(
             return await _insert(s)
 
 
-async def hybrid_search(
+async def lexical_search(
     query: str,
     scan_id: uuid.UUID,
     k: int = 5,
     session: AsyncSession | None = None,
 ) -> list[DOMChunk]:
-    """
-    Hybrid Search Engine — Interface Contract 1.
-    Fuses PostgreSQL Full-Text Search (BM25/tsvector) with keyword relevance
-    to retrieve the top-k most relevant DOM chunks for a given query.
-
-    Parameters:
-        query: User or synthetic intent query string.
-        scan_id: Unique UUID of the active audit scan.
-        k: Maximum number of chunks to return (default: 5).
-        session: Optional external AsyncSession.
-    """
+    """PostgreSQL FTS (tsvector) with ILIKE term-frequency fallback."""
     cleaned_query = query.strip()
-    if not cleaned_query:
+    if not cleaned_query or k <= 0:
         return []
 
-    async def _execute_search(s: AsyncSession) -> list[DOMChunk]:
-        # 1. Try full-text search against content_tsv using plainto_tsquery
+    async def _execute(s: AsyncSession) -> list[DOMChunk]:
+        chunks: list[DOMChunk] = []
         try:
             ts_query = func.plainto_tsquery("english", cleaned_query)
             rank_col = func.ts_rank_cd(DOMChunk.content_tsv, ts_query).label("rank")
-
             stmt = (
                 select(DOMChunk)
                 .where(
@@ -90,100 +148,288 @@ async def hybrid_search(
                 .order_by(rank_col.desc())
                 .limit(k)
             )
-
             result = await s.execute(stmt)
             chunks = list(result.scalars().all())
-
-            # If full-text search returned sufficient matches, return them
             if len(chunks) >= min(k, 3):
                 return chunks
         except Exception as e:
             logger.debug("Full text tsvector query fallback triggered: %s", e)
             chunks = []
 
-        # 2. Fallback / supplementary search using tokenized ILIKE matching
-        # Ensures robust retrieval even if exact tsvector dictionary misses slang/brand terms
         words = [w.lower() for w in cleaned_query.split() if len(w) > 2]
         if not words:
             words = [cleaned_query.lower()]
 
-        fallback_stmt = select(DOMChunk).where(DOMChunk.scan_id == scan_id)
-
-        # Retrieve candidate chunks for the scan
-        all_scan_chunks_res = await s.execute(fallback_stmt)
+        all_scan_chunks_res = await s.execute(select(DOMChunk).where(DOMChunk.scan_id == scan_id))
         all_chunks = list(all_scan_chunks_res.scalars().all())
-
-        # Simple term frequency scoring fallback
         scored: list[tuple[float, DOMChunk]] = []
         for chunk in all_chunks:
             chunk_text = chunk.content.lower()
             match_score = sum(1.0 for word in words if word in chunk_text)
             if match_score > 0:
-                # Slight boost for shorter, tighter chunks
                 normalized_score = match_score / (1.0 + 0.05 * chunk.word_count)
                 scored.append((normalized_score, chunk))
-
-        scored.sort(key=lambda item: item[0], reverse=True)
+        scored.sort(key=lambda item: (-item[0], str(item[1].id)))
         fallback_chunks = [item[1] for item in scored[:k]]
-
-        # Merge results preserving order and avoiding duplicates
-        seen_ids = {c.id for c in chunks}
+        seen = {c.id for c in chunks}
         for c in fallback_chunks:
-            if c.id not in seen_ids:
+            if c.id not in seen:
                 chunks.append(c)
-                seen_ids.add(c.id)
-
+                seen.add(c.id)
         return chunks[:k]
+
+    if session is not None:
+        return await _execute(session)
+    async with AsyncSessionLocal() as s:
+        return await _execute(s)
+
+
+async def dense_search(
+    query: str,
+    scan_id: uuid.UUID,
+    k: int = 5,
+    session: AsyncSession | None = None,
+) -> tuple[list[DOMChunk], list[str]]:
+    """Query-time semantic retrieval against persisted embeddings.
+
+    Prefers pgvector cosine distance; falls back to in-process cosine over
+    loaded embeddings when the operator is unavailable (e.g. SQLite tests).
+    """
+    warnings: list[str] = []
+    cleaned = query.strip()
+    if not cleaned or k <= 0:
+        return [], warnings
+
+    query_emb = await get_embedding(cleaned)
+    if len(query_emb) != EMBEDDING_DIM:
+        warnings.append(
+            f"Query embedding dimension {len(query_emb)} != expected {EMBEDDING_DIM}; dense skipped."
+        )
+        return [], warnings
+    if all(abs(float(x)) < 1e-12 for x in query_emb):
+        warnings.append("Query embedding is empty; dense skipped.")
+        return [], warnings
+
+    async def _execute(s: AsyncSession) -> list[DOMChunk]:
+        # Attempt native pgvector ordering first.
+        try:
+            distance = DOMChunk.embedding.cosine_distance(query_emb)  # type: ignore[attr-defined]
+            stmt = (
+                select(DOMChunk)
+                .where(
+                    DOMChunk.scan_id == scan_id,
+                    DOMChunk.embedding.isnot(None),
+                )
+                .order_by(distance)
+                .limit(k)
+            )
+            result = await s.execute(stmt)
+            rows = list(result.scalars().all())
+            if rows:
+                return rows
+        except Exception as exc:
+            logger.debug("pgvector dense query unavailable (%s); using python cosine", exc)
+            warnings.append("pgvector cosine unavailable; used in-process dense scoring.")
+
+        result = await s.execute(
+            select(DOMChunk).where(
+                DOMChunk.scan_id == scan_id,
+                DOMChunk.embedding.isnot(None),
+            )
+        )
+        candidates = list(result.scalars().all())
+        scored: list[tuple[float, DOMChunk]] = []
+        for chunk in candidates:
+            emb = chunk.embedding
+            if emb is None:
+                continue
+            try:
+                vec = [float(x) for x in list(emb)]
+            except (TypeError, ValueError):
+                continue
+            if len(vec) != EMBEDDING_DIM:
+                continue
+            sim = _cosine_similarity(query_emb, vec)
+            if sim > 0.0:
+                scored.append((sim, chunk))
+        scored.sort(key=lambda item: (-item[0], str(item[1].id)))
+        return [c for _, c in scored[:k]]
 
     try:
         if session is not None:
-            return await _execute_search(session)
-
+            return await _execute(session), warnings
         async with AsyncSessionLocal() as s:
-            return await _execute_search(s)
+            return await _execute(s), warnings
+    except Exception as exc:
+        warnings.append(f"Dense retrieval failed: {type(exc).__name__}")
+        logger.debug("dense_search failed: %s", exc)
+        return [], warnings
+
+
+def _memory_fallback_chunks(query: str, scan_id: uuid.UUID, k: int) -> list[DOMChunk]:
+    from app.api.v1 import scans as scans_module
+
+    lookup_keys = [str(scan_id)]
+    if hasattr(scan_id, "hex"):
+        lookup_keys.append(scan_id.hex)
+        lookup_keys.append(f"scan_{scan_id.hex}")
+        lookup_keys.append(f"scan_{scan_id.hex[:12]}")
+    raw_chunks = []
+    for key in lookup_keys:
+        if key in scans_module.CHUNKS_DB:
+            raw_chunks = scans_module.CHUNKS_DB[key]
+            break
+    if not raw_chunks:
+        return []
+
+    words = [w.lower() for w in query.split() if len(w) > 2] or [query.lower()]
+    scored: list[tuple[float, DOMChunk]] = []
+    for i, rc in enumerate(raw_chunks):
+        content = getattr(rc, "content", "") or ""
+        text = content.lower()
+        match_score = sum(1.0 for word in words if word in text)
+        if match_score > 0:
+            c_id = getattr(rc, "id", None)
+            if not isinstance(c_id, uuid.UUID):
+                c_id = uuid.UUID(int=i + 1)
+            chunk_obj = DOMChunk(
+                id=c_id,
+                scan_id=scan_id if isinstance(scan_id, uuid.UUID) else uuid.uuid4(),
+                url=getattr(rc, "url", ""),
+                dom_path=getattr(rc, "dom_path", ""),
+                content=content,
+                tag=getattr(rc, "tag", "div"),
+                word_count=getattr(rc, "word_count", len(content.split())),
+            )
+            scored.append((match_score, chunk_obj))
+    scored.sort(key=lambda item: (-item[0], str(item[1].id)))
+    return [item[1] for item in scored[:k]]
+
+
+@overload
+async def hybrid_search(
+    query: str,
+    scan_id: uuid.UUID,
+    k: int = 5,
+    session: AsyncSession | None = None,
+    *,
+    return_meta: Literal[False] = False,
+) -> list[DOMChunk]: ...
+
+
+@overload
+async def hybrid_search(
+    query: str,
+    scan_id: uuid.UUID,
+    k: int = 5,
+    session: AsyncSession | None = None,
+    *,
+    return_meta: Literal[True],
+) -> tuple[list[DOMChunk], RetrievalMeta]: ...
+
+
+async def hybrid_search(
+    query: str,
+    scan_id: uuid.UUID,
+    k: int = 5,
+    session: AsyncSession | None = None,
+    *,
+    return_meta: bool = False,
+) -> list[DOMChunk] | tuple[list[DOMChunk], RetrievalMeta]:
+    """Dense + lexical retrieval fused with RRF (Contract-1).
+
+    When a side fails, results are returned with an honest mode (not silently
+    labelled as full hybrid). Falls back to in-memory lexical scoring only when
+    the database path is unavailable.
+    """
+    cleaned_query = query.strip()
+    limit = max(0, int(k))
+    dense_k = int(getattr(settings, "RETRIEVAL_DENSE_K", 10))
+    lexical_k = int(getattr(settings, "RETRIEVAL_LEXICAL_K", 10))
+    rrf_k = int(getattr(settings, "RETRIEVAL_RRF_K", 60))
+    meta = RetrievalMeta(mode=MODE_EMPTY, rrf_k=rrf_k)
+
+    if not cleaned_query or limit <= 0:
+        return ([], meta) if return_meta else []
+
+    async def _db_path(s: AsyncSession) -> list[DOMChunk]:
+        dense_rows, dense_warns = await dense_search(
+            cleaned_query, scan_id, k=dense_k, session=s
+        )
+        meta.warnings.extend(dense_warns)
+        lexical_rows = await lexical_search(
+            cleaned_query, scan_id, k=lexical_k, session=s
+        )
+        meta.dense_hits = len(dense_rows)
+        meta.lexical_hits = len(lexical_rows)
+
+        dense_ids = [c.id for c in dense_rows]
+        lexical_ids = [c.id for c in lexical_rows]
+        by_id = {c.id: c for c in dense_rows}
+        for c in lexical_rows:
+            by_id.setdefault(c.id, c)
+
+        def _attach_scores(ordered: list[tuple[uuid.UUID, float]]) -> list[DOMChunk]:
+            out: list[DOMChunk] = []
+            for cid, score in ordered:
+                chunk = by_id.get(cid)
+                if chunk is None:
+                    continue
+                # Ephemeral attribute for NLI/evidence; not an ORM column.
+                chunk._retrieval_rrf_score = float(score)  # type: ignore[attr-defined]
+                out.append(chunk)
+            return out
+
+        if dense_ids and lexical_ids:
+            fused = reciprocal_rank_fusion(
+                [dense_ids, lexical_ids], rrf_k=rrf_k, limit=limit
+            )
+            meta.mode = MODE_RRF_HYBRID
+            meta.fused_hits = len(fused)
+            return _attach_scores(fused)
+
+        if dense_ids:
+            meta.mode = MODE_DENSE_ONLY
+            meta.warnings.append("Lexical retrieval returned no candidates; dense-only result.")
+            ranked = [
+                (cid, 1.0 / (rrf_k + rank))
+                for rank, cid in enumerate(dense_ids[:limit], start=1)
+            ]
+            meta.fused_hits = len(ranked)
+            return _attach_scores(ranked)
+
+        if lexical_ids:
+            meta.mode = MODE_LEXICAL_ONLY
+            meta.warnings.append("Dense retrieval returned no candidates; lexical-only result.")
+            ranked = [
+                (cid, 1.0 / (rrf_k + rank))
+                for rank, cid in enumerate(lexical_ids[:limit], start=1)
+            ]
+            meta.fused_hits = len(ranked)
+            return _attach_scores(ranked)
+
+        meta.mode = MODE_EMPTY
+        return []
+
+    try:
+        if session is not None:
+            chunks = await _db_path(session)
+        else:
+            async with AsyncSessionLocal() as s:
+                chunks = await _db_path(s)
+        if return_meta:
+            return chunks, meta
+        return chunks
     except Exception as exc:
         logger.debug(
-            "Database hybrid_search unavailable (%s); using in-memory candidate scoring", exc
+            "Database hybrid_search unavailable (%s); using in-memory candidate scoring",
+            exc,
         )
-        from app.api.v1 import scans as scans_module
-
-        lookup_keys = [str(scan_id)]
-        if hasattr(scan_id, "hex"):
-            lookup_keys.append(scan_id.hex)
-            lookup_keys.append(f"scan_{scan_id.hex}")
-            lookup_keys.append(f"scan_{scan_id.hex[:12]}")
-        raw_chunks = []
-        for key in lookup_keys:
-            if key in scans_module.CHUNKS_DB:
-                raw_chunks = scans_module.CHUNKS_DB[key]
-                break
-
-        if not raw_chunks:
-            return []
-
-        words = [w.lower() for w in cleaned_query.split() if len(w) > 2]
-        if not words:
-            words = [cleaned_query.lower()]
-
-        scored: list[tuple[float, DOMChunk]] = []
-        for i, rc in enumerate(raw_chunks):
-            content = getattr(rc, "content", "") or ""
-            text = content.lower()
-            match_score = sum(1.0 for word in words if word in text)
-            if match_score > 0:
-                c_id = getattr(rc, "id", None)
-                if not isinstance(c_id, uuid.UUID):
-                    c_id = uuid.UUID(int=i + 1)
-                chunk_obj = DOMChunk(
-                    id=c_id,
-                    scan_id=scan_id if isinstance(scan_id, uuid.UUID) else uuid.uuid4(),
-                    url=getattr(rc, "url", ""),
-                    dom_path=getattr(rc, "dom_path", ""),
-                    content=content,
-                    tag=getattr(rc, "tag", "div"),
-                    word_count=getattr(rc, "word_count", len(content.split())),
-                )
-                scored.append((match_score, chunk_obj))
-
-        scored.sort(key=lambda item: item[0], reverse=True)
-        return [item[1] for item in scored[:k]]
+        mem = _memory_fallback_chunks(cleaned_query, scan_id, limit)
+        meta.mode = MODE_MEMORY_FALLBACK
+        meta.lexical_hits = len(mem)
+        meta.fused_hits = len(mem)
+        meta.warnings.append("Database retrieval unavailable; memory lexical fallback.")
+        if return_meta:
+            return mem, meta
+        return mem

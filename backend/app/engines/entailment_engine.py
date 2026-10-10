@@ -97,10 +97,24 @@ class RetrievedEvidence:
     dom_path: str
     content: str
     rank: int
+    rrf_score: float | None = None
 
 
 def _chunk_id(chunk: RetrievableChunk) -> str:
     return str(chunk.id)
+
+
+def _chunk_rrf_score(chunk: RetrievableChunk) -> float | None:
+    raw = getattr(chunk, "_retrieval_rrf_score", None)
+    if raw is None:
+        raw = getattr(chunk, "rrf_score", None)
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0.0 else None
 
 
 def to_retrieved_evidence(chunks: Sequence[RetrievableChunk]) -> list[RetrievedEvidence]:
@@ -123,6 +137,7 @@ def to_retrieved_evidence(chunks: Sequence[RetrievableChunk]) -> list[RetrievedE
                 dom_path=dom_path or "(unknown)",
                 content=content,
                 rank=index,
+                rrf_score=_chunk_rrf_score(chunk),
             )
         )
     return evidence
@@ -242,6 +257,7 @@ def validate_intent_evaluation(
                     dom_path=item.dom_path,
                     url=item.url or None,
                     rank=item.rank,
+                    rrf_score=item.rrf_score,
                     excerpt=excerpt or None,
                 )
             )

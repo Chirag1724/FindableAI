@@ -63,13 +63,7 @@ class ObservationInput:
 
 
 def _observe_chunks_retriever(chunks: Sequence[OrchestrationChunk]) -> Retriever:
-    """Adapt OBSERVE evidence to the EntailmentEngine retriever contract.
-
-    Does not re-implement hybrid search. Returns the first ``k`` observe chunks
-    in stable order so ACT can run without a DB when the caller supplied
-    crawler output in-memory. Inject ``retriever=default_hybrid_retriever``
-    (or a custom callable) to use Contract-1 search by ``scan_id`` instead.
-    """
+    """Fallback: first-k OBSERVE chunks when query-time retrieval returns empty."""
 
     snapshot = list(chunks)
 
@@ -81,6 +75,42 @@ def _observe_chunks_retriever(chunks: Sequence[OrchestrationChunk]) -> Retriever
         _ = (query, scan_id)
         limit = max(0, int(k))
         return snapshot[:limit]
+
+    return _retrieve
+
+
+def build_act_retriever(chunks: Sequence[OrchestrationChunk]) -> Retriever:
+    """Prefer Contract-1 hybrid_search (dense+lexical+RRF); fall back to first-k.
+
+    Fallback is explicit: used only when hybrid returns no candidates (offline DB,
+    empty index, or retrieval failure already logged inside hybrid_search).
+    """
+    from app.crawler.search import hybrid_search
+
+    fallback = _observe_chunks_retriever(chunks)
+
+    async def _retrieve(
+        query: str,
+        scan_id: uuid.UUID,
+        k: int = DEFAULT_TOP_K,
+    ) -> Sequence[Any]:
+        limit = max(0, int(k))
+        try:
+            rows, meta = await hybrid_search(query, scan_id, k=limit, return_meta=True)
+            if rows:
+                logger.info(
+                    "ACT retrieval mode=%s dense=%s lexical=%s fused=%s",
+                    meta.mode,
+                    meta.dense_hits,
+                    meta.lexical_hits,
+                    meta.fused_hits,
+                )
+                return list(rows)
+            for warn in meta.warnings:
+                logger.debug("ACT retrieval warning: %s", warn)
+        except Exception as exc:
+            logger.debug("ACT hybrid_search failed (%s); first-k OBSERVE fallback", exc)
+        return await fallback(query, scan_id, k=limit)
 
     return _retrieve
 
@@ -321,7 +351,7 @@ class FindableAIDAG:
             return self._entailment
         retriever = self._retriever_injected
         if retriever is None:
-            retriever = _observe_chunks_retriever(ctx.chunks)
+            retriever = build_act_retriever(ctx.chunks)
         self._entailment = EntailmentEngine(
             llm_client=self._llm,
             retriever=retriever,

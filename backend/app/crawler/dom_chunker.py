@@ -118,7 +118,10 @@ class DOMChunker:
 
             current = current.parent if isinstance(current.parent, Tag) else None
 
-        return " > ".join(path_parts) if path_parts else element.name.lower()
+        if path_parts:
+            return " > ".join(path_parts)
+        name = getattr(element, "name", None)
+        return str(name).lower() if name else "unknown"
 
     def chunk(self, html: str, url: str) -> list[ChunkData]:
         """
