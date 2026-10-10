@@ -13,8 +13,8 @@
 | Tier | Status | Meaning |
 | :--- | :--- | :--- |
 | **Hackathon / demo** | Conditionally ready | Viable with a working `GROQ_API_KEY`, Postgres + migration `0002`, and honest incomplete/failed presentation when intelligence does not run. |
-| **Public beta** | Not ready | Needs real retrieval wiring, evidence-row persistence, multi-worker durability proof, and broader regression fixtures. |
-| **Production** | Not ready | Missing verified deploy/migration automation, adversarial suites, and post-PR verification. |
+| **Public beta** | Not ready | Needs disposable-Postgres migration proof, live provider/GitHub verification, multi-worker durability. |
+| **Production** | Not ready | Missing verified deploy/migration automation, adversarial suites, and live E2E of verify-after-PR. |
 
 Do **not** describe the product as production-ready solely because Dockerfiles, CI workflows, or unit tests exist.
 
@@ -26,13 +26,13 @@ Do **not** describe the product as production-ready solely because Dockerfiles, 
 | :--- | :--- | :--- | :--- |
 | **Real LLM execution** | Implemented (when provider configured) | `LLMClient` + DAG; `decide_scan_integrity` requires DAG evaluations **and** `llm_calls_made > 0` **and** no synthetic/mock intelligence for `real_llm` | Live Groq success **unverified** without credentials. |
 | **Synthetic / mock demo** | **Opt-in only** (`ALLOW_SYNTHETIC_DEMO=true`, never production) | `should_inject_synthetic_*` gated by flag; default **false**. Demo placeholders have no fabricated evidence; no audit-grade F-Score; mock patches `is_synthetic=True`; never `remediation_eligible=true` | Leaving the flag on in shared envs still shows demo rows in-memory — keep off for normal scans. |
-| **Retrieval / RRF** | Partially implemented | Default ACT = first-*k* OBSERVE chunks. `hybrid_search` = FTS / keyword; **no RRF**; embeddings stored but not queried at scan time | Wire hybrid or keep docs honest (this doc is honest). |
-| **Evidence persistence** | Partially implemented | `Evidence` ORM exists; NLI builds in-memory refs | Persist loop **still does not write `Evidence` rows**; cold hydrate returns `evidence: []`. |
+| **Retrieval / RRF** | Implemented (Stage 3) | ACT uses `build_act_retriever` → `hybrid_search` (dense + lexical + RRF). Honest modes: `rrf_hybrid` / `dense_only` / `lexical_only` / `memory_fallback`. Falls back to first-*k* OBSERVE only when retrieval returns empty. | Live pgvector ANN **unverified** without disposable Postgres. |
+| **Evidence persistence** | Implemented (Stage 2) | `evidence_persistence.py` writes `Evidence` rows for real DAG evals when cites resolve to persisted `DOMChunk` UUIDs; stores provenance; cold hydrate; unique `(intent_id, chunk_id, observation_phase)`. | Live Postgres apply of `0003`/`0004` **BLOCKED** without disposable DB. |
 | **Scan-result hydration** | Implemented for integrity contract | Alembic `0002_scan_integrity` + `Scan` columns + `apply_integrity_to_scan_row` / `unpack_integrity_from_scan_row`; cold `GET /scans/{id}` restores integrity | Full crawled-page detail list still thin on cold hydrate; multi-worker still process-local for SSE/cache. **Postgres migration apply not verified in every environment.** |
 | **F-Score consistency** | Implemented | `F = 0.40*S_ans + 0.30*S_con + 0.20*S_str + 0.10*S_acc` (components already 0–100; **no** outer ×100) | `ScoreWeights` still labeled provisional in schema. Authoritative score only when `score_source=deterministic_scorer` on real evaluations. |
 | **Remediation authorization** | Fail-closed | Apply requires `remediation_eligible is True`; rejects `None`/`False`; rejects `is_synthetic` patches **before** GitHub mutation | Live GitHub PR success **unverified** without `GITHUB_TOKEN`. |
-| **GitHub PR creation** | Credential-gated | Real PyGithub path; tests use `FakeGitHubClient` only | Opening a PR ≠ verified fix. |
-| **Post-PR verification** | Missing | — | Still missing. |
+| **GitHub PR creation** | Credential-gated + lifecycle | Real PyGithub path; `remediation_runs` + idempotency (`0004`); deterministic validation before mutation | Live GitHub **unverified** without `GITHUB_TOKEN`. Opening a PR ≠ verified fix. |
+| **Post-PR verification** | Implemented (Stage 6) | `POST .../remediation/verify` fetches PR head, fresh evidence excerpt, outcomes `fixed`/`unresolved`/`inconclusive` separate from ops errors | Live verify **unverified** without token + PR. |
 | **Hard-failure handling** | Implemented | `_finalize_hard_failure` sets failed/partial integrity, `remediation_eligible=False`, sanitized public/SSE errors, best-effort DB persist | If DB is down during failure, durability is best-effort (logged); in-memory/API state still fail-closed. |
 | **Deployment & ops** | Partial | Docker/Compose/CI exist | Live deploy **unverified**. Redis composed but unused. Scans use `BackgroundTasks`, not Celery. |
 
@@ -66,10 +66,10 @@ Frontend: “No fixes required” only when `remediation_eligible === true` and 
 | Integrity contract (`execution_mode`, `outcome`, `result_source`, `remediation_eligible`, warnings, counts, …) | Yes | Yes (migration `0002`) | Legacy rows hydrate as `unknown` / inconclusive / not eligible |
 | `completed_at`, `error` | Yes | Yes | Hard-fail path persists when DB available |
 | DOM chunks + embeddings | Yes + DB | Yes if store succeeds | |
-| Intent evaluations | Yes | Yes for **real** DAG evals only (demo rows not persisted) | Evidence citations not stored as `Evidence` rows |
+| Intent evaluations | Yes | Yes for **real** DAG evals only (demo rows not persisted) | |
 | Contradictions | Yes | Yes for non-synthetic | |
-| Patches | Yes | Assembler non-synthetic only | |
-| Evidence rows | Transient | **Not written** | Remaining gap |
+| Patches | Yes | Assembler non-synthetic only | `pr_url` column exists; apply path still may not persist it |
+| Evidence rows | Yes (on evaluations) | Yes when cite → persisted `DOMChunk` UUID | Provenance cols + unique `(intent, chunk, phase)` in `0003`; ACT still first-k (no RRF) |
 | Lighthouse | `LIGHTHOUSE_DB` | Not a scan column | |
 
 ---
@@ -103,7 +103,7 @@ SSE label `HYBRID_RETRIEVAL` is a progress milestone name, not proof that hybrid
 | Priority | Task | Remaining problem |
 | :--- | :--- | :--- |
 | P0 | Retrieval truth | Wire hybrid or keep first-k explicit in product UX |
-| P0 | Evidence row persistence | Cold hydrate loses citation graph |
+| P0 | Evidence row persistence | Stage 2 writes/hydrates when cites resolve; remaining: live PG migrate proof + ACT retrieval |
 | P0 | Intelligence regression fixtures | Broader CI without live providers |
 | P1 | Post-PR verification | PR ≠ fix |
 | P1 | Postgres migration CI | Prove `alembic upgrade head` on disposable PG |

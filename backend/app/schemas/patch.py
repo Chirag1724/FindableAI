@@ -68,3 +68,8 @@ class PullRequestResult(BaseModel):
     branch_name: str
     title: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    remediation_run_id: str | None = None
+    lifecycle_state: str | None = None
+    validation_checks: list[dict] | None = None
+    base_sha: str | None = None
+    head_sha: str | None = None

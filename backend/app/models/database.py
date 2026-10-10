@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
@@ -111,6 +112,12 @@ class Scan(Base):
     patches: Mapped[list["Patch"]] = relationship(
         "Patch", back_populates="scan", cascade="all, delete-orphan"
     )
+    remediation_runs: Mapped[list["RemediationRun"]] = relationship(
+        "RemediationRun", back_populates="scan", cascade="all, delete-orphan"
+    )
+    verification_runs: Mapped[list["VerificationRun"]] = relationship(
+        "VerificationRun", back_populates="scan", cascade="all, delete-orphan"
+    )
 
 
 class DOMChunk(Base):
@@ -174,6 +181,15 @@ class Intent(Base):
 
 class Evidence(Base):
     __tablename__ = "evidence"
+    # Same chunk may be cited again in a later observation_phase (e.g. post-PR verify).
+    __table_args__ = (
+        UniqueConstraint(
+            "intent_id",
+            "chunk_id",
+            "observation_phase",
+            name="uq_evidence_intent_chunk_phase",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     intent_id: Mapped[uuid.UUID] = mapped_column(
@@ -187,6 +203,17 @@ class Evidence(Base):
     )
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
     rrf_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Phase 2 provenance (nullable columns remain readable for pre-0003 rows)
+    source_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dom_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_role: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    observation_phase: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="scan", server_default="scan"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     intent: Mapped[Intent] = relationship("Intent", back_populates="evidence_items")
     chunk: Mapped[DOMChunk] = relationship("DOMChunk", back_populates="evidence_links")
@@ -235,3 +262,76 @@ class Patch(Base):
     )
 
     scan: Mapped[Scan] = relationship("Scan", back_populates="patches")
+
+
+class RemediationRun(Base):
+    """Recoverable GitHub PR lifecycle state (Phase 2 Stage 5)."""
+
+    __tablename__ = "remediation_runs"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_remediation_runs_idempotency"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    repo_full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    base_branch: Mapped[str] = mapped_column(String(255), nullable=False)
+    base_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    head_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    head_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pr_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    lifecycle_state: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    changed_files: Mapped[list[Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    validation_results: Mapped[list[Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    scan: Mapped[Scan] = relationship("Scan", back_populates="remediation_runs")
+    verification_runs: Mapped[list["VerificationRun"]] = relationship(
+        "VerificationRun", back_populates="remediation_run", cascade="all, delete-orphan"
+    )
+
+
+class VerificationRun(Base):
+    """Post-PR verification against a specific revision (Phase 2 Stage 6)."""
+
+    __tablename__ = "verification_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    remediation_run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("remediation_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    evaluated_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    issue_outcome: Mapped[str] = mapped_column(String(50), nullable=False)
+    operational_status: Mapped[str] = mapped_column(String(50), nullable=False)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fresh_evidence: Mapped[list[Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    scan: Mapped[Scan] = relationship("Scan", back_populates="verification_runs")
+    remediation_run: Mapped[RemediationRun] = relationship(
+        "RemediationRun", back_populates="verification_runs"
+    )

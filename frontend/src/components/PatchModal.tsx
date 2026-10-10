@@ -733,25 +733,35 @@ export function PatchModal({
           {prState === "success" && prResult ? (
             <div
               data-testid="pr-result"
-              className="flex flex-wrap items-center gap-3 rounded-lg bg-emerald-950/50 border border-emerald-800/40 px-4 py-3 text-sm"
+              className="flex flex-col gap-2 rounded-lg bg-emerald-950/50 border border-emerald-800/40 px-4 py-3 text-sm"
             >
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold text-emerald-300">
-                  PR #{prResult.pr_number} created
-                </p>
-                <p className="font-mono text-xs text-emerald-400/70">
-                  {prResult.branch_name}
-                </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-emerald-300">
+                    PR #{prResult.pr_number} opened
+                  </p>
+                  <p className="font-mono text-xs text-emerald-400/70">
+                    {prResult.branch_name}
+                  </p>
+                  {prResult.lifecycle_state && (
+                    <p className="text-[11px] text-emerald-400/60 mt-0.5" data-testid="pr-lifecycle-state">
+                      Lifecycle: {prResult.lifecycle_state}
+                      {prResult.lifecycle_state === "pr_open"
+                        ? " — not verified fixed until post-PR verification"
+                        : ""}
+                    </p>
+                  )}
+                </div>
+                <a
+                  href={prResult.pr_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors duration-150 hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                >
+                  <ExternalLink size={12} aria-hidden="true" />
+                  View on GitHub
+                </a>
               </div>
-              <a
-                href={prResult.pr_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors duration-150 hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-              >
-                <ExternalLink size={12} aria-hidden="true" />
-                View on GitHub
-              </a>
             </div>
           ) : (
             <div className="flex flex-col gap-2.5">

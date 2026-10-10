@@ -187,83 +187,169 @@ async def test_no_hardcoded_demo_content_regression():
         assert "Bistro" not in contra_text
 
 
-@pytest.mark.asyncio
-async def test_apply_patches_validation_scenarios(monkeypatch):
+def _apply_fixture_scan(
+    *,
+    scan_id: str,
+    repo_url: str | None = "https://github.com/my-org/my-site",
+    with_evidence: bool = True,
+    chunk_id: str | None = None,
+):
+    """In-memory eligible scan for apply/validation tests (no background pipeline)."""
+    import uuid
+    from datetime import UTC, datetime
+
     from app.api.v1.scans import SCANS_DB
-    from app.core.config import settings
+    from app.schemas.intelligence import (
+        EntailmentStatus,
+        EvidenceReference,
+        IntentCategory,
+        IntentEvaluation,
+    )
     from app.schemas.patch import DOMSelectorAnchor, PatchProposal, PatchType
+    from app.schemas.scan import ScanResponse, ScanStatus
 
-    monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", False)
+    cid = chunk_id or str(uuid.uuid4())
+    intents: list[IntentEvaluation] = []
+    if with_evidence:
+        intents = [
+            IntentEvaluation(
+                intent_id="intent_apply_fixture",
+                query="What are the business hours?",
+                status=EntailmentStatus.SUPPORTED,
+                reasoning="Hours are stated in the cited DOM chunk.",
+                confidence=0.9,
+                category=IntentCategory.AVAILABILITY,
+                evidence=[
+                    EvidenceReference(
+                        chunk_id=cid,
+                        dom_path="main > section.hours",
+                        url="https://example-test.com/hours",
+                        rank=1,
+                        excerpt="Open Monday to Friday 9am-5pm",
+                    )
+                ],
+            )
+        ]
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 1. Scan with invalid repo URL format
-        resp = await client.post(
-            "/api/v1/scans",
-            json={
-                "url": "https://example-test.com",
-                "max_pages": 1,
-                "repo_url": "invalid-repo-format",
-            },
-        )
-        assert resp.status_code == 202
-        scan_id = resp.json()["scan_id"]
-
-        apply_resp = await client.post(f"/api/v1/scans/{scan_id}/patches/apply")
-        assert apply_resp.status_code == 400
-        assert "Invalid GitHub repository URL format" in apply_resp.json()["detail"]
-
-        # 2. Scan with valid repo URL but missing server GITHUB_TOKEN
-        monkeypatch.setattr(settings, "GITHUB_TOKEN", "")
-        resp_valid = await client.post(
-            "/api/v1/scans",
-            json={
-                "url": "https://example-test.com",
-                "max_pages": 1,
-                "repo_url": "https://github.com/my-org/my-site",
-            },
-        )
-        assert resp_valid.status_code == 202
-        scan_id_valid = resp_valid.json()["scan_id"]
-
-        # Freeze integrity + patches so this test exercises token validation,
-        # not a race with the background synthetic_fallback pipeline.
-        from app.api.v1.scans import SCANS_DB
-        from app.schemas.patch import DOMSelectorAnchor, PatchProposal, PatchType
-
-        frozen = SCANS_DB[scan_id_valid]
-        frozen.execution_mode = "real_llm"
-        frozen.result_source = "real_pipeline"
-        frozen.outcome = "success"
-        frozen.remediation_eligible = True
-        frozen.patches = [
+    SCANS_DB[scan_id] = ScanResponse(
+        scan_id=scan_id,
+        target_url="https://example-test.com",
+        status=ScanStatus.COMPLETED,
+        created_at=datetime.now(UTC),
+        repo_url=repo_url,
+        github_repo_url=repo_url,
+        execution_mode="real_llm",
+        data_source="live_pipeline",
+        result_source="real_pipeline",
+        outcome="success",
+        score_source="deterministic_scorer",
+        patches_source="assembler",
+        remediation_eligible=True,
+        intelligence_warnings=[],
+        llm_calls_made=10,
+        intents=intents,
+        patches=[
             PatchProposal(
                 patch_id="patch_test_apply",
                 patch_type=PatchType.SCHEMA_MICRODATA,
                 title="Test remediation",
                 rationale="Deterministic fixture for apply validation",
                 impact_score_delta=1.0,
+                target_file="index.html",
                 dom_anchor=DOMSelectorAnchor(
                     css_selector="head",
                     tag_name="head",
                     original_snippet="",
                     suggested_snippet="",
                 ),
-                unified_diff="--- a/index.html\n+++ b/index.html\n",
+                unified_diff="--- a/index.html\n+++ b/index.html\n+<!-- findableai -->\n",
                 applied=False,
                 is_synthetic=False,
             )
-        ]
+        ],
+    )
+    return cid
 
-        apply_resp_valid = await client.post(f"/api/v1/scans/{scan_id_valid}/patches/apply")
+
+@pytest.mark.asyncio
+async def test_apply_patches_validation_scenarios(monkeypatch):
+    """Offline apply-path checks: repo format, missing token, auth failure after validation."""
+    import uuid
+    from unittest.mock import AsyncMock
+
+    from app.api.v1.scans import SCANS_DB
+    from app.core.config import settings
+    from app.github.client import FakeGitHubClient, GitHubClientError
+
+    monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", False)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Invalid repo URL format (no live scan / LLM)
+        bad_id = f"scan_{uuid.uuid4().hex}"
+        _apply_fixture_scan(scan_id=bad_id, repo_url="invalid-repo-format", with_evidence=False)
+        apply_resp = await client.post(f"/api/v1/scans/{bad_id}/patches/apply")
+        assert apply_resp.status_code == 400
+        assert "Invalid GitHub repository URL format" in apply_resp.json()["detail"]
+
+        # 2. Missing server GITHUB_TOKEN (checked before patch validation)
+        monkeypatch.setattr(settings, "GITHUB_TOKEN", "")
+        missing_token_id = f"scan_{uuid.uuid4().hex}"
+        _apply_fixture_scan(scan_id=missing_token_id, with_evidence=False)
+        apply_resp_valid = await client.post(f"/api/v1/scans/{missing_token_id}/patches/apply")
         assert apply_resp_valid.status_code == 400
         assert "GitHub integration token is not configured" in apply_resp_valid.json()["detail"]
 
-        # 3. Scan with invalid GITHUB_TOKEN (auth failure)
+        # 3. Token present: validation must pass (durable evidence + live HTML), then PR auth fails
+        chunk_uuid = uuid.uuid4()
+        auth_scan_id = f"scan_{uuid.uuid4().hex}"
+        _apply_fixture_scan(
+            scan_id=auth_scan_id,
+            with_evidence=True,
+            chunk_id=str(chunk_uuid),
+        )
         monkeypatch.setattr(settings, "GITHUB_TOKEN", "ghp_invalid_mock_token_12345")
-        apply_resp_auth = await client.post(f"/api/v1/scans/{scan_id_valid}/patches/apply")
+
+        async def _chunk_map(_session, _scan_id):
+            return {chunk_uuid: object()}
+
+        monkeypatch.setattr("app.api.v1.scans.load_chunk_id_map", _chunk_map)
+
+        html = (
+            "<!DOCTYPE html><html><head><title>Site</title>"
+            '<script type="application/ld+json">{"@type":"Organization","name":"Acme"}</script>'
+            "</head><body><p>Open Monday to Friday 9am-5pm</p></body></html>"
+        )
+        fake_gh = FakeGitHubClient(login="bot-user")
+        fake_gh.seed_repo(
+            "my-org/my-site",
+            files={"index.html": html},
+            allow_push=True,
+        )
+        monkeypatch.setattr(
+            "app.api.v1.scans.build_pygithub_client_from_token",
+            lambda _token: fake_gh,
+        )
+
+        def _auth_fail(self, _request):
+            raise GitHubClientError("Bad credentials", reason="auth_failure")
+
+        monkeypatch.setattr(
+            "app.api.v1.scans.GitHubPRService.create_remediation_pr",
+            _auth_fail,
+        )
+        # Avoid remediation_runs DB writes interfering with offline CI
+        monkeypatch.setattr(
+            "app.api.v1.scans.upsert_remediation_run",
+            AsyncMock(side_effect=RuntimeError("offline db")),
+        )
+
+        apply_resp_auth = await client.post(f"/api/v1/scans/{auth_scan_id}/patches/apply")
         assert apply_resp_auth.status_code == 400
-        assert "GitHub PR creation failed" in apply_resp_auth.json()["detail"]
+        detail = apply_resp_auth.json()["detail"]
+        assert isinstance(detail, str)
+        assert "GitHub PR creation failed" in detail
+        assert "validation_failed" not in str(detail).lower()
 
         # 4. Patches apply-pr endpoint validation
         patches_resp = await client.post(
@@ -272,6 +358,116 @@ async def test_apply_patches_validation_scenarios(monkeypatch):
         )
         assert patches_resp.status_code == 400
         assert "No GitHub repository configured" in patches_resp.json()["detail"]
+
+    for key in (bad_id, missing_token_id, auth_scan_id):
+        SCANS_DB.pop(key, None)
+
+
+@pytest.mark.asyncio
+async def test_apply_blocked_without_durable_evidence(monkeypatch):
+    """Missing durable evidence citations must block validated PR creation."""
+    import uuid
+
+    from app.api.v1.scans import SCANS_DB
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", False)
+    scan_id = f"scan_{uuid.uuid4().hex}"
+    _apply_fixture_scan(scan_id=scan_id, with_evidence=False)
+    monkeypatch.setattr(settings, "GITHUB_TOKEN", "ghp_should_not_reach_github")
+    create_called = False
+
+    def _boom(_token):
+        nonlocal create_called
+        create_called = True
+        raise AssertionError("GitHub client must not be built when evidence grounding fails")
+
+    monkeypatch.setattr("app.api.v1.scans.build_pygithub_client_from_token", _boom)
+
+    async def _empty_chunks(_session, _scan_id):
+        return {}
+
+    monkeypatch.setattr("app.api.v1.scans.load_chunk_id_map", _empty_chunks)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(f"/api/v1/scans/{scan_id}/patches/apply")
+    SCANS_DB.pop(scan_id, None)
+
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert isinstance(detail, dict)
+    assert detail.get("lifecycle_state") == "validation_failed"
+    checks = detail.get("checks") or []
+    assert any(
+        c.get("name") == "evidence_grounding" and c.get("status") == "failed" for c in checks
+    )
+    assert create_called is False
+
+
+@pytest.mark.asyncio
+async def test_apply_blocked_when_live_file_validation_fails(monkeypatch):
+    """Failed/inconclusive safety-critical checks on fetched file content block PR creation."""
+    import uuid
+    from unittest.mock import AsyncMock
+
+    from app.api.v1.scans import SCANS_DB
+    from app.core.config import settings
+    from app.github.client import FakeGitHubClient
+
+    monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", False)
+    chunk_uuid = uuid.uuid4()
+    scan_id = f"scan_{uuid.uuid4().hex}"
+    _apply_fixture_scan(scan_id=scan_id, with_evidence=True, chunk_id=str(chunk_uuid))
+    monkeypatch.setattr(settings, "GITHUB_TOKEN", "ghp_test_token_not_live")
+
+    async def _chunk_map(_session, _scan_id):
+        return {chunk_uuid: object()}
+
+    monkeypatch.setattr("app.api.v1.scans.load_chunk_id_map", _chunk_map)
+
+    fake_gh = FakeGitHubClient(login="bot-user")
+    # Invalid JSON-LD is a safety-critical fail on the live file path.
+    bad_html = (
+        "<!DOCTYPE html><html><head>"
+        '<script type="application/ld+json">{not-valid-json</script>'
+        "</head><body>ok</body></html>"
+    )
+    fake_gh.seed_repo("my-org/my-site", files={"index.html": bad_html})
+    monkeypatch.setattr(
+        "app.api.v1.scans.build_pygithub_client_from_token",
+        lambda _token: fake_gh,
+    )
+    pr_called = False
+
+    def _should_not_pr(self, _request):
+        nonlocal pr_called
+        pr_called = True
+        raise AssertionError("PR must not be created after live file validation failure")
+
+    monkeypatch.setattr("app.api.v1.scans.GitHubPRService.create_remediation_pr", _should_not_pr)
+    monkeypatch.setattr(
+        "app.api.v1.scans.upsert_remediation_run",
+        AsyncMock(side_effect=RuntimeError("offline db")),
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(f"/api/v1/scans/{scan_id}/patches/apply")
+    SCANS_DB.pop(scan_id, None)
+
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert isinstance(detail, dict)
+    assert "Live file validation blocked PR" in detail.get("message", "")
+    checks = detail.get("checks") or []
+    assert any(
+        c.get("name") == "jsonld_syntax"
+        and c.get("status") in ("failed", "inconclusive")
+        and c.get("safety_critical")
+        for c in checks
+    )
+    assert pr_called is False
 
 
 @pytest.mark.asyncio

@@ -27,6 +27,7 @@ from app.engines.intent_generator import resolve_query_persona
 from app.engines.lighthouse import LighthouseEngine
 from app.engines.llms_txt_generator import generate_llms_txt
 from app.engines.patch_assembler import assemble_real_patches
+from app.engines.patch_validator import validate_patch_candidate
 from app.engines.robots_analyzer import generate_optimized_robots_txt
 from app.engines.scorer import ScoreInputs, Scorer, adapt_score_breakdown_to_api
 from app.github.client import GitHubClientError, build_pygithub_client_from_token
@@ -47,6 +48,26 @@ from app.models.database import (
     Scan as ScanModel,
 )
 from app.orchestration.dag import FindableAIDAG, ObservationInput
+from app.orchestration.evidence_persistence import (
+    build_evidence_rows_for_intent,
+    evidence_persistence_warning,
+    hydrate_evidence_for_intents,
+    load_chunk_id_map,
+)
+from app.orchestration.remediation_lifecycle import (
+    STATE_MUTATING,
+    STATE_PR_OPEN,
+    STATE_PR_PERSIST_FAILED,
+    STATE_VALIDATION_FAILED,
+    STATE_VERIFIED,
+    STATE_VERIFYING,
+    evaluate_verification_outcome,
+    get_runs_for_scan,
+    list_verifications_for_scan,
+    make_idempotency_key,
+    persist_verification_run,
+    upsert_remediation_run,
+)
 from app.orchestration.scan_integrity import (
     IntegrityInput,
     PatchesSource,
@@ -67,12 +88,20 @@ from app.schemas.intelligence import (
     Contradiction,
     ContradictionSeverity,
     EntailmentStatus,
+    EvidenceReference,
     IntentCategory,
     IntentEvaluation,
 )
 from app.schemas.lighthouse import LighthouseResponse
 from app.schemas.patch import DOMSelectorAnchor, PatchProposal, PatchType, PullRequestResult
 from app.schemas.patching import FormattedPatch, PatchFormatStatus, SchemaRemediationTarget
+from app.schemas.remediation import (
+    PatchValidationResponse,
+    RemediationRunOut,
+    ValidationCheckOut,
+    VerificationRunOut,
+    VerifyRemediationRequest,
+)
 from app.schemas.scan import (
     AuditSummary,
     CrawledPageDetail,
@@ -478,8 +507,9 @@ async def run_scan_pipeline(
             "Embedding & Vector Indexing",
             f"Generating 1536-dim embeddings for {len(extracted_chunks)} chunks...",
         )
+        persisted_chunks = None
         try:
-            await store_dom_chunks(scan_uuid, extracted_chunks)
+            persisted_chunks = await store_dom_chunks(scan_uuid, extracted_chunks)
         except Exception as db_err:
             logger.info("Database store_dom_chunks unavailable, retained in memory: %s", db_err)
 
@@ -500,18 +530,33 @@ async def run_scan_pipeline(
         budget_guard = BudgetGuard(limit=settings.MAX_LLM_CALLS_PER_SCAN)
         llm_client = LLMClient(budget_guard=budget_guard)
 
-        # Build orchestration chunks for DAG
-        orch_chunks = [
-            OrchestrationChunk(
-                id=f"chunk_{i}",
-                url=c.url,
-                dom_path=c.dom_path,
-                content=c.content,
-                tag=c.tag,
-                word_count=c.word_count,
-            )
-            for i, c in enumerate(extracted_chunks)
-        ]
+        # Build orchestration chunks for DAG.
+        # Prefer persisted DOMChunk UUIDs so evidence citations are durable FKs.
+        orch_chunks: list[OrchestrationChunk] = []
+        if persisted_chunks and len(persisted_chunks) == len(extracted_chunks):
+            for db_c, c in zip(persisted_chunks, extracted_chunks, strict=True):
+                orch_chunks.append(
+                    OrchestrationChunk(
+                        id=str(db_c.id),
+                        url=c.url,
+                        dom_path=c.dom_path,
+                        content=c.content,
+                        tag=c.tag,
+                        word_count=c.word_count,
+                    )
+                )
+        else:
+            orch_chunks = [
+                OrchestrationChunk(
+                    id=f"chunk_{i}",
+                    url=c.url,
+                    dom_path=c.dom_path,
+                    content=c.content,
+                    tag=c.tag,
+                    word_count=c.word_count,
+                )
+                for i, c in enumerate(extracted_chunks)
+            ]
 
         # Phase 4: SYNTHESIZING_INTENTS
         await _emit_event(
@@ -527,8 +572,8 @@ async def run_scan_pipeline(
             scan_id,
             ScanStatus.HYBRID_RETRIEVAL,
             75,
-            "Hybrid Retrieval",
-            "Executing dense pgvector + sparse BM25 fusion across indexed DOM chunks...",
+            "Evidence Selection",
+            "Query-time dense + lexical retrieval with RRF (falls back to first-k if index unavailable).",
         )
 
         # Phase 6: NLI_EVALUATION
@@ -809,8 +854,11 @@ async def run_scan_pipeline(
                             error=final_error,
                         )
 
-                    # Persist only real DAG evaluations (never synthetic demo rows).
+                    # Persist only real DAG evaluations + durable evidence (never synthetic).
                     if not used_synthetic_intents:
+                        chunk_map = await load_chunk_id_map(s, scan_uuid)
+                        cite_total = 0
+                        cite_persisted = 0
                         for eval_item in dag_evaluations:
                             status_str = (
                                 eval_item.status.value
@@ -818,9 +866,10 @@ async def run_scan_pipeline(
                                 else str(eval_item.status)
                             )
                             cat_val = eval_item.category.value if eval_item.category else "general"
+                            intent_row_id = uuid.uuid4()
                             s.add(
                                 IntentModel(
-                                    id=uuid.uuid4(),
+                                    id=intent_row_id,
                                     scan_id=scan_uuid,
                                     category=cat_val,
                                     persona=eval_item.persona,
@@ -830,6 +879,24 @@ async def run_scan_pipeline(
                                     confidence=eval_item.confidence,
                                 )
                             )
+                            built = build_evidence_rows_for_intent(
+                                intent_id=intent_row_id,
+                                evaluation=eval_item,
+                                chunk_map=chunk_map,
+                            )
+                            cite_total += built.citation_count
+                            cite_persisted += built.persisted_count
+                            for ev_row in built.rows:
+                                s.add(ev_row)
+
+                        ev_warn = evidence_persistence_warning(cite_total, cite_persisted)
+                        if ev_warn and db_scan:
+                            warns = list(db_scan.intelligence_warnings or [])
+                            if ev_warn not in warns:
+                                warns.append(ev_warn)
+                            db_scan.intelligence_warnings = warns
+                            if scan_id in SCANS_DB:
+                                SCANS_DB[scan_id].intelligence_warnings = list(warns)
 
                     # Persist only non-synthetic contradictions
                     if not used_synthetic_contradictions:
@@ -1061,6 +1128,20 @@ async def get_scan(scan_id: str) -> ScanResponse:
                         for p in db_patches
                     ]
 
+                    # Hydrate failures must not masquerade as a missing scan (404).
+                    evidence_by_intent: dict[uuid.UUID, list[EvidenceReference]] = {}
+                    hydrate_failed = False
+                    try:
+                        evidence_by_intent = await hydrate_evidence_for_intents(
+                            s, list(db_intents)
+                        )
+                    except Exception as hydrate_err:
+                        hydrate_failed = True
+                        logger.warning(
+                            "Evidence hydration failed for scan %s: %s",
+                            scan_id,
+                            hydrate_err,
+                        )
                     converted_intents: list[IntentEvaluation] = [
                         IntentEvaluation(
                             intent_id=f"intent_{it.id.hex[:8]}",
@@ -1078,7 +1159,7 @@ async def get_scan(scan_id: str) -> ScanResponse:
                             if it.status in [e.value for e in EntailmentStatus]
                             else EntailmentStatus.UNKNOWN,
                             reasoning=it.reasoning or "",
-                            evidence=[],
+                            evidence=evidence_by_intent.get(it.id, []),
                             confidence=it.confidence or 0.85,
                         )
                         for it in db_intents
@@ -1141,6 +1222,14 @@ async def get_scan(scan_id: str) -> ScanResponse:
                         )
 
                     integrity = unpack_integrity_from_scan_row(db_scan)
+                    response_warnings = list(integrity.intelligence_warnings)
+                    if hydrate_failed:
+                        hydrate_warn = (
+                            "Persisted evidence could not be hydrated for this request; "
+                            "evidence list may be incomplete."
+                        )
+                        if hydrate_warn not in response_warnings:
+                            response_warnings.append(hydrate_warn)
 
                     scan_status = (
                         ScanStatus(db_scan.status)
@@ -1193,7 +1282,7 @@ async def get_scan(scan_id: str) -> ScanResponse:
                         score_source=integrity.score_source,
                         patches_source=integrity.patches_source,
                         remediation_eligible=integrity.remediation_eligible,
-                        intelligence_warnings=list(integrity.intelligence_warnings),
+                        intelligence_warnings=response_warnings,
                         llm_calls_made=integrity.llm_calls_made,
                         repo_url=db_scan.repo_url,
                         github_repo_url=db_scan.repo_url,
@@ -1542,7 +1631,25 @@ async def apply_scan_patch(
             detail="GitHub integration token is not configured on server (GITHUB_TOKEN). Add a GitHub Personal Access Token (PAT with 'repo' scope) to environment variables to enable automated PR creation.",
         )
 
+    # Collect durable evidence cites from evaluations (Stage 4 grounding).
+    evidence_chunk_ids: list[str] = []
+    for intent in scan.intents or []:
+        for ref in getattr(intent, "evidence", None) or []:
+            cid = getattr(ref, "chunk_id", None)
+            if cid:
+                evidence_chunk_ids.append(str(cid))
+    known_chunk_ids: set[str] | None = None
+    if scan_uuid:
+        try:
+            async with AsyncSessionLocal() as s:
+                chunk_map = await load_chunk_id_map(s, scan_uuid)
+                known_chunk_ids = {str(cid) for cid in chunk_map}
+        except Exception as chunk_err:
+            logger.debug("Could not load scan chunks for validation: %s", chunk_err)
+            known_chunk_ids = None
+
     formatted_patches: list[FormattedPatch] = []
+    all_validation_checks: list[dict[str, Any]] = []
     for p in scan.patches:
         target_type = SchemaRemediationTarget.LOCAL_BUSINESS
         title_lower = p.title.lower()
@@ -1555,12 +1662,24 @@ async def apply_scan_patch(
         elif "website" in title_lower or "organization" in title_lower:
             target_type = SchemaRemediationTarget.LOCAL_BUSINESS
 
-        file_path = "index.html"
+        file_path = p.target_file or "index.html"
         if p.unified_diff and "--- a/" in p.unified_diff:
             first_line = p.unified_diff.splitlines()[0]
             extracted = first_line.replace("--- a/", "").strip()
             if extracted.endswith((".html", ".htm")):
                 file_path = extracted
+
+        pre = validate_patch_candidate(
+            file_path=file_path,
+            patch_text=p.unified_diff or "",
+            is_synthetic=bool(getattr(p, "is_synthetic", False)),
+            current_file_content=None,
+            original_snippet=getattr(p.dom_anchor, "original_snippet", None),
+            evidence_chunk_ids=evidence_chunk_ids,
+            known_scan_chunk_ids=known_chunk_ids,
+            require_evidence=True,
+        )
+        all_validation_checks.extend(pre.as_dicts())
 
         formatted_patches.append(
             FormattedPatch(
@@ -1577,14 +1696,62 @@ async def apply_scan_patch(
             )
         )
 
-    current_score = scan.f_score.overall_score if scan.f_score else 0.0
-    total_delta = sum(p.impact_score_delta for p in scan.patches)
-    projected_score = min(100.0, max(0.0, current_score + total_delta))
+    # Path/synthetic/size/evidence must pass before any GitHub mutation.
+    critical_blocked = any(
+        c.get("safety_critical") and c.get("status") in ("failed", "inconclusive")
+        and c.get("name")
+        in (
+            "not_synthetic",
+            "path_safe",
+            "path_traversal",
+            "path_suffix",
+            "path_present",
+            "patch_nonempty",
+            "patch_size",
+            "evidence_grounding",
+        )
+        for c in all_validation_checks
+    )
+    # file_content inconclusive is expected pre-fetch — re-check after GitHub read.
     target_branch = (
         payload.target_branch.strip()
         if payload and payload.target_branch and payload.target_branch.strip()
         else "main"
     )
+    idem_key = make_idempotency_key(scan_id, source_repo, target_branch)
+    remediation_run_id: str | None = None
+
+    if critical_blocked:
+        if scan_uuid:
+            try:
+                async with AsyncSessionLocal() as s:
+                    async with s.begin():
+                        run = await upsert_remediation_run(
+                            s,
+                            scan_id=scan_uuid,
+                            idempotency_key=idem_key,
+                            repo_full_name=source_repo,
+                            base_branch=target_branch,
+                            lifecycle_state=STATE_VALIDATION_FAILED,
+                            validation_results=all_validation_checks,
+                            error="Deterministic validation blocked PR creation",
+                        )
+                        remediation_run_id = str(run.id)
+            except Exception as persist_err:
+                logger.debug("Validation-failure persist skipped: %s", persist_err)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": "Patch validation failed; validated PR creation blocked",
+                "checks": all_validation_checks,
+                "remediation_run_id": remediation_run_id,
+                "lifecycle_state": STATE_VALIDATION_FAILED,
+            },
+        )
+
+    current_score = scan.f_score.overall_score if scan.f_score else 0.0
+    total_delta = sum(p.impact_score_delta for p in scan.patches)
+    projected_score = min(100.0, max(0.0, current_score + total_delta))
 
     # Generate optional llms.txt and robots.txt manifests for PR integration
     llms_manifest: str | None = None
@@ -1605,6 +1772,81 @@ async def apply_scan_patch(
 
     try:
         gh_client = build_pygithub_client_from_token(token)
+        # Re-validate against live base file content when readable.
+        base_sha: str | None = None
+        try:
+            repo_ref = gh_client.get_repository(source_repo)
+            base_sha = None
+            for fp in {fp.file_path for fp in formatted_patches}:
+                try:
+                    file_obj = gh_client.get_file(repo_ref, fp, ref=target_branch)
+                    content = file_obj.content
+                    post = validate_patch_candidate(
+                        file_path=fp,
+                        patch_text="x",  # size already validated
+                        is_synthetic=False,
+                        current_file_content=content,
+                        original_snippet=None,
+                        evidence_chunk_ids=evidence_chunk_ids,
+                        known_scan_chunk_ids=known_chunk_ids,
+                        require_evidence=True,
+                    )
+                    # Keep path/content checks; ignore redundant patch_nonempty on placeholder.
+                    for chk in post.as_dicts():
+                        if chk["name"] in ("html_parse", "jsonld_syntax", "json_parse", "base_freshness"):
+                            all_validation_checks.append(chk)
+                            if chk["safety_critical"] and chk["status"] in (
+                                "failed",
+                                "inconclusive",
+                            ):
+                                raise HTTPException(
+                                    status_code=status.HTTP_400_BAD_REQUEST,
+                                    detail={
+                                        "message": "Live file validation blocked PR",
+                                        "checks": all_validation_checks,
+                                    },
+                                )
+                except HTTPException:
+                    raise
+                except Exception as file_err:
+                    logger.debug("Live file fetch for %s skipped: %s", fp, file_err)
+        except HTTPException:
+            raise
+        except Exception as repo_err:
+            logger.debug("Base repo preflight skipped: %s", repo_err)
+
+        if scan_uuid:
+            try:
+                async with AsyncSessionLocal() as s:
+                    async with s.begin():
+                        run = await upsert_remediation_run(
+                            s,
+                            scan_id=scan_uuid,
+                            idempotency_key=idem_key,
+                            repo_full_name=source_repo,
+                            base_branch=target_branch,
+                            base_sha=base_sha,
+                            lifecycle_state=STATE_MUTATING,
+                            validation_results=all_validation_checks,
+                        )
+                        # Idempotent: existing PR_OPEN returns without remutation.
+                        if run.lifecycle_state == STATE_PR_OPEN and run.pr_url and run.pr_number:
+                            return PullRequestResult(
+                                pr_url=run.pr_url,
+                                pr_number=run.pr_number,
+                                branch_name=run.head_branch or "",
+                                title=f"FindableAI: Machine Discoverability Remediation Patches ({scan_id})",
+                                created_at=run.updated_at or datetime.now(UTC),
+                                remediation_run_id=str(run.id),
+                                lifecycle_state=run.lifecycle_state,
+                                validation_checks=all_validation_checks,
+                                base_sha=run.base_sha,
+                                head_sha=run.head_sha,
+                            )
+                        remediation_run_id = str(run.id)
+            except Exception as persist_err:
+                logger.debug("Remediation mutating state persist skipped: %s", persist_err)
+
         pr_service = GitHubPRService(gh_client)
         pr_request = PREngineRequest(
             source_repo=source_repo,
@@ -1629,13 +1871,58 @@ async def apply_scan_patch(
             else:
                 raise
         logger.info("GitHub PR created successfully: PR #%s at %s", result.pr_number, result.pr_url)
+
+        lifecycle_state = STATE_PR_OPEN
+        if scan_uuid:
+            try:
+                async with AsyncSessionLocal() as s:
+                    async with s.begin():
+                        run = await upsert_remediation_run(
+                            s,
+                            scan_id=scan_uuid,
+                            idempotency_key=idem_key,
+                            repo_full_name=source_repo,
+                            base_branch=target_branch,
+                            base_sha=base_sha,
+                            head_branch=result.generated_branch,
+                            head_sha=getattr(result, "head_sha", None),
+                            pr_number=result.pr_number,
+                            pr_url=result.pr_url,
+                            lifecycle_state=STATE_PR_OPEN,
+                            changed_files=[fp.file_path for fp in formatted_patches],
+                            validation_results=all_validation_checks,
+                        )
+                        remediation_run_id = str(run.id)
+                        # Persist PR URL onto scan patch rows when present.
+                        patch_rows = (
+                            await s.execute(
+                                select(PatchModel).where(PatchModel.scan_id == scan_uuid)
+                            )
+                        ).scalars().all()
+                        for patch_row in patch_rows:
+                            patch_row.pr_url = result.pr_url
+            except Exception as persist_err:
+                lifecycle_state = STATE_PR_PERSIST_FAILED
+                logger.warning(
+                    "GitHub PR succeeded but lifecycle persist failed for %s: %s",
+                    scan_id,
+                    persist_err,
+                )
+
         return PullRequestResult(
             pr_url=result.pr_url,
             pr_number=result.pr_number,
             branch_name=result.generated_branch,
             title=f"FindableAI: Machine Discoverability Remediation Patches ({scan_id})",
             created_at=datetime.now(UTC),
+            remediation_run_id=remediation_run_id,
+            lifecycle_state=lifecycle_state,
+            validation_checks=all_validation_checks,
+            base_sha=base_sha,
+            head_sha=getattr(result, "head_sha", None),
         )
+    except HTTPException:
+        raise
     except (PREngineError, GitHubClientError) as exc:
         logger.error("GitHub PR creation failed for scan %s: %s", scan_id, exc)
         raise HTTPException(
@@ -1654,6 +1941,270 @@ async def apply_scan_patch(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal error creating GitHub PR: {exc}",
         ) from exc
+
+
+@router.post(
+    "/{scan_id}/patches/validate",
+    response_model=PatchValidationResponse,
+    dependencies=[Depends(verify_api_key), Depends(rate_limit_mutating)],
+)
+async def validate_scan_patches(scan_id: str) -> PatchValidationResponse:
+    """Run deterministic patch validators without mutating GitHub."""
+    scan = SCANS_DB.get(scan_id)
+    if not scan:
+        scan = await get_scan(scan_id)
+
+    if scan.remediation_eligible is not True:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Scan is not remediation_eligible; validation refused.",
+        )
+    if not scan.patches:
+        raise HTTPException(status_code=400, detail="No patches to validate.")
+    if any(getattr(p, "is_synthetic", False) for p in scan.patches):
+        raise HTTPException(status_code=400, detail="Synthetic patches cannot be validated for PR.")
+
+    evidence_chunk_ids: list[str] = []
+    for intent in scan.intents or []:
+        for ref in getattr(intent, "evidence", None) or []:
+            cid = getattr(ref, "chunk_id", None)
+            if cid:
+                evidence_chunk_ids.append(str(cid))
+    known_chunk_ids: set[str] | None = None
+    scan_uuid = resolve_scan_uuid(scan_id)
+    if scan_uuid:
+        try:
+            async with AsyncSessionLocal() as s:
+                chunk_map = await load_chunk_id_map(s, scan_uuid)
+                known_chunk_ids = {str(cid) for cid in chunk_map}
+        except Exception:
+            known_chunk_ids = None
+
+    checks: list[ValidationCheckOut] = []
+    eligible = True
+    for p in scan.patches:
+        file_path = p.target_file or "index.html"
+        result = validate_patch_candidate(
+            file_path=file_path,
+            patch_text=p.unified_diff or "",
+            is_synthetic=bool(getattr(p, "is_synthetic", False)),
+            current_file_content=None,
+            original_snippet=getattr(p.dom_anchor, "original_snippet", None),
+            evidence_chunk_ids=evidence_chunk_ids,
+            known_scan_chunk_ids=known_chunk_ids,
+            require_evidence=True,
+        )
+        if not result.eligible_for_validated_pr:
+            eligible = False
+        checks.extend(ValidationCheckOut(**c) for c in result.as_dicts())
+    return PatchValidationResponse(eligible_for_validated_pr=eligible, checks=checks)
+
+
+@router.get(
+    "/{scan_id}/remediation",
+    response_model=list[RemediationRunOut],
+    dependencies=[Depends(verify_api_key)],
+)
+async def list_scan_remediation_runs(scan_id: str) -> list[RemediationRunOut]:
+    """Return persisted PR lifecycle rows for a scan (fresh DB read)."""
+    scan_uuid = resolve_scan_uuid(scan_id)
+    if not scan_uuid:
+        raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+    try:
+        async with AsyncSessionLocal() as s:
+            runs = await get_runs_for_scan(s, scan_uuid)
+            return [
+                RemediationRunOut(
+                    id=r.id,
+                    scan_id=r.scan_id,
+                    idempotency_key=r.idempotency_key,
+                    repo_full_name=r.repo_full_name,
+                    base_branch=r.base_branch,
+                    base_sha=r.base_sha,
+                    head_branch=r.head_branch,
+                    head_sha=r.head_sha,
+                    pr_number=r.pr_number,
+                    pr_url=r.pr_url,
+                    lifecycle_state=r.lifecycle_state,
+                    changed_files=list(r.changed_files or []),
+                    validation_results=list(r.validation_results or []),
+                    error=r.error,
+                    created_at=r.created_at,
+                    updated_at=r.updated_at,
+                )
+                for r in runs
+            ]
+    except Exception as exc:
+        logger.debug("Remediation list unavailable: %s", exc)
+        return []
+
+
+@router.post(
+    "/{scan_id}/remediation/verify",
+    response_model=VerificationRunOut,
+    dependencies=[Depends(verify_api_key), Depends(rate_limit_mutating)],
+)
+async def verify_scan_remediation(
+    scan_id: str,
+    payload: VerifyRemediationRequest | None = None,
+) -> VerificationRunOut:
+    """Post-PR verification against the PR head revision using fresh file content."""
+    scan = SCANS_DB.get(scan_id)
+    if not scan:
+        scan = await get_scan(scan_id)
+    scan_uuid = resolve_scan_uuid(scan_id)
+    if not scan_uuid:
+        raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+
+    token = settings.GITHUB_TOKEN.strip() if settings.GITHUB_TOKEN else ""
+    if not token:
+        raise HTTPException(
+            status_code=400,
+            detail="GITHUB_TOKEN not configured; verification blocked.",
+        )
+
+    try:
+        async with AsyncSessionLocal() as s:
+            runs = await get_runs_for_scan(s, scan_uuid)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database unavailable for verification") from exc
+
+    run = None
+    want_id = payload.remediation_run_id if payload else None
+    for r in runs:
+        if want_id and r.id == want_id:
+            run = r
+            break
+        if want_id is None and r.lifecycle_state in (STATE_PR_OPEN, STATE_VERIFIED, STATE_VERIFYING):
+            run = r
+            break
+    if run is None or not run.pr_number or not run.head_branch:
+        raise HTTPException(
+            status_code=400,
+            detail="No recoverable PR remediation run with head branch to verify.",
+        )
+
+    keywords = list(payload.acceptance_keywords) if payload and payload.acceptance_keywords else []
+    if not keywords:
+        for intent in scan.intents or []:
+            if getattr(intent, "status", None) and str(intent.status) in (
+                "CONTRADICTED",
+                "UNKNOWN",
+                "PARTIALLY_SUPPORTED",
+            ):
+                keywords.extend(str(intent.query or "").lower().split()[:6])
+        keywords = [w for w in keywords if len(w) > 3][:12]
+
+    patched_content: str | None = None
+    evaluated_rev = run.head_sha
+    ops_error: str | None = None
+    validation_passed = False
+    try:
+        gh_client = build_pygithub_client_from_token(token)
+        repo_ref = gh_client.get_repository(run.repo_full_name)
+        files = list(run.changed_files or ["index.html"])
+        target = str(files[0]) if files else "index.html"
+        file_obj = gh_client.get_file(repo_ref, target, ref=run.head_branch)
+        patched_content = file_obj.content
+        evaluated_rev = getattr(file_obj, "sha", None) or run.head_sha
+        html_check = validate_patch_candidate(
+            file_path=str(target),
+            patch_text="verified",
+            is_synthetic=False,
+            current_file_content=patched_content,
+            require_evidence=False,
+        )
+        validation_passed = not html_check.failed_critical
+    except Exception as exc:
+        ops_error = sanitize_public_error(str(exc))
+
+    issue_outcome, ops_status, detail = evaluate_verification_outcome(
+        original_issue_keywords=keywords,
+        patched_content=patched_content,
+        validation_passed=validation_passed,
+        operational_error=ops_error,
+    )
+    fresh_evidence = []
+    if patched_content:
+        excerpt = patched_content[:280]
+        fresh_evidence.append(
+            {
+                "observation_phase": "verification",
+                "source": "pr_head_file",
+                "revision": evaluated_rev,
+                "excerpt": excerpt,
+            }
+        )
+
+    try:
+        async with AsyncSessionLocal() as s:
+            async with s.begin():
+                await upsert_remediation_run(
+                    s,
+                    scan_id=scan_uuid,
+                    idempotency_key=run.idempotency_key,
+                    repo_full_name=run.repo_full_name,
+                    base_branch=run.base_branch,
+                    lifecycle_state=STATE_VERIFIED,
+                    head_sha=evaluated_rev,
+                )
+                row = await persist_verification_run(
+                    s,
+                    scan_id=scan_uuid,
+                    remediation_run_id=run.id,
+                    evaluated_revision=evaluated_rev,
+                    issue_outcome=issue_outcome,
+                    operational_status=ops_status,
+                    detail=detail,
+                    fresh_evidence=fresh_evidence,
+                )
+                return VerificationRunOut(
+                    id=row.id,
+                    scan_id=row.scan_id,
+                    remediation_run_id=row.remediation_run_id,
+                    evaluated_revision=row.evaluated_revision,
+                    issue_outcome=row.issue_outcome,
+                    operational_status=row.operational_status,
+                    detail=row.detail,
+                    fresh_evidence=list(row.fresh_evidence or []),
+                    created_at=row.created_at,
+                )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Failed to persist verification: {sanitize_public_error(str(exc))}",
+        ) from exc
+
+
+@router.get(
+    "/{scan_id}/remediation/verifications",
+    response_model=list[VerificationRunOut],
+    dependencies=[Depends(verify_api_key)],
+)
+async def list_scan_verifications(scan_id: str) -> list[VerificationRunOut]:
+    scan_uuid = resolve_scan_uuid(scan_id)
+    if not scan_uuid:
+        raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+    try:
+        async with AsyncSessionLocal() as s:
+            rows = await list_verifications_for_scan(s, scan_uuid)
+            return [
+                VerificationRunOut(
+                    id=r.id,
+                    scan_id=r.scan_id,
+                    remediation_run_id=r.remediation_run_id,
+                    evaluated_revision=r.evaluated_revision,
+                    issue_outcome=r.issue_outcome,
+                    operational_status=r.operational_status,
+                    detail=r.detail,
+                    fresh_evidence=list(r.fresh_evidence or []),
+                    created_at=r.created_at,
+                )
+                for r in rows
+            ]
+    except Exception as exc:
+        logger.debug("Verification list unavailable: %s", exc)
+        return []
 
 
 @router.get("/{scan_id}/lighthouse", response_model=LighthouseResponse)

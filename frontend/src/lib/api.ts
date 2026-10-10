@@ -1,5 +1,11 @@
 import type {
-  ScanResponse, PatchProposal, PullRequestResult, ApiError,
+  ScanResponse,
+  PatchProposal,
+  PullRequestResult,
+  RemediationRun,
+  VerificationRun,
+  ValidationCheck,
+  ApiError,
 } from "@/types/scan";
 import type { LighthouseResponse } from "@/types/lighthouse";
 
@@ -153,6 +159,44 @@ export async function remediateScan(
 ): Promise<PatchProposal[]> {
   return request<PatchProposal[]>(`/scans/${scanId}/remediate`, {
     method: "POST",
+    signal,
+  });
+}
+
+export async function validatePatches(
+  scanId: string,
+  signal?: AbortSignal
+): Promise<{ eligible_for_validated_pr: boolean; checks: ValidationCheck[] }> {
+  return request(`/scans/${scanId}/patches/validate`, {
+    method: "POST",
+    signal,
+  });
+}
+
+export async function getRemediationRuns(
+  scanId: string,
+  signal?: AbortSignal
+): Promise<RemediationRun[]> {
+  return request<RemediationRun[]>(`/scans/${scanId}/remediation`, { signal });
+}
+
+export async function verifyRemediation(
+  scanId: string,
+  payload?: { remediation_run_id?: string; acceptance_keywords?: string[] },
+  signal?: AbortSignal
+): Promise<VerificationRun> {
+  return request<VerificationRun>(`/scans/${scanId}/remediation/verify`, {
+    method: "POST",
+    body: payload ? JSON.stringify(payload) : undefined,
+    signal,
+  });
+}
+
+export async function getVerifications(
+  scanId: string,
+  signal?: AbortSignal
+): Promise<VerificationRun[]> {
+  return request<VerificationRun[]>(`/scans/${scanId}/remediation/verifications`, {
     signal,
   });
 }

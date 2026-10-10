@@ -191,12 +191,53 @@ export interface Contradiction {
   dom_paths: string[];
 }
 
+export interface ValidationCheck {
+  name: string;
+  status: string;
+  detail?: string;
+  safety_critical?: boolean;
+}
+
 export interface PullRequestResult {
   pr_url: string;
   pr_number: number;
   branch_name: string;
   title: string;
   created_at: string;
+  remediation_run_id?: string | null;
+  lifecycle_state?: string | null;
+  validation_checks?: ValidationCheck[] | null;
+  base_sha?: string | null;
+  head_sha?: string | null;
+}
+
+export interface RemediationRun {
+  id: string;
+  scan_id: string;
+  idempotency_key: string;
+  repo_full_name: string;
+  base_branch: string;
+  base_sha?: string | null;
+  head_branch?: string | null;
+  head_sha?: string | null;
+  pr_number?: number | null;
+  pr_url?: string | null;
+  lifecycle_state: string;
+  changed_files?: unknown[];
+  validation_results?: unknown[];
+  error?: string | null;
+}
+
+export interface VerificationRun {
+  id: string;
+  scan_id: string;
+  remediation_run_id: string;
+  evaluated_revision?: string | null;
+  issue_outcome: "fixed" | "unresolved" | "inconclusive" | string;
+  operational_status: string;
+  detail?: string | null;
+  fresh_evidence?: unknown[];
+  created_at?: string | null;
 }
 
 export interface ApiError {

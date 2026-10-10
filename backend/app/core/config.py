@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     # Normal scans must not inject fabricated intents/scores/patches unless this is true.
     ALLOW_SYNTHETIC_DEMO: bool = False
 
+    # Query-time retrieval (ACT): dense + lexical candidate pools fused via RRF.
+    RETRIEVAL_DENSE_K: int = 10
+    RETRIEVAL_LEXICAL_K: int = 10
+    RETRIEVAL_RRF_K: int = 60
+    RETRIEVAL_TOP_K: int = 5
+
     # Security & Authentication
     API_KEY: str = ""
 
