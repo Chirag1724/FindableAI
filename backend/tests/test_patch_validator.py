@@ -6,6 +6,8 @@ import uuid
 
 from app.engines.patch_validator import (
     CheckStatus,
+    PatchValidationResult,
+    ValidationCheck,
     validate_patch_candidate,
     validate_repo_path,
 )
@@ -20,6 +22,21 @@ from app.orchestration.remediation_lifecycle import (
 def test_path_traversal_rejected():
     assert validate_repo_path("../etc/passwd").status == CheckStatus.FAILED
     assert validate_repo_path("index.html").status == CheckStatus.PASSED
+
+
+def test_inconclusive_safety_critical_blocks_validated_pr():
+    result = PatchValidationResult(
+        checks=[
+            ValidationCheck(
+                name="html_parse",
+                status=CheckStatus.INCONCLUSIVE,
+                detail="no html/head/body nodes found",
+                safety_critical=True,
+            )
+        ]
+    )
+    assert result.failed_critical is True
+    assert result.eligible_for_validated_pr is False
 
 
 def test_synthetic_blocks_validated_pr():
