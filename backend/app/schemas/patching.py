@@ -33,6 +33,8 @@ class SchemaRemediationTarget(StrEnum):
     GEO_COORDINATES = "GeoCoordinates"
     MENU = "Menu"
     FAQ_PAGE = "FAQPage"
+    ROBOTS_TXT = "robots.txt"
+    LLMS_TXT = "llms.txt"
 
 
 class RemediationEvidence(BaseModel):

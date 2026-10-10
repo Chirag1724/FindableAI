@@ -25,6 +25,7 @@ from app.schemas.intelligence import (
     EvidenceReference,
     IntentCategory,
     IntentEvaluation,
+    IntentEvaluationBatch,
     IntentQuery,
 )
 
@@ -312,14 +313,15 @@ def test_invalid_confidence_rejected():
 
 @pytest.mark.asyncio
 async def test_batch_preserves_order_and_is_concurrent():
+    import re
+
     chunks = _chunks(3)
     intents = [
-        _intent(query="Question one about hours?"),
-        _intent(query="Question two about menu?"),
-        _intent(query="Question three about parking?"),
+        _intent(query=f"Question {i} about policy?").model_copy(
+            update={"intent_id": f"policy_{i:02d}"}
+        )
+        for i in range(1, 31)
     ]
-    for i, intent in enumerate(intents):
-        intents[i] = intent.model_copy(update={"intent_id": f"policy_{i + 1:02d}"})
 
     started: list[float] = []
     finished: list[float] = []
@@ -330,11 +332,16 @@ async def test_batch_preserves_order_and_is_concurrent():
         await asyncio.sleep(0.05)
         finished.append(loop.time())
         user = kwargs["messages"][1]["content"]
-        # cite first chunk always
-        return _evaluation(
-            status=EntailmentStatus.SUPPORTED,
-            chunk_ids=[str(chunks[0].id)],
-            reasoning=f"ok for {user[:40]}",
+        ids = re.findall(r"INTENT ID: (policy_\d+)", user)
+        return IntentEvaluationBatch(
+            evaluations=[
+                _evaluation(
+                    status=EntailmentStatus.SUPPORTED,
+                    chunk_ids=[str(chunks[0].id)],
+                    reasoning=f"ok for {pid}",
+                ).model_copy(update={"intent_id": pid})
+                for pid in ids
+            ]
         )
 
     handler = AsyncMock(side_effect=create_side_effect)
@@ -342,6 +349,7 @@ async def test_batch_preserves_order_and_is_concurrent():
     engine = EntailmentEngine(
         llm_client=llm,
         retriever=AsyncMock(return_value=chunks),
+        concurrency=3,
     )
 
     results = await engine.evaluate_intents(intents=intents, scan_id=uuid.uuid4())
@@ -350,7 +358,7 @@ async def test_batch_preserves_order_and_is_concurrent():
     assert [r.query for r in results] == [i.query for i in intents]
     assert handler.await_count == 3
     assert llm.calls_made == 3
-    # Overlapping execution: second start before first finish
+    # Overlapping execution: second batch starts before first batch finishes
     assert started[1] < finished[0]
 
 
@@ -383,14 +391,25 @@ async def test_shared_llm_client_budget_not_bypassed():
 
 
 @pytest.mark.asyncio
-async def test_thirty_intents_make_thirty_llm_calls():
+async def test_thirty_intents_make_three_batch_llm_calls():
+    import re
+
     chunks = _chunks(2)
-    handler = AsyncMock(
-        return_value=_evaluation(
-            status=EntailmentStatus.SUPPORTED,
-            chunk_ids=[str(chunks[0].id)],
+
+    def create_batch_mock(**kwargs):
+        user = kwargs["messages"][1]["content"]
+        ids = re.findall(r"INTENT ID: (edge_cases_\d+)", user)
+        return IntentEvaluationBatch(
+            evaluations=[
+                _evaluation(
+                    status=EntailmentStatus.SUPPORTED,
+                    chunk_ids=[str(chunks[0].id)],
+                ).model_copy(update={"intent_id": pid})
+                for pid in ids
+            ]
         )
-    )
+
+    handler = AsyncMock(side_effect=create_batch_mock)
     llm = _llm(handler, max_calls=35)
     intents = [
         _intent(query=f"Unique question number {i}?").model_copy(
@@ -404,8 +423,8 @@ async def test_thirty_intents_make_thirty_llm_calls():
     ).evaluate_intents(intents=intents, scan_id=uuid.uuid4())
 
     assert len(results) == 30
-    assert handler.await_count == 30
-    assert llm.calls_made == 30
+    assert handler.await_count == 3
+    assert llm.calls_made == 3
 
 
 @pytest.mark.asyncio

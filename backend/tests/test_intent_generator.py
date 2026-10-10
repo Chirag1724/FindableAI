@@ -278,3 +278,53 @@ async def test_missing_category_rejected():
         "missing_categories",
         "invalid_category_distribution",
     }
+
+
+@pytest.mark.asyncio
+async def test_generate_intents_succeeds_with_multi_call_fallback():
+    batch = _valid_batch()
+    llm = None
+
+    async def side_effect(*args, **kwargs):
+        # Simulate a provider attempt consumed by fallback failover before success
+        assert llm is not None
+        await llm.budget_guard.reserve()
+        return batch
+
+    handler = AsyncMock(side_effect=side_effect)
+    llm = _llm_with_mock(handler)
+    generator = IntentGenerator(llm_client=llm)
+
+    result = await generator.generate_intents(business_context=VALID_CONTEXT)
+
+    assert len(result.queries) == 30
+    assert llm.calls_made == 2
+
+
+@pytest.mark.asyncio
+async def test_parallel_3_batch_persona_generation():
+    from unittest.mock import patch
+
+    from app.schemas.intelligence import PersonaIntentBatch
+
+    generator = IntentGenerator()
+    generator._llm._instructor_client = None
+
+    async def fake_persona_batch(persona, context):
+        await generator._llm.budget_guard.reserve()
+        queries = [
+            _make_query(cat, 1, query=f"How does {persona} handle {cat.value}?")
+            for cat in IntentCategory
+        ]
+        return PersonaIntentBatch(business_type="saas_platform", queries=queries)
+
+    with patch.object(generator, "_generate_persona_batch", side_effect=fake_persona_batch):
+        result = await generator.generate_intents(business_context=VALID_CONTEXT)
+        assert len(result.queries) == 30
+        assert result.business_type == "saas_platform"
+        counts = {c.value: 0 for c in IntentCategory}
+        for q in result.queries:
+            counts[q.category.value] += 1
+        assert all(v == 3 for v in counts.values())
+        personas_present = {q.persona for q in result.queries}
+        assert personas_present == {"cto", "developer", "procurement"}

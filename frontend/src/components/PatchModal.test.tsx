@@ -272,4 +272,60 @@ describe("PatchModal - Framework-Native tabs and Dual Perspective", () => {
     expect(screen.getByText("Inject Schema.org FAQPage JSON-LD")).toBeInTheDocument();
     expect(screen.queryByText(/<!DOCTYPE html>/i)).not.toBeInTheDocument();
   });
+
+  it("aggregates all files across all PR patches (layout.tsx, JsonLd.tsx, robots.txt, llms.txt) into unified tabs", async () => {
+    const ROBOTS_PATCH: PatchProposal = {
+      patch_id: "patch_robots_01",
+      patch_type: "robots_governance",
+      title: "Configure AI Crawler Access Rules (robots.txt)",
+      rationale: "Allows citation bots while blocking scrapers.",
+      impact_score_delta: 8.0,
+      target_file: "public/robots.txt",
+      unified_diff: "--- /dev/null\n+++ b/public/robots.txt\n@@ -0,0 +1,2 @@\n+User-agent: *\n+Allow: /",
+      applied: false,
+      dom_anchor: {
+        css_selector: "robots.txt",
+        tag_name: "robots.txt",
+        original_snippet: "",
+        suggested_snippet: "User-agent: *\nAllow: /",
+      },
+    };
+
+    const LLMS_PATCH: PatchProposal = {
+      patch_id: "patch_llms_01",
+      patch_type: "llms_manifest",
+      title: "Publish /llms.txt Machine Knowledge Manifest",
+      rationale: "Documentation index for AI models.",
+      impact_score_delta: 6.0,
+      target_file: "public/llms.txt",
+      unified_diff: "--- /dev/null\n+++ b/public/llms.txt\n@@ -0,0 +1,2 @@\n+# FindableAI\n+Documentation index",
+      applied: false,
+      dom_anchor: {
+        css_selector: "llms.txt",
+        tag_name: "llms.txt",
+        original_snippet: "",
+        suggested_snippet: "# FindableAI\nDocumentation index",
+      },
+    };
+
+    renderModal([FRAMEWORK_PATCH, ROBOTS_PATCH, LLMS_PATCH]);
+
+    // All distinct files must be present as tabs
+    expect(screen.getByText("layout.tsx")).toBeInTheDocument();
+    expect(screen.getByText("JsonLd.tsx")).toBeInTheDocument();
+    expect(screen.getByText("robots.txt")).toBeInTheDocument();
+    expect(screen.getByText("llms.txt")).toBeInTheDocument();
+
+    // Clicking robots.txt tab switches the diff viewer
+    const robotsTab = screen.getByTestId("tab-public/robots.txt");
+    await userEvent.click(robotsTab);
+    expect(screen.getByText("public/robots.txt")).toBeInTheDocument();
+    expect(screen.getByText("User-agent: *")).toBeInTheDocument();
+
+    // Clicking llms.txt tab switches the diff viewer
+    const llmsTab = screen.getByTestId("tab-public/llms.txt");
+    await userEvent.click(llmsTab);
+    expect(screen.getByText("public/llms.txt")).toBeInTheDocument();
+    expect(screen.getByText("# FindableAI")).toBeInTheDocument();
+  });
 });

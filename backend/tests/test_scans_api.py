@@ -10,6 +10,14 @@ from app.core.embeddings import (
 from app.main import app
 
 
+@pytest.fixture(autouse=True)
+def disable_rate_limits(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", False)
+    monkeypatch.setattr(settings, "ENVIRONMENT", "test")
+
+
 def test_deterministic_fallback_embedding():
     text = "FindableAI Machine Discoverability Optimization"
     vec = _deterministic_fallback_embedding(text)
@@ -181,7 +189,11 @@ async def test_no_hardcoded_demo_content_regression():
 
 @pytest.mark.asyncio
 async def test_apply_patches_validation_scenarios(monkeypatch):
+    from app.api.v1.scans import SCANS_DB
     from app.core.config import settings
+    from app.schemas.patch import DOMSelectorAnchor, PatchProposal, PatchType
+
+    monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", False)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -288,3 +300,72 @@ async def test_unknown_scan_returns_404_no_mock_data():
         intents_resp = await client.get(f"/api/v1/scans/{missing_id}/intents")
         assert intents_resp.status_code == 200
         assert intents_resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_three_stage_decoupled_pipeline_endpoints(monkeypatch):
+    """
+    Validates the 3-stage decoupled pipeline contract:
+    Stage 1: Crawl & Technical Audit (POST /api/v1/scans with auto_evaluate=false)
+    Stage 2: AI Intent & Claim Evaluation (POST /api/v1/scans/{id}/evaluate)
+    Stage 3: Remediation & Patch Generation (POST /api/v1/scans/{id}/remediate)
+    """
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock
+
+    import app.api.v1.scans as scans_module
+    from app.api.v1.scans import CHUNKS_DB, HTML_DB, SCANS_DB, SCORE_BREAKDOWN_DB, SCORE_INPUTS_DB
+    from app.crawler.dom_chunker import ChunkData
+    from app.engines.scorer import ScoreInputs, Scorer
+    from app.schemas.scan import ScanResponse, ScanStatus
+
+    monkeypatch.setattr(scans_module, "run_stage_evaluate", AsyncMock(return_value=True))
+
+    import uuid
+
+    scan_raw_uuid = uuid.uuid4()
+    test_scan_id = f"scan_{scan_raw_uuid.hex}"
+    test_scan = ScanResponse(
+        scan_id=test_scan_id,
+        target_url="https://findableai-demo.test",
+        status=ScanStatus.AUDITED,
+        created_at=datetime.now(UTC),
+    )
+    SCANS_DB[test_scan_id] = test_scan
+    SCANS_DB[str(scan_raw_uuid)] = test_scan
+    fake_chunk = ChunkData(
+        url="https://findableai-demo.test",
+        dom_path="body > main",
+        content="FindableAI optimizes discoverability for modern AI search engines.",
+        tag="main",
+        word_count=8,
+    )
+    CHUNKS_DB[test_scan_id] = [fake_chunk]
+    HTML_DB[test_scan_id] = ["<html><body><main>FindableAI content</main></body></html>"]
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Stage 2: Trigger evaluation on audited scan
+        eval_resp = await client.post(
+            f"/api/v1/scans/{test_scan_id}/evaluate",
+            json={"personas": ["cto"]},
+        )
+        assert eval_resp.status_code == 202
+        eval_data = eval_resp.json()
+        assert eval_data["scan_id"] == test_scan_id
+        assert eval_data["status"] == "synthesizing_intents"
+
+        # Mock score inputs for Stage 3 remediation
+        score_inputs = ScoreInputs(
+            intent_evaluations=[],
+            contradictions=[],
+            html_documents=HTML_DB[test_scan_id],
+            chunks=[fake_chunk],
+        )
+        SCORE_INPUTS_DB[test_scan_id] = score_inputs
+        SCORE_BREAKDOWN_DB[test_scan_id] = Scorer().score(score_inputs)
+
+        # Stage 3: Trigger on-demand remediation
+        rem_resp = await client.post(f"/api/v1/scans/{test_scan_id}/remediate")
+        assert rem_resp.status_code == 200
+        assert isinstance(rem_resp.json(), list)

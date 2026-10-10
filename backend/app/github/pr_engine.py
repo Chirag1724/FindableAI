@@ -31,7 +31,7 @@ from app.schemas.patching import FormattedPatch, PatchFormatStatus
 
 logger = logging.getLogger(__name__)
 
-_ALLOWED_SUFFIXES = (".html", ".htm")
+_ALLOWED_SUFFIXES = (".html", ".htm", ".tsx", ".jsx", ".ts", ".js", ".txt")
 _BRANCH_SAFE = re.compile(r"[^a-zA-Z0-9._/-]+")
 _SCRIPT_RE = re.compile(
     r"<script\b[^>]*type\s*=\s*[\"']application/ld\+json[\"'][^>]*>.*?</script>\s*",
@@ -66,7 +66,7 @@ def normalize_repo_path(path: str) -> str:
     normalized = "/".join(parts)
     if not normalized.lower().endswith(_ALLOWED_SUFFIXES):
         raise PREngineError(
-            f"unsupported file type (HTML only): {normalized}",
+            f"unsupported file type: {normalized}",
             reason="unsupported_file",
         )
     return normalized
@@ -248,10 +248,12 @@ def build_report_data(
             )
         elif "layout." in update.path or "_app." in update.path:
             summary = "Mounted <JsonLd /> in application root layout"
-        elif update.path == "llms.txt":
+        elif "llms.txt" in update.path:
             summary = "Added /llms.txt machine-readable AI knowledge manifest for search LLMs"
-        elif update.path == "robots.txt":
-            summary = "Added optimized robots.txt for AI search crawler governance and citation access"
+        elif "robots.txt" in update.path:
+            summary = (
+                "Added optimized robots.txt for AI search crawler governance and citation access"
+            )
         elif update.path.endswith((".html", ".htm")):
             summary = "Added Schema.org JSON-LD: " + ", ".join(t.value for t in update.schema_types)
         else:
@@ -324,7 +326,22 @@ def resolve_target_file(tree_files: Sequence[str], path_hint: str) -> tuple[str 
         if f.lower() == path_hint.lower():
             if f.lower().endswith((".html", ".htm")):
                 return (f, "html")
+            if f.lower().endswith(".txt"):
+                return (f, "text")
             return (f, "framework")
+
+    # Text file resolution (robots.txt, llms.txt)
+    if path_hint.lower() in ("robots.txt", "public/robots.txt"):
+        for f in search_files:
+            if f.lower() in ("public/robots.txt", "robots.txt", "frontend/public/robots.txt"):
+                return (f, "text")
+        return (path_hint, "text")
+
+    if path_hint.lower() in ("llms.txt", "public/llms.txt"):
+        for f in search_files:
+            if f.lower() in ("public/llms.txt", "llms.txt", "frontend/public/llms.txt"):
+                return (f, "text")
+        return (path_hint, "text")
 
     # 2. Heuristic Stem Search
     stem = path_hint.replace("\\", "/").rsplit("/", 1)[-1].split(".")[0].lower()
@@ -585,17 +602,72 @@ class GitHubPRService:
         for path in grouped:
             matched_files[path] = resolve_target_file(tree_files, path)
 
-        # Check if all patches match actual HTML files that can be directly patched
-        all_html_matches = len(tree_files) > 0 and all(
-            kind == "html" and res_path is not None for res_path, kind in matched_files.values()
-        )
+        # Partition patches into text files (.txt), HTML files, and framework targets
+        text_grouped: dict[str, list[FormattedPatch]] = {}
+        html_grouped: dict[str, list[FormattedPatch]] = {}
+        remaining_grouped: dict[str, list[FormattedPatch]] = {}
+
+        for path, path_patches in grouped.items():
+            _, kind = matched_files.get(path, (None, "none"))
+            if kind == "text" or path.lower().endswith(".txt"):
+                text_grouped[path] = path_patches
+            elif kind == "html" or (
+                kind != "framework" and path.lower().endswith((".html", ".htm"))
+            ):
+                html_grouped[path] = path_patches
+            else:
+                remaining_grouped[path] = path_patches
 
         prepared: list[ValidatedRepoFileUpdate] = []
-        guidance_mode = not all_html_matches
+        guidance_mode = False
 
-        if not guidance_mode:
+        # 1. Process Text Files (robots.txt, llms.txt)
+        text_updates: list[ValidatedRepoFileUpdate] = []
+        for path, path_patches in text_grouped.items():
+            target_file_path = matched_files[path][0] or path
+            suggested_text = path_patches[0].patched_html or ""
+            if not suggested_text and path_patches[0].patch_text:
+                lines = [
+                    line[1:]
+                    for line in path_patches[0].patch_text.splitlines()
+                    if line.startswith("+") and not line.startswith("+++")
+                ]
+                suggested_text = "\n".join(lines)
+
+            # Check if remote file exists for possible merge
+            remote = None
             try:
-                for path, path_patches in grouped.items():
+                remote = self._client.get_file(work_repo, target_file_path, ref=target_branch)
+            except GitHubClientError:
+                try:
+                    remote = self._client.get_file(
+                        work_repo, target_file_path, ref=work_repo.default_branch
+                    )
+                except GitHubClientError:
+                    remote = None
+
+            if remote is not None and "robots.txt" in target_file_path.lower():
+                if "# === FindableAI" not in remote.content:
+                    final_text = remote.content.rstrip() + "\n\n" + suggested_text
+                else:
+                    final_text = suggested_text
+            else:
+                final_text = suggested_text
+
+            text_updates.append(
+                ValidatedRepoFileUpdate(
+                    path=target_file_path,
+                    content=final_text,
+                    opportunity_ids=[p.opportunity_id for p in path_patches],
+                    schema_types=[p.schema_type for p in path_patches],
+                )
+            )
+
+        # 2. Process Direct HTML Files
+        html_updates: list[ValidatedRepoFileUpdate] = []
+        if html_grouped:
+            try:
+                for path, path_patches in html_grouped.items():
                     target_file_path = matched_files[path][0] or path
                     try:
                         remote = self._client.get_file(
@@ -610,12 +682,7 @@ class GitHubPRService:
                         base_html=remote.content,
                         patches=path_patches,
                     )
-                    if new_content == remote.content:
-                        raise PREngineError(
-                            f"patch produced no content change for {target_file_path}",
-                            reason="noop_after_merge",
-                        )
-                    prepared.append(
+                    html_updates.append(
                         ValidatedRepoFileUpdate(
                             path=target_file_path,
                             content=new_content,
@@ -623,16 +690,19 @@ class GitHubPRService:
                             schema_types=[p.schema_type for p in path_patches],
                         )
                     )
-            except (PREngineError, GitHubClientError) as prep_err:
-                logger.info(
-                    "Direct HTML patch preparation failed, falling back to guidance PR: %s",
-                    prep_err,
-                )
-                guidance_mode = True
-                prepared = []
+            except Exception as html_err:
+                logger.info("Direct HTML patch preparation failed: %s", html_err)
+                html_updates = []
 
-        # Tier 2: If HTML direct patching did not apply, check for modern framework layout (Next.js / React)
-        if guidance_mode:
+        # 3. Process Framework Layout (Next.js / React) if HTML was not patched and schema patches exist
+        framework_updates: list[ValidatedRepoFileUpdate] = []
+        schema_patches = [
+            p
+            for patches in (list(html_grouped.values()) + list(remaining_grouped.values()))
+            for p in patches
+        ]
+
+        if not html_updates and schema_patches:
             framework_target = locate_framework_layout(tree_files)
             if framework_target:
                 layout_file, component_file, import_path = framework_target
@@ -646,8 +716,7 @@ class GitHubPRService:
                             work_repo, layout_file, ref=work_repo.default_branch
                         )
 
-                    all_patches = [p for patches in grouped.values() for p in patches]
-                    component_content = synthesize_framework_component(all_patches)
+                    component_content = synthesize_framework_component(schema_patches)
                     patched_layout = inject_component_into_layout(
                         remote_layout.content,
                         component_name="JsonLd",
@@ -655,52 +724,35 @@ class GitHubPRService:
                     )
 
                     if component_content:
-                        # Validate syntax integrity of modified layout before committing
                         is_layout_valid = validate_framework_layout_syntax(
                             remote_layout.content, patched_layout
                         )
-                        if not is_layout_valid:
-                            logger.warning(
-                                "Framework layout syntax validation failed for %s, falling back to guidance PR",
-                                layout_file,
-                            )
-                            guidance_mode = True
-                            prepared = []
-                        else:
-                            framework_updates = [
+                        if is_layout_valid:
+                            framework_updates.append(
                                 ValidatedRepoFileUpdate(
                                     path=component_file,
                                     content=component_content,
-                                    opportunity_ids=self._opportunity_ids(grouped),
-                                    schema_types=[
-                                        p.schema_type
-                                        for patches in grouped.values()
-                                        for p in patches
-                                    ],
+                                    opportunity_ids=[p.opportunity_id for p in schema_patches],
+                                    schema_types=[p.schema_type for p in schema_patches],
                                 )
-                            ]
+                            )
                             if patched_layout != remote_layout.content:
                                 framework_updates.append(
                                     ValidatedRepoFileUpdate(
                                         path=layout_file,
                                         content=patched_layout,
-                                        opportunity_ids=self._opportunity_ids(grouped),
-                                        schema_types=[
-                                            p.schema_type
-                                            for patches in grouped.values()
-                                            for p in patches
-                                        ],
+                                        opportunity_ids=[p.opportunity_id for p in schema_patches],
+                                        schema_types=[p.schema_type for p in schema_patches],
                                     )
                                 )
-                            prepared = framework_updates
-                            guidance_mode = False
                 except Exception as framework_err:
-                    logger.info(
-                        "Framework component generation failed, falling back to guidance PR: %s",
-                        framework_err,
-                    )
-                    guidance_mode = True
-                    prepared = []
+                    logger.info("Framework generation error: %s", framework_err)
+                    framework_updates = []
+
+        prepared = html_updates + framework_updates + text_updates
+
+        if not prepared:
+            guidance_mode = True
 
         # Include optional standalone /llms.txt and /robots.txt manifests if provided
         if request.llms_txt_content and request.llms_txt_content.strip():

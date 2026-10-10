@@ -124,9 +124,15 @@ export default function ScanDashboardPage() {
   // Effective displayed scan: prefer rich data from useScanData if available
   const displayScan: ScanResponse | null = scan.data ?? initialScan;
 
-  // Effective status: stream status overrides initial if running
+  // Effective status: if scan reaches a terminal status (e.g. completed), prioritize it over in-flight stream events
   const currentStatus: ScanStatus =
-    (isRunning && latestEvent?.status) ? latestEvent.status : (displayScan?.status ?? "pending");
+    (initialScan && TERMINAL_STATUSES.includes(initialScan.status))
+      ? initialScan.status
+      : (displayScan && TERMINAL_STATUSES.includes(displayScan.status))
+      ? displayScan.status
+      : (isRunning && latestEvent?.status)
+      ? latestEvent.status
+      : (displayScan?.status ?? "pending");
 
   // Title update
   useEffect(() => {
@@ -166,6 +172,25 @@ export default function ScanDashboardPage() {
   useEffect(() => {
     void fetchInitial();
   }, [fetchInitial]);
+
+  // Polling safety net: while scan is in-flight, check backend periodically so
+  // dropped SSE connections or missed stream events never freeze the UI.
+  useEffect(() => {
+    if (!scanId || !isRunning) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const fresh = await getScan(scanId);
+        if (TERMINAL_STATUSES.includes(fresh.status) || fresh.status !== initialScan?.status) {
+          setInitialScan(fresh);
+        }
+      } catch {
+        // Safe ignore transient poll error
+      }
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [scanId, isRunning, initialScan?.status]);
 
   // Check if data is fully ready to show completed dashboard
   const isFailed = currentStatus === "failed";

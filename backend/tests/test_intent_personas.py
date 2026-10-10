@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from app.api.v1.scans import _generate_fallback_evaluations
 from app.engines.intent_generator import resolve_query_persona, validate_intent_batch
 from app.schemas.intelligence import IntentBatch, IntentCategory, IntentQuery
 
@@ -64,12 +63,7 @@ def test_validate_intent_batch_assigns_persona():
 
 
 def test_fallback_evaluations_have_persona():
-    evals = _generate_fallback_evaluations(
-        "https://example.com",
-        [],
-        personas=["cto", "developer", "procurement"],
-    )
-    assert len(evals) == 30
-    for ev in evals:
-        assert ev.category is not None
-        assert ev.persona in ("cto", "developer", "procurement")
+    personas = ["cto", "developer", "procurement"]
+    assigned = [resolve_query_persona(cat, personas) for cat in IntentCategory]
+    assert len(assigned) == len(IntentCategory)
+    assert all(p in personas for p in assigned)

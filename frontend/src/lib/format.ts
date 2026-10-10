@@ -157,6 +157,13 @@ export function scanStatusMeta(status: ScanStatus): StatusMeta {
         classes: "bg-sky-950 text-sky-300",
         dotClass: "bg-sky-400",
       };
+    case "audited":
+      return {
+        label: "Audited",
+        iconName: "shield-check",
+        classes: "bg-emerald-950 text-emerald-300",
+        dotClass: "bg-emerald-400",
+      };
     case "synthesizing_intents":
       return {
         label: "Synthesizing Intents",

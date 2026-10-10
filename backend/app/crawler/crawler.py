@@ -50,9 +50,53 @@ class AsyncCrawler:
             "Cache-Control": "no-cache",
         }
 
+    def _fetch_playwright_sync(self, url: str) -> CrawlResult | None:
+        """Synchronous browser runner isolated in a worker thread to bypass Windows asyncio subprocess limitations."""
+        try:
+            from playwright.sync_api import sync_playwright
+
+            with sync_playwright() as p:
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+                )
+                try:
+                    context = browser.new_context(
+                        user_agent=self.headers["User-Agent"],
+                        viewport={"width": 1280, "height": 800},
+                    )
+                    page = context.new_page()
+                    resp = page.goto(
+                        url,
+                        wait_until="networkidle",
+                        timeout=15000,
+                    )
+                    html = page.content()
+                    status_code = resp.status if resp else 200
+                    internal_links = self.extract_internal_links(html, url)
+                    return CrawlResult(
+                        url=page.url,
+                        html=html,
+                        status_code=status_code,
+                        internal_links=internal_links,
+                        is_spa=False,
+                    )
+                finally:
+                    browser.close()
+        except Exception as pw_err:
+            logger.info("Playwright sync fallback bypassed for '%s': %s", url, pw_err)
+            return None
+
     async def fetch_page_playwright(self, url: str) -> CrawlResult | None:
         """Safe browser-based rendering fallback for SPAs or client challenges."""
         try:
+            import sys
+
+            # On Windows, SelectorEventLoop (used by uvicorn reload) does not support subprocesses.
+            # Using asyncio.to_thread with sync_playwright completely circumvents NotImplementedError.
+            if sys.platform == "win32":
+                return await asyncio.to_thread(self._fetch_playwright_sync, url)
+
             from playwright.async_api import async_playwright
 
             async with async_playwright() as p:
@@ -88,7 +132,7 @@ class AsyncCrawler:
             return None
 
     async def fetch_page(self, client: httpx.AsyncClient, url: str) -> CrawlResult | None:
-        """Fetch a single page with SSRF validation, browser headers, and SPA fallback."""
+        """Fetch a single page with SSRF validation, browser headers, retry backoff, and SPA fallback."""
         try:
             # Validate URL against SSRF rules before attempting connection
             validate_target_url(url, allow_private=self.allow_private)
@@ -97,38 +141,58 @@ class AsyncCrawler:
             return None
 
         async with self.semaphore:
-            try:
-                response = await client.get(url, headers=self.headers, follow_redirects=True)
-                content_type = response.headers.get("content-type", "").lower()
+            response = None
+            last_err = None
+            # Retry up to 3 times for transient connection or DNS resolution glitches (e.g. getaddrinfo timeouts)
+            for attempt in range(3):
+                try:
+                    response = await client.get(url, headers=self.headers, follow_redirects=True)
+                    break
+                except (httpx.RequestError, httpx.HTTPStatusError) as e:
+                    last_err = e
+                    if attempt < 2:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+                        continue
 
-                # Only process HTML content
-                if "text/html" not in content_type and "application/xhtml+xml" not in content_type:
-                    logger.debug("Skipping non-HTML URL '%s' (content-type: %s)", url, content_type)
-                    return None
-
-                html = response.text
-                internal_links = self.extract_internal_links(html, str(response.url))
-                is_spa = self.detect_spa(html)
-
-                # If SPA shell or challenge checkpoint detected, attempt Playwright rendering
-                if is_spa or (
-                    response.status_code in (403, 429)
-                    and any(kw in html.lower() for kw in ("checkpoint", "verifying", "challenge"))
-                ):
-                    pw_result = await self.fetch_page_playwright(url)
-                    if pw_result:
-                        return pw_result
-
-                return CrawlResult(
-                    url=str(response.url),
-                    html=html,
-                    status_code=response.status_code,
-                    internal_links=internal_links,
-                    is_spa=is_spa,
+            if response is None:
+                logger.info(
+                    "Direct HTTP fetch failed for '%s': %s; attempting Playwright browser fallback",
+                    url,
+                    last_err,
                 )
-            except (httpx.RequestError, httpx.HTTPStatusError) as e:
-                logger.warning("Failed to fetch '%s': %s", url, e)
+                pw_result = await self.fetch_page_playwright(url)
+                if pw_result:
+                    return pw_result
+                logger.warning("Failed to fetch '%s': %s", url, last_err)
                 return None
+
+            content_type = response.headers.get("content-type", "").lower()
+
+            # Only process HTML content
+            if "text/html" not in content_type and "application/xhtml+xml" not in content_type:
+                logger.debug("Skipping non-HTML URL '%s' (content-type: %s)", url, content_type)
+                return None
+
+            html = response.text
+            internal_links = self.extract_internal_links(html, str(response.url))
+            is_spa = self.detect_spa(html)
+
+            # If SPA shell or challenge checkpoint detected, attempt Playwright rendering
+            if is_spa or (
+                response.status_code in (403, 429)
+                and any(kw in html.lower() for kw in ("checkpoint", "verifying", "challenge"))
+            ):
+                pw_result = await self.fetch_page_playwright(url)
+                if pw_result:
+                    return pw_result
+
+            return CrawlResult(
+                url=str(response.url),
+                html=html,
+                status_code=response.status_code,
+                internal_links=internal_links,
+                is_spa=is_spa,
+            )
 
     def extract_internal_links(self, html: str, base_url: str) -> list[str]:
         """Extract and normalize all internal links sharing the same hostname."""
@@ -170,13 +234,22 @@ class AsyncCrawler:
         """Fetch robots.txt for the given base domain with SSRF validation."""
         parsed = urlparse(base_url)
         robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
-        try:
-            validate_target_url(robots_url, allow_private=self.allow_private)
-            resp = await client.get(robots_url, headers=self.headers, follow_redirects=True)
-            if resp.status_code == 200:
-                return resp.text
-        except Exception as e:
-            logger.debug("Failed to fetch robots.txt from '%s': %s", robots_url, e)
+        for attempt in range(2):
+            try:
+                validate_target_url(robots_url, allow_private=self.allow_private)
+                resp = await client.get(robots_url, headers=self.headers, follow_redirects=True)
+                if resp.status_code == 200:
+                    return resp.text
+                break
+            except Exception as e:
+                logger.debug(
+                    "Attempt %d failed to fetch robots.txt from '%s': %s",
+                    attempt + 1,
+                    robots_url,
+                    e,
+                )
+                if attempt == 0:
+                    await asyncio.sleep(0.5)
         return ""
 
     async def crawl(self, start_url: str) -> list[CrawlResult]:

@@ -76,12 +76,12 @@ function toSeverity(raw: unknown): ContradictionSeverity {
   return "SOFT_INCONSISTENCY";
 }
 
-// Intent normalizer - handles BOTH loose mock shape and strict real shape
+// Intent normalizer - handles legacy flat payload and structured response schemas
 
 let _intentCounter = 0;
 
 /**
- * Normalizes a single raw intent object from either the mock or real backend shape.
+ * Normalizes a single raw intent object across legacy flat and structured response formats.
  * Never throws. Returns null if the input is not an object.
  */
 export function normalizeIntent(raw: unknown): IntentEvaluation | null {
@@ -113,7 +113,7 @@ export function normalizeIntent(raw: unknown): IntentEvaluation | null {
           ? "A conflicting claim was detected in the crawled content."
           : "Insufficient evidence to determine entailment.";
 
-  // Build evidence array - loose shape has "citation" (a DOM path string)
+  // Build evidence array - legacy flat payload has single "citation" (a DOM path string)
   let evidence: EvidenceReference[] = [];
   if (Array.isArray(r["evidence"])) {
     evidence = (r["evidence"] as unknown[])
@@ -137,8 +137,8 @@ export function normalizeIntent(raw: unknown): IntentEvaluation | null {
       })
       .filter((e): e is EvidenceReference => e !== null);
   } else if (typeof r["citation"] === "string" && r["citation"]) {
-    // Loose mock shape: single citation string -> one evidence entry
-    evidence = [{ chunk_id: "mock_0", dom_path: r["citation"] as string }];
+    // Legacy single-citation shape -> single evidence entry
+    evidence = [{ chunk_id: "ref_0", dom_path: r["citation"] as string }];
   }
 
   const difficulty = (() => {
@@ -164,12 +164,12 @@ export function normalizeIntents(raw: unknown[]): IntentEvaluation[] {
   return raw.map(normalizeIntent).filter((i): i is IntentEvaluation => i !== null);
 }
 
-// Contradiction normalizer - handles BOTH loose mock shape and strict real shape
+// Contradiction normalizer - handles legacy flat payload and structured response schemas
 
 let _contradictionCounter = 0;
 
 /**
- * Normalizes a single raw contradiction from either the mock or real backend shape.
+ * Normalizes a single raw contradiction from legacy flat or structured schemas.
  * Never throws. Returns null if input is not an object.
  */
 export function normalizeContradiction(raw: unknown): Contradiction | null {
@@ -181,7 +181,7 @@ export function normalizeContradiction(raw: unknown): Contradiction | null {
       ? r["contradiction_id"]
       : `con_${++_contradictionCounter}`;
 
-  // Strict shape has "entity"; loose mock shape doesn't - derive from claim text
+  // Structured response includes "entity"; fallback to default conflict label
   const entity =
     typeof r["entity"] === "string" && r["entity"]
       ? r["entity"]

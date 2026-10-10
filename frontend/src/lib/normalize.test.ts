@@ -47,7 +47,7 @@ describe("normalizeWeight", () => {
   });
 });
 
-// --- normalizeIntent - loose mock shape ---
+// --- normalizeIntent - legacy flat shape ---
 
 const LOOSE_INTENT = {
   query: "Does Bistro 2026 offer vegan options?",
@@ -166,7 +166,7 @@ describe("normalizeIntents", () => {
   });
 });
 
-// --- normalizeContradiction - loose mock shape ---
+// --- normalizeContradiction - legacy flat shape ---
 
 const LOOSE_CONTRADICTION = {
   contradiction_id: "con_abc",

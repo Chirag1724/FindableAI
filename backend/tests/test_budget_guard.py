@@ -16,6 +16,7 @@ from app.core.budget import (
     LLMBudgetExceededError,
     default_scan_budget,
 )
+from app.core.config import settings
 from app.core.llm import LLMClient
 from app.orchestration.dag import FindableAIDAG, ObservationInput
 from app.orchestration.state import OrchestrationChunk, ScanPhase
@@ -357,7 +358,7 @@ def test_default_scan_budget_is_fresh():
     a = default_scan_budget()
     b = default_scan_budget()
     assert a is not b
-    assert a.limit == 35
+    assert a.limit == settings.MAX_LLM_CALLS_PER_SCAN
     assert a.used == 0
 
 

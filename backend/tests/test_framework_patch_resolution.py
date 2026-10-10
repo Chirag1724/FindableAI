@@ -292,3 +292,103 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     assert len(resolved) == 1
     assert resolved[0].target_file is None
     assert resolved[0].code_diff is None
+
+
+def test_resolve_framework_patches_maps_robots_and_llms_to_public_dir():
+    """Verify that robots.txt and llms.txt map to frontend/public/ in a Next.js App Router repo."""
+    from app.schemas.patch import DOMSelectorAnchor, PatchProposal, PatchType
+
+    robots_patch = PatchProposal(
+        patch_id="patch_robots_001",
+        patch_type=PatchType.ROBOTS_GOVERNANCE,
+        title="Configure AI Crawler Access Rules (robots.txt)",
+        rationale="Allow Perplexity, block scrapers",
+        impact_score_delta=8.0,
+        dom_anchor=DOMSelectorAnchor(
+            css_selector="robots.txt",
+            tag_name="robots.txt",
+            original_snippet="",
+            suggested_snippet="User-agent: PerplexityBot\nAllow: /\n",
+        ),
+        unified_diff="--- /dev/null\n+++ b/robots.txt\n@@ -0,0 +1,2 @@\n+User-agent: PerplexityBot\n+Allow: /\n",
+        applied=False,
+        target_file="robots.txt",
+    )
+
+    llms_patch = PatchProposal(
+        patch_id="patch_llms_001",
+        patch_type=PatchType.LLMS_MANIFEST,
+        title="Publish /llms.txt Machine Knowledge Manifest",
+        rationale="Standard markdown manifest",
+        impact_score_delta=6.0,
+        dom_anchor=DOMSelectorAnchor(
+            css_selector="llms.txt",
+            tag_name="llms.txt",
+            original_snippet="",
+            suggested_snippet="# Acme Corp\n> Machine index.\n",
+        ),
+        unified_diff="--- /dev/null\n+++ b/llms.txt\n@@ -0,0 +1,2 @@\n+# Acme Corp\n+> Machine index.\n",
+        applied=False,
+        target_file="llms.txt",
+    )
+
+    files = [
+        "package.json",
+        "frontend/src/app/layout.tsx",
+        "frontend/public/favicon.ico",
+    ]
+
+    resolved = resolve_framework_patches(
+        [SAMPLE_PATCH, robots_patch, llms_patch],
+        tree_files=files,
+        get_file_content=lambda p: SAMPLE_LAYOUT,
+    )
+
+    assert len(resolved) == 3
+
+    # 1. Schema patch
+    assert resolved[0].target_file == "frontend/src/app/layout.tsx"
+    assert resolved[0].code_diff is not None
+    assert len(resolved[0].auxiliary_files) == 1
+    assert resolved[0].auxiliary_files[0].file_path == "frontend/src/components/JsonLd.tsx"
+
+    # 2. Robots patch
+    assert resolved[1].target_file == "frontend/public/robots.txt"
+    assert "frontend/public/robots.txt" in resolved[1].unified_diff
+
+    # 3. LLMs patch
+    assert resolved[2].target_file == "frontend/public/llms.txt"
+    assert "frontend/public/llms.txt" in resolved[2].unified_diff
+
+
+def test_resolve_framework_patches_plain_html_maps_to_root_robots_and_llms():
+    """Verify that robots.txt and llms.txt map to root when no public directory or framework layout exists."""
+    from app.schemas.patch import DOMSelectorAnchor, PatchProposal, PatchType
+
+    robots_patch = PatchProposal(
+        patch_id="patch_robots_002",
+        patch_type=PatchType.ROBOTS_GOVERNANCE,
+        title="Configure AI Crawler Access Rules (robots.txt)",
+        rationale="Allow bots",
+        impact_score_delta=8.0,
+        dom_anchor=DOMSelectorAnchor(
+            css_selector="robots.txt",
+            tag_name="robots.txt",
+            original_snippet="",
+            suggested_snippet="User-agent: *\nAllow: /\n",
+        ),
+        unified_diff="--- /dev/null\n+++ b/robots.txt\n@@ -0,0 +1,2 @@\n+User-agent: *\n+Allow: /\n",
+        applied=False,
+        target_file="robots.txt",
+    )
+
+    files = ["index.html", "about.html", "styles.css"]
+
+    resolved = resolve_framework_patches(
+        [robots_patch],
+        tree_files=files,
+        get_file_content=lambda p: "",
+    )
+
+    assert len(resolved) == 1
+    assert resolved[0].target_file == "robots.txt"

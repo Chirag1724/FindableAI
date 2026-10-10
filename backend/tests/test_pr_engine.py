@@ -161,9 +161,12 @@ def _service() -> tuple[GitHubPRService, FakeGitHubClient]:
 # --- path / branch ---
 
 
-def test_normalize_path_accepts_relative_html():
+def test_normalize_path_accepts_relative_allowed_types():
     assert normalize_repo_path("pages/index.html") == "pages/index.html"
     assert normalize_repo_path(r"pages\about.html") == "pages/about.html"
+    assert normalize_repo_path("public/robots.txt") == "public/robots.txt"
+    assert normalize_repo_path("public/llms.txt") == "public/llms.txt"
+    assert normalize_repo_path("src/app/layout.tsx") == "src/app/layout.tsx"
 
 
 @pytest.mark.parametrize(
@@ -173,7 +176,7 @@ def test_normalize_path_accepts_relative_html():
         "/etc/passwd",
         "../../README.md",
         "foo/../../bar.html",
-        "script.js",
+        "binary.exe",
         "",
     ],
 )
@@ -481,12 +484,14 @@ def test_create_pr_without_any_scores_defaults_gracefully():
 def test_locate_framework_layout():
     # Detects nested and top-level layouts with correct component paths and import aliases
     tree_nested = ["frontend/src/app/layout.tsx", "frontend/src/app/page.tsx"]
+    # pyrefly: ignore [not-iterable]
     layout, comp, imp = locate_framework_layout(tree_nested)
     assert layout == "frontend/src/app/layout.tsx"
     assert comp == "frontend/src/components/JsonLd.tsx"
     assert imp == "@/components/JsonLd"
 
     tree_root = ["app/layout.jsx", "app/page.jsx"]
+    # pyrefly: ignore [not-iterable]
     layout, comp, imp = locate_framework_layout(tree_root)
     assert layout == "app/layout.jsx"
     assert comp == "components/JsonLd.jsx"
@@ -568,6 +573,77 @@ def test_create_pr_framework_layout_generates_component_and_layout_diff():
     assert "export function JsonLd()" in created_comp.content
 
 
+def test_create_pr_atomic_multi_file_framework_bundle():
+    """Verify that Schema, robots.txt, and llms.txt are committed together in 1 atomic PR."""
+    layout_content = (
+        'import "./globals.css";\n'
+        "export default function RootLayout({ children }: { children: React.ReactNode }) {\n"
+        "  return (<html><body>{children}</body></html>);\n"
+        "}"
+    )
+    client = FakeGitHubClient(login="acme-bot")
+    client.seed_repo(
+        "acme-bot/fullstack-app",
+        files={
+            "frontend/src/app/layout.tsx": layout_content,
+            "frontend/src/app/page.tsx": "export default function Home() { return <h1>Home</h1>; }",
+            "frontend/public/favicon.ico": "fake-ico",
+        },
+        allow_push=True,
+    )
+    service = GitHubPRService(client)
+
+    schema_patch = _applied_patch(
+        opportunity_id="opp-schema-1",
+        file_path="index.html",
+        patched='<html><head><script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Acme Inc"}</script></head><body></body></html>',
+    )
+    robots_patch = FormattedPatch(
+        opportunity_id="opp-robots-1",
+        schema_type=SchemaRemediationTarget.ROBOTS_TXT,
+        file_path="frontend/public/robots.txt",
+        patch_text="--- /dev/null\n+++ b/frontend/public/robots.txt\n@@ -0,0 +1,3 @@\n+# === FindableAI ===\n+User-agent: PerplexityBot\n+Allow: /\n",
+        changed_lines=3,
+        insertion_location="",
+        is_noop=False,
+        status=PatchFormatStatus.APPLIED,
+        message="AI crawler rules",
+        patched_html="# === FindableAI ===\nUser-agent: PerplexityBot\nAllow: /\n",
+    )
+    llms_patch = FormattedPatch(
+        opportunity_id="opp-llms-1",
+        schema_type=SchemaRemediationTarget.LLMS_TXT,
+        file_path="frontend/public/llms.txt",
+        patch_text="--- /dev/null\n+++ b/frontend/public/llms.txt\n@@ -0,0 +1,2 @@\n+# Acme Inc\n+> Machine index.\n",
+        changed_lines=2,
+        insertion_location="",
+        is_noop=False,
+        status=PatchFormatStatus.APPLIED,
+        message="Agent manifest",
+        patched_html="# Acme Inc\n> Machine index.\n",
+    )
+
+    req = _request(
+        source_repo="acme-bot/fullstack-app",
+        scan_id="scan-atomic-1",
+        patches=[schema_patch, robots_patch, llms_patch],
+    )
+    result = service.create_remediation_pr(req)
+
+    assert result.source_repository == "acme-bot/fullstack-app"
+    assert result.pr_number == 1
+    # Verify all 4 files are present in the atomic commit
+    assert "frontend/src/components/JsonLd.tsx" in result.changed_files
+    assert "frontend/src/app/layout.tsx" in result.changed_files
+    assert "frontend/public/robots.txt" in result.changed_files
+    assert "frontend/public/llms.txt" in result.changed_files
+    assert len(result.changed_files) == 4
+
+    # Verify PR body mentions the governance and manifest files
+    assert "robots.txt" in result.pr_body
+    assert "llms.txt" in result.pr_body
+
+
 def test_create_pr_with_manifest_files():
     client = FakeGitHubClient(login="acme-bot")
     client.seed_repo(
@@ -601,4 +677,3 @@ def test_create_pr_with_manifest_files():
     assert "# Acme" in llms_file.content
     robots_file = client.get_file(repo, "robots.txt", ref=result.generated_branch)
     assert "PerplexityBot" in robots_file.content
-
