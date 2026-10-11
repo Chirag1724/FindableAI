@@ -68,7 +68,7 @@ export function ContradictionInspector() {
       {/* 1. Header Toolbar with Status */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:p-5 border-b border-white/[0.08] bg-surface-secondary/40">
         <div className="flex items-center flex-wrap gap-2 sm:gap-2.5">
-          <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
+          <span className="h-2 w-2 rounded-full bg-rose-500" />
           <span className="font-mono text-xs font-semibold text-white tracking-wide">
             CROSS-PAGE NLI INFERENCE ENGINE
           </span>
@@ -81,7 +81,7 @@ export function ContradictionInspector() {
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none no-scrollbar shrink-0">
           {CONTRADICTIONS_DATA.map((c) => (
             <button
               key={c.id}

@@ -275,7 +275,7 @@ export function CrawlerGovernancePanel({ governance }: CrawlerGovernancePanelPro
           </span>
         </div>
 
-        <div className="overflow-x-auto rounded-lg border border-white/[0.08] bg-black/30">
+        <div className="overflow-x-auto rounded-lg border border-white/[0.08] bg-black/30 custom-scrollbar">
           <table className="w-full text-left text-xs text-text-primary" role="table">
             <thead>
               <tr className="border-b border-white/[0.08] bg-white/[0.02] text-text-muted">
@@ -368,7 +368,7 @@ export function CrawlerGovernancePanel({ governance }: CrawlerGovernancePanelPro
               <div className="absolute top-3 right-3">
                 <CopyButton text={OPTIMIZED_ROBOTS_TXT_PLACEHOLDER} label="Copy robots.txt" />
               </div>
-              <pre className="font-mono text-xs text-sky-200/90 overflow-x-auto max-h-72 whitespace-pre pr-12">
+              <pre className="font-mono text-xs text-sky-200/90 overflow-x-auto max-h-72 whitespace-pre pr-12 custom-scrollbar">
                 <code>{OPTIMIZED_ROBOTS_TXT_PLACEHOLDER}</code>
               </pre>
             </div>

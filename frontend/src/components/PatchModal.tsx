@@ -325,7 +325,7 @@ function PatchCard({
         <div className="space-y-2 border-b border-white/[0.08] pb-2.5">
           {/* Sub-tabs for exact files modified/created in PR */}
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar">
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none no-scrollbar flex-wrap">
               {prFiles.map((file) => {
                 const isSelected = activeFile?.filePath === file.filePath;
                 return (

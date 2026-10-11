@@ -250,7 +250,7 @@ export function CrawlInspector() {
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-4 sm:p-5 border-b border-white/[0.08] bg-surface-secondary/40">
         <div className="flex items-center flex-wrap gap-2 sm:gap-3">
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
             <span className="font-mono text-xs font-semibold text-white tracking-wide">
               HEADLESS CHROMIUM v124
             </span>
@@ -265,7 +265,7 @@ export function CrawlInspector() {
         </div>
 
         {/* Route Filter Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0 scrollbar-none">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0 scrollbar-none no-scrollbar shrink-0">
           {ROUTES_DATA.map((r) => (
             <button
               key={r.id}
