@@ -251,7 +251,7 @@ class LLMClient:
 
     def _secrets(self) -> tuple[str, ...]:
         secrets = [self._api_key]
-        if getattr(settings, "NVIDIA_API_KEY", ""):
+        if settings.NVIDIA_API_KEY:
             secrets.append(settings.NVIDIA_API_KEY)
         if settings.OPENROUTER_API_KEY:
             secrets.append(settings.OPENROUTER_API_KEY)
@@ -376,15 +376,15 @@ class LLMClient:
             nvidia_key = (
                 self._api_key
                 if (self._api_key and self._api_key.startswith("nvapi-"))
-                else getattr(settings, "NVIDIA_API_KEY", "")
+                else settings.NVIDIA_API_KEY
             )
             if not nvidia_key and self._api_key and self._api_key.startswith("nvapi-"):
                 nvidia_key = self._api_key
             if not nvidia_key:
                 return None
 
-            model = preferred_model or getattr(
-                settings, "NVIDIA_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b"
+            model = (
+                preferred_model or settings.NVIDIA_MODEL or "nvidia/nemotron-3.5-lightning-30b-a3b"
             )
             return ProviderEndpoint(
                 name="nvidia",

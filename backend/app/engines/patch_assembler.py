@@ -285,7 +285,9 @@ def assemble_real_patches(
                         content=comp_content,
                         action="create",
                     )
-                ] if comp_content else [],
+                ]
+                if comp_content
+                else [],
             ),
         )
 

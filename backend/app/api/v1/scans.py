@@ -601,7 +601,7 @@ async def run_scan_pipeline(
                 ScanStatus.NLI_EVALUATION,
                 pct,
                 "NLI Entailment Classifier",
-                f"[{completed}/{total}] Grounded claim: \"{query_preview}...\"",
+                f'[{completed}/{total}] Grounded claim: "{query_preview}..."',
             )
 
         # Execute FindableAIDAG orchestrator with dual-tier clients & live progress
