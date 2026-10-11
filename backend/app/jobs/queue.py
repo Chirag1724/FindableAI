@@ -20,7 +20,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import Select, and_, func, or_, select, text, update
+from sqlalchemy import and_, func, or_, select, text, update
+from sqlalchemy.engine import CursorResult, Result
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,6 +58,18 @@ class EnqueueResult:
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _dml_rowcount(result: Result[Any]) -> int:
+    """Rowcount from a DML execute result.
+
+    ``AsyncSession.execute`` is typed as ``Result``, which omits ``rowcount``.
+    UPDATE/DELETE statements return a ``CursorResult`` at runtime; narrow to
+    that public type before reading affected rows.
+    """
+    if isinstance(result, CursorResult):
+        return int(result.rowcount or 0)
+    return 0
 
 
 def request_fingerprint(
@@ -200,7 +213,8 @@ async def enqueue_scan_job(
     return EnqueueResult(job=job, scan=db_scan, created=True, conflict=False)
 
 
-def _claimable_stmt(now: datetime) -> Select[tuple[ScanJob]]:
+def _claimable_stmt(now: datetime):
+    """Build the claim candidate query for ``session.scalars`` / FOR UPDATE SKIP LOCKED."""
     return (
         select(ScanJob)
         .where(
@@ -244,7 +258,8 @@ async def claim_next_job(
     if dialect == "postgresql":
         stmt = stmt.with_for_update(skip_locked=True)
 
-    job = await session.scalar(stmt)
+    # scalars() yields ORM entities; avoids treating Select[tuple[ScanJob]] rows as tuples.
+    job = (await session.scalars(stmt)).first()
     if job is None:
         return None
 
@@ -329,7 +344,7 @@ async def mark_running(
             updated_at=now,
         )
     )
-    return bool(result.rowcount)
+    return _dml_rowcount(result) > 0
 
 
 async def heartbeat(
@@ -356,7 +371,7 @@ async def heartbeat(
             updated_at=now,
         )
     )
-    return bool(result.rowcount)
+    return _dml_rowcount(result) > 0
 
 
 async def complete_job(
@@ -389,7 +404,7 @@ async def complete_job(
         )
         .values(**values)
     )
-    ok = bool(result.rowcount)
+    ok = _dml_rowcount(result) > 0
     if ok:
         metrics.incr("scan_jobs_succeeded")
         logger.info(
@@ -557,7 +572,7 @@ async def recover_expired_leases(session: AsyncSession) -> int:
             error_detail=redact_error("lease expired; requeued for recovery"),
         )
     )
-    count = int(result.rowcount or 0)
+    count = _dml_rowcount(result)
     if count:
         metrics.incr("scan_jobs_lease_recovered", count)
         logger.warning("scan_jobs_bulk_lease_recovery count=%s", count)
@@ -586,7 +601,7 @@ async def detect_deadline_exceeded(session: AsyncSession) -> int:
             error_detail=redact_error("execution deadline exceeded"),
         )
     )
-    return int(result.rowcount or 0)
+    return _dml_rowcount(result)
 
 
 async def db_supports_skip_locked(session: AsyncSession) -> bool:
