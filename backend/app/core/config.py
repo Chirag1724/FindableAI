@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     SCAN_TIMEOUT_SECONDS: int = 60
     LLM_BUDGET_CAP_USD: float = 0.01
     # Hard global LLM provider-call cap per scan (P2-4.2). Not per-engine.
-    MAX_LLM_CALLS_PER_SCAN: int = 60
+    MAX_LLM_CALLS_PER_SCAN: int = 100
 
     # Explicit opt-in for non-production synthetic demo fill (never remediation-eligible).
     # Normal scans must not inject fabricated intents/scores/patches unless this is true.
