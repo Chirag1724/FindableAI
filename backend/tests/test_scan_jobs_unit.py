@@ -61,7 +61,9 @@ class _ScanJob(_TestBase):
     max_attempts: Mapped[int] = mapped_column(Integer, default=3)
     fencing_token: Mapped[int] = mapped_column(Integer, default=0)
     claimed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     available_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -75,12 +77,8 @@ class _ScanJob(_TestBase):
     error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     failure_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
     llm_calls_checkpoint: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     scan: Mapped[_Scan] = relationship(back_populates="jobs")
 
 
@@ -249,9 +247,7 @@ async def test_enqueue_claim_complete(session: AsyncSession):
         token = claimed.fencing_token
 
     async with session.begin():
-        ok = await complete_job(
-            session, job_id=claimed.job_id, fencing_token=token, worker_id="w1"
-        )
+        ok = await complete_job(session, job_id=claimed.job_id, fencing_token=token, worker_id="w1")
         assert ok is True
 
     job = await session.get(_ScanJob, claimed.job_id)
@@ -262,9 +258,7 @@ async def test_enqueue_claim_complete(session: AsyncSession):
 @pytest.mark.asyncio
 async def test_idempotent_enqueue(session: AsyncSession):
     scan_id = uuid.uuid4()
-    fp = request_fingerprint(
-        url="https://example.com/a", max_pages=1, personas=None, repo_url=None
-    )
+    fp = request_fingerprint(url="https://example.com/a", max_pages=1, personas=None, repo_url=None)
     key = "client:k1"
     async with session.begin():
         r1 = await enqueue_scan_job(

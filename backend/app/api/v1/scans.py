@@ -536,7 +536,6 @@ async def run_scan_pipeline(
         )
         heavy_llm = LLMClient(model=settings.HEAVY_LLM_MODEL, budget_guard=budget_guard)
         fast_llm = LLMClient(model=settings.FAST_LLM_MODEL, budget_guard=budget_guard)
-        llm_client = heavy_llm
 
         # Build orchestration chunks for DAG.
         # Prefer persisted DOMChunk UUIDs so evidence citations are durable FKs.
@@ -1099,8 +1098,7 @@ async def create_scan(
                             status=ScanStatus.PENDING
                             if result.scan.status == "in_progress"
                             else ScanStatus(result.scan.status)
-                            if result.scan.status
-                            in {s.value for s in ScanStatus}
+                            if result.scan.status in {s.value for s in ScanStatus}
                             else ScanStatus.PENDING,
                             created_at=result.scan.created_at or datetime.now(UTC),
                             repo_url=result.scan.repo_url,
@@ -1270,9 +1268,7 @@ async def get_scan(scan_id: str) -> ScanResponse:
                     evidence_by_intent: dict[uuid.UUID, list[EvidenceReference]] = {}
                     hydrate_failed = False
                     try:
-                        evidence_by_intent = await hydrate_evidence_for_intents(
-                            s, list(db_intents)
-                        )
+                        evidence_by_intent = await hydrate_evidence_for_intents(s, list(db_intents))
                     except Exception as hydrate_err:
                         hydrate_failed = True
                         logger.warning(
@@ -1940,7 +1936,8 @@ async def apply_scan_patch(
 
     # Path/synthetic/size/evidence must pass before any GitHub mutation.
     critical_blocked = any(
-        c.get("safety_critical") and c.get("status") in ("failed", "inconclusive")
+        c.get("safety_critical")
+        and c.get("status") in ("failed", "inconclusive")
         and c.get("name")
         in (
             "not_synthetic",
@@ -2036,7 +2033,12 @@ async def apply_scan_patch(
                     )
                     # Keep path/content checks; ignore redundant patch_nonempty on placeholder.
                     for chk in post.as_dicts():
-                        if chk["name"] in ("html_parse", "jsonld_syntax", "json_parse", "base_freshness"):
+                        if chk["name"] in (
+                            "html_parse",
+                            "jsonld_syntax",
+                            "json_parse",
+                            "base_freshness",
+                        ):
                             all_validation_checks.append(chk)
                             if chk["safety_critical"] and chk["status"] in (
                                 "failed",
@@ -2138,10 +2140,14 @@ async def apply_scan_patch(
                         remediation_run_id = str(run.id)
                         # Persist PR URL onto scan patch rows when present.
                         patch_rows = (
-                            await s.execute(
-                                select(PatchModel).where(PatchModel.scan_id == scan_uuid)
+                            (
+                                await s.execute(
+                                    select(PatchModel).where(PatchModel.scan_id == scan_uuid)
+                                )
                             )
-                        ).scalars().all()
+                            .scalars()
+                            .all()
+                        )
                         for patch_row in patch_rows:
                             patch_row.pr_url = result.pr_url
             except Exception as persist_err:
@@ -2340,7 +2346,9 @@ async def verify_scan_remediation(
         async with AsyncSessionLocal() as s:
             runs = await get_runs_for_scan(s, scan_uuid)
     except Exception as exc:
-        raise HTTPException(status_code=503, detail="Database unavailable for verification") from exc
+        raise HTTPException(
+            status_code=503, detail="Database unavailable for verification"
+        ) from exc
 
     run = None
     want_id = payload.remediation_run_id if payload else None
@@ -2348,7 +2356,11 @@ async def verify_scan_remediation(
         if want_id and r.id == want_id:
             run = r
             break
-        if want_id is None and r.lifecycle_state in (STATE_PR_OPEN, STATE_VERIFIED, STATE_VERIFYING):
+        if want_id is None and r.lifecycle_state in (
+            STATE_PR_OPEN,
+            STATE_VERIFIED,
+            STATE_VERIFYING,
+        ):
             run = r
             break
     if run is None or not run.pr_number or not run.head_branch:

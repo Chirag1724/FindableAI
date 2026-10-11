@@ -353,13 +353,9 @@ async def hybrid_search(
         return ([], meta) if return_meta else []
 
     async def _db_path(s: AsyncSession) -> list[DOMChunk]:
-        dense_rows, dense_warns = await dense_search(
-            cleaned_query, scan_id, k=dense_k, session=s
-        )
+        dense_rows, dense_warns = await dense_search(cleaned_query, scan_id, k=dense_k, session=s)
         meta.warnings.extend(dense_warns)
-        lexical_rows = await lexical_search(
-            cleaned_query, scan_id, k=lexical_k, session=s
-        )
+        lexical_rows = await lexical_search(cleaned_query, scan_id, k=lexical_k, session=s)
         meta.dense_hits = len(dense_rows)
         meta.lexical_hits = len(lexical_rows)
 
@@ -381,9 +377,7 @@ async def hybrid_search(
             return out
 
         if dense_ids and lexical_ids:
-            fused = reciprocal_rank_fusion(
-                [dense_ids, lexical_ids], rrf_k=rrf_k, limit=limit
-            )
+            fused = reciprocal_rank_fusion([dense_ids, lexical_ids], rrf_k=rrf_k, limit=limit)
             meta.mode = MODE_RRF_HYBRID
             meta.fused_hits = len(fused)
             return _attach_scores(fused)
@@ -392,8 +386,7 @@ async def hybrid_search(
             meta.mode = MODE_DENSE_ONLY
             meta.warnings.append("Lexical retrieval returned no candidates; dense-only result.")
             ranked = [
-                (cid, 1.0 / (rrf_k + rank))
-                for rank, cid in enumerate(dense_ids[:limit], start=1)
+                (cid, 1.0 / (rrf_k + rank)) for rank, cid in enumerate(dense_ids[:limit], start=1)
             ]
             meta.fused_hits = len(ranked)
             return _attach_scores(ranked)
@@ -402,8 +395,7 @@ async def hybrid_search(
             meta.mode = MODE_LEXICAL_ONLY
             meta.warnings.append("Dense retrieval returned no candidates; lexical-only result.")
             ranked = [
-                (cid, 1.0 / (rrf_k + rank))
-                for rank, cid in enumerate(lexical_ids[:limit], start=1)
+                (cid, 1.0 / (rrf_k + rank)) for rank, cid in enumerate(lexical_ids[:limit], start=1)
             ]
             meta.fused_hits = len(ranked)
             return _attach_scores(ranked)

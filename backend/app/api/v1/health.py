@@ -91,17 +91,13 @@ async def readiness_check():
                 select(func.count())
                 .select_from(ScanJob)
                 .where(
-                    ScanJob.status.in_(
-                        [JobStatus.QUEUED.value, JobStatus.RETRY_SCHEDULED.value]
-                    )
+                    ScanJob.status.in_([JobStatus.QUEUED.value, JobStatus.RETRY_SCHEDULED.value])
                 )
             )
             active = await session.scalar(
                 select(func.count())
                 .select_from(ScanJob)
-                .where(
-                    ScanJob.status.in_([JobStatus.CLAIMED.value, JobStatus.RUNNING.value])
-                )
+                .where(ScanJob.status.in_([JobStatus.CLAIMED.value, JobStatus.RUNNING.value]))
             )
             # Recent worker heartbeat within 2x lease window indicates workers alive.
             cutoff = datetime.now(UTC) - timedelta(

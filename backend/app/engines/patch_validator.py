@@ -69,9 +69,7 @@ def _check(
     *,
     safety_critical: bool = False,
 ) -> ValidationCheck:
-    return ValidationCheck(
-        name=name, status=status, detail=detail, safety_critical=safety_critical
-    )
+    return ValidationCheck(name=name, status=status, detail=detail, safety_critical=safety_critical)
 
 
 def validate_repo_path(path: str) -> ValidationCheck:
@@ -113,9 +111,7 @@ def validate_patch_size(patch_text: str) -> ValidationCheck:
 
 def validate_html_document(content: str) -> ValidationCheck:
     if not content or not content.strip():
-        return _check(
-            "html_parse", CheckStatus.FAILED, "empty file content", safety_critical=True
-        )
+        return _check("html_parse", CheckStatus.FAILED, "empty file content", safety_critical=True)
     if len(content) > _MAX_FILE_CHARS:
         return _check(
             "html_size",

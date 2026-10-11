@@ -113,19 +113,21 @@ class ScanJobWorker:
                     and job.lease_expires_at is not None
                     and job.lease_expires_at < now
                 )
-                if job.status not in (
-                    JobStatus.QUEUED.value,
-                    JobStatus.RETRY_SCHEDULED.value,
-                ) and not lease_expired:
+                if (
+                    job.status
+                    not in (
+                        JobStatus.QUEUED.value,
+                        JobStatus.RETRY_SCHEDULED.value,
+                    )
+                    and not lease_expired
+                ):
                     return False
 
                 job.status = JobStatus.CLAIMED.value
                 job.claimed_by = self.worker_id
                 job.fencing_token = int(job.fencing_token) + 1
                 job.attempt_count = int(job.attempt_count) + 1
-                job.lease_expires_at = now + timedelta(
-                    seconds=int(settings.SCAN_JOB_LEASE_SECONDS)
-                )
+                job.lease_expires_at = now + timedelta(seconds=int(settings.SCAN_JOB_LEASE_SECONDS))
                 job.last_heartbeat_at = now
                 job.updated_at = now
                 job.next_run_at = None

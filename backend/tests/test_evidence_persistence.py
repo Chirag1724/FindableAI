@@ -163,13 +163,17 @@ def test_supporting_and_contradicting_roles():
     assert (
         build_evidence_rows_for_intent(
             intent_id=intent_id, evaluation=supporting, chunk_map=chunk_map
-        ).rows[0].evidence_role
+        )
+        .rows[0]
+        .evidence_role
         == "supporting"
     )
     assert (
         build_evidence_rows_for_intent(
             intent_id=intent_id, evaluation=contradicting, chunk_map=chunk_map
-        ).rows[0].evidence_role
+        )
+        .rows[0]
+        .evidence_role
         == "contradicting"
     )
 

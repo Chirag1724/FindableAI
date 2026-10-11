@@ -56,9 +56,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("idempotency_key", name="uq_remediation_runs_idempotency"),
     )
     op.create_index("ix_remediation_runs_scan_id", "remediation_runs", ["scan_id"])
-    op.create_index(
-        "ix_remediation_runs_lifecycle_state", "remediation_runs", ["lifecycle_state"]
-    )
+    op.create_index("ix_remediation_runs_lifecycle_state", "remediation_runs", ["lifecycle_state"])
 
     op.create_table(
         "verification_runs",
