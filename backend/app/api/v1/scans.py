@@ -1329,7 +1329,7 @@ async def stream_scan_progress(scan_id: str):
             # 2. Consume real-time events from background pipeline
             while True:
                 try:
-                    event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    event = await asyncio.wait_for(queue.get(), timeout=5.0)
                     if event is None:
                         break
                     yield f"data: {json.dumps(event.model_dump(mode='json'))}\n\n"
@@ -1341,7 +1341,15 @@ async def stream_scan_progress(scan_id: str):
             if scan_id in EVENT_QUEUES and queue in EVENT_QUEUES[scan_id]:
                 EVENT_QUEUES[scan_id].remove(queue)
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/{scan_id}/chunks")

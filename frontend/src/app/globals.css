@@ -92,6 +92,20 @@ body {
   background-color: rgba(255, 255, 255, 0.25);
 }
 
+/* Hide scrollbars completely while maintaining scroll capability */
+.scrollbar-none,
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
+.scrollbar-none::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+  width: 0;
+  height: 0;
+}
+
 /* Reduced motion: disable all CSS animations and transitions */
 @media (prefers-reduced-motion: reduce) {
   *,

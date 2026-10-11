@@ -15,6 +15,9 @@ import {
   Menu,
   X,
   Zap,
+  Compass,
+  FileCode2,
+  Search,
 } from "lucide-react";
 import { getHealth } from "@/lib/api";
 import type { FScoreBreakdown } from "@/types/scan";
@@ -25,6 +28,11 @@ import { gsap, EASING, prefersReducedMotion } from "@/lib/motion";
 const ScoreGauge = dynamic(
   () => import("@/components/ScoreGauge").then((mod) => mod.ScoreGauge),
   { ssr: false, loading: () => <GaugeSkeleton /> }
+);
+
+const LighthouseGauge = dynamic(
+  () => import("@/components/LighthouseGauge").then((mod) => mod.LighthouseGauge),
+  { ssr: false, loading: () => <div className="h-64 rounded-xl bg-surface animate-pulse" /> }
 );
 
 const CrawlInspector = dynamic(
@@ -563,12 +571,81 @@ export default function HomePage() {
           </p>
         </section>
 
-        {/* Section 7: Feature 5 - Autonomous Remediation */}
+        {/* Section 7: Feature 5 - AI Lighthouse Engine */}
+        <section id="lighthouse" data-reveal-section className="mb-20 sm:mb-24 lg:mb-32 scroll-mt-32 pt-4 max-w-5xl mx-auto w-full">
+          <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-10">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-secondary shadow-border text-[10px] font-mono tracking-wider text-text-muted uppercase mb-3">
+              <Compass className="h-3 w-3 text-white" />
+              <span>Stage 05</span>
+            </div>
+            <h2 className="text-2xl sm:text-4xl text-white font-semibold tracking-tight mb-2.5">
+              See how each AI engine reads your site
+            </h2>
+            <p className="text-xs sm:text-sm text-text-muted px-2 sm:px-0 leading-relaxed">
+              Dedicated readiness benchmarks tailored to the distinct indexing priorities of ChatGPT, Gemini, Perplexity, and Claude.
+            </p>
+          </div>
+
+          {/* Focused UI Artifact: Live AI Lighthouse Engine Gauges */}
+          <div className="rounded-xl bg-surface shadow-border overflow-hidden text-left">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:p-5 border-b border-white/[0.08] bg-surface-secondary/40">
+              <div className="flex items-center flex-wrap gap-2 sm:gap-2.5">
+                <span className="font-mono text-xs font-semibold text-white tracking-wide">
+                  AI LIGHTHOUSE ENGINE BENCHMARKS
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface shadow-border text-[10px] font-mono text-text-muted">
+                  Sample Preview: Simulated Target Site (example.com)
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface text-text-muted border border-white/[0.08]">
+                  4 Engines Evaluated
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 p-4 sm:p-6">
+              <LighthouseGauge
+                score={92}
+                label="ChatGPT"
+                engineKey="chatgpt"
+                icon={Bot}
+                accentColorClass="text-emerald-400"
+              />
+              <LighthouseGauge
+                score={86}
+                label="Gemini"
+                engineKey="gemini"
+                icon={FileCode2}
+                accentColorClass="text-sky-400"
+              />
+              <LighthouseGauge
+                score={64}
+                label="Perplexity"
+                engineKey="perplexity"
+                icon={Search}
+                accentColorClass="text-amber-400"
+              />
+              <LighthouseGauge
+                score={78}
+                label="Claude"
+                engineKey="claude"
+                icon={ShieldCheck}
+                accentColorClass="text-violet-400"
+              />
+            </div>
+          </div>
+
+          {/* Bolded single-sentence caption */}
+          <p className="text-center text-xs font-semibold text-text-primary mt-4 sm:mt-5 px-4">
+            Zero LLM calls, 100% deterministic, and instant - scores are computed directly from DOM AST parsing, robots.txt crawler governance, and verified evidence ratios.
+          </p>
+        </section>
+
+        {/* Section 8: Feature 6 - Autonomous Remediation */}
         <section id="remediation" data-reveal-section className="mb-20 sm:mb-24 lg:mb-32 scroll-mt-32 pt-4 max-w-5xl mx-auto w-full">
           <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-10">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-secondary shadow-border text-[10px] font-mono tracking-wider text-text-muted uppercase mb-3">
               <GitPullRequest className="h-3 w-3 text-white" />
-              <span>Stage 05</span>
+              <span>Stage 06</span>
             </div>
             <h2 className="text-2xl sm:text-4xl text-white font-semibold tracking-tight mb-2.5">
               From gap to pull request
@@ -584,7 +661,7 @@ export default function HomePage() {
               <span>patch/schema-org-metadata.diff</span>
               <span className="text-emerald-400">+4 lines</span>
             </div>
-            <div className="bg-background rounded-lg p-4 shadow-border space-y-1 overflow-x-auto">
+            <div className="bg-background rounded-lg p-4 shadow-border space-y-1 overflow-x-auto custom-scrollbar">
               <p className="text-text-muted">@@ -14,3 +14,7 @@</p>
               <p className="text-text-muted">&nbsp;&nbsp;&lt;meta name=&quot;description&quot; content=&quot;AI Discoverability Platform&quot; /&gt;</p>
               <p className="text-emerald-400 bg-emerald-950/30 px-1 rounded">+ &lt;script type=&quot;application/ld+json&quot;&gt;</p>
