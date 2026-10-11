@@ -528,13 +528,14 @@ async def run_scan_pipeline(
             else f"Business URL: {url}\nGeneral commercial business website."
         )
 
-        # Single scan-scoped BudgetGuard — restore checkpoint so job retries
-        # never reset the per-scan completion-call budget.
+        # Dual-tier LLM clients sharing single scan-scoped BudgetGuard — restore
+        # checkpoint so job retries never reset the per-scan completion-call budget.
         budget_guard = BudgetGuard(
             limit=settings.MAX_LLM_CALLS_PER_SCAN,
             initial_used=max(0, int(initial_llm_calls or 0)),
         )
-        llm_client = LLMClient(budget_guard=budget_guard)
+        heavy_llm = LLMClient(model=settings.HEAVY_LLM_MODEL, budget_guard=budget_guard)
+        fast_llm = LLMClient(model=settings.FAST_LLM_MODEL, budget_guard=budget_guard)
 
         # Build orchestration chunks for DAG.
         # Prefer persisted DOMChunk UUIDs so evidence citations are durable FKs.
@@ -591,8 +592,24 @@ async def run_scan_pipeline(
             "Evaluating claim entailment and detecting factual contradictions...",
         )
 
-        # Execute FindableAIDAG orchestrator
-        dag = FindableAIDAG(llm_client=llm_client, budget_guard=budget_guard)
+        async def _on_nli_progress(completed: int, total: int, item: Any) -> None:
+            pct = min(90, 80 + int((completed / max(total, 1)) * 10))
+            query_preview = getattr(item, "query", "")[:45]
+            await _emit_event(
+                scan_id,
+                ScanStatus.NLI_EVALUATION,
+                pct,
+                "NLI Entailment Classifier",
+                f'[{completed}/{total}] Grounded claim: "{query_preview}..."',
+            )
+
+        # Execute FindableAIDAG orchestrator with dual-tier clients & live progress
+        dag = FindableAIDAG(
+            llm_client=heavy_llm,
+            fast_llm_client=fast_llm,
+            budget_guard=budget_guard,
+            progress_callback=_on_nli_progress,
+        )
         obs = ObservationInput(
             scan_id=str(scan_uuid),
             business_context=business_context,
@@ -724,13 +741,14 @@ async def run_scan_pipeline(
             patches = []
             patches_source = PatchesSource.NONE
 
+        llm_calls_made = budget_guard.used
         integrity = decide_scan_integrity(
             IntegrityInput(
                 dag_evaluation_count=dag_eval_count,
                 dag_success=bool(orch_result.success),
                 dag_error=orch_result.error,
                 dag_error_reason=orch_result.error_reason,
-                llm_calls_made=llm_client.calls_made,
+                llm_calls_made=llm_calls_made,
                 used_synthetic_intents=used_synthetic_intents,
                 used_synthetic_contradictions=used_synthetic_contradictions,
                 final_evaluation_count=len(evaluations),
@@ -765,7 +783,6 @@ async def run_scan_pipeline(
             synthetic_intents_count=synthetic_intents_count,
         )
 
-        llm_calls_made = llm_client.calls_made
         calls_made = llm_calls_made
         logger.info(
             "Scan %s execution complete: execution_mode=%s, result_source=%s, outcome=%s, "
@@ -1081,8 +1098,7 @@ async def create_scan(
                             status=ScanStatus.PENDING
                             if result.scan.status == "in_progress"
                             else ScanStatus(result.scan.status)
-                            if result.scan.status
-                            in {s.value for s in ScanStatus}
+                            if result.scan.status in {s.value for s in ScanStatus}
                             else ScanStatus.PENDING,
                             created_at=result.scan.created_at or datetime.now(UTC),
                             repo_url=result.scan.repo_url,
@@ -1175,7 +1191,7 @@ def enrich_patches_with_framework(
     """Enriches patches with framework-native diffs and auxiliary files when repo is connected."""
     if not repo_url or not isinstance(repo_url, str) or not repo_url.strip() or not patches:
         return patches
-    if any(p.target_file for p in patches):
+    if any(p.framework for p in patches):
         return patches
     try:
         from app.engines.framework_adapter import resolve_framework_patches
@@ -1202,7 +1218,7 @@ async def get_scan(scan_id: str) -> ScanResponse:
     if scan_id in SCANS_DB:
         record = SCANS_DB[scan_id]
         target_repo = record.repo_url or record.github_repo_url
-        if target_repo and not any(p.target_file for p in record.patches):
+        if target_repo and not any(p.framework for p in record.patches):
             record.patches = enrich_patches_with_framework(record.patches, target_repo)
         return record
 
@@ -1252,9 +1268,7 @@ async def get_scan(scan_id: str) -> ScanResponse:
                     evidence_by_intent: dict[uuid.UUID, list[EvidenceReference]] = {}
                     hydrate_failed = False
                     try:
-                        evidence_by_intent = await hydrate_evidence_for_intents(
-                            s, list(db_intents)
-                        )
+                        evidence_by_intent = await hydrate_evidence_for_intents(s, list(db_intents))
                     except Exception as hydrate_err:
                         hydrate_failed = True
                         logger.warning(
@@ -1922,7 +1936,8 @@ async def apply_scan_patch(
 
     # Path/synthetic/size/evidence must pass before any GitHub mutation.
     critical_blocked = any(
-        c.get("safety_critical") and c.get("status") in ("failed", "inconclusive")
+        c.get("safety_critical")
+        and c.get("status") in ("failed", "inconclusive")
         and c.get("name")
         in (
             "not_synthetic",
@@ -2018,7 +2033,12 @@ async def apply_scan_patch(
                     )
                     # Keep path/content checks; ignore redundant patch_nonempty on placeholder.
                     for chk in post.as_dicts():
-                        if chk["name"] in ("html_parse", "jsonld_syntax", "json_parse", "base_freshness"):
+                        if chk["name"] in (
+                            "html_parse",
+                            "jsonld_syntax",
+                            "json_parse",
+                            "base_freshness",
+                        ):
                             all_validation_checks.append(chk)
                             if chk["safety_critical"] and chk["status"] in (
                                 "failed",
@@ -2120,10 +2140,14 @@ async def apply_scan_patch(
                         remediation_run_id = str(run.id)
                         # Persist PR URL onto scan patch rows when present.
                         patch_rows = (
-                            await s.execute(
-                                select(PatchModel).where(PatchModel.scan_id == scan_uuid)
+                            (
+                                await s.execute(
+                                    select(PatchModel).where(PatchModel.scan_id == scan_uuid)
+                                )
                             )
-                        ).scalars().all()
+                            .scalars()
+                            .all()
+                        )
                         for patch_row in patch_rows:
                             patch_row.pr_url = result.pr_url
             except Exception as persist_err:
@@ -2322,7 +2346,9 @@ async def verify_scan_remediation(
         async with AsyncSessionLocal() as s:
             runs = await get_runs_for_scan(s, scan_uuid)
     except Exception as exc:
-        raise HTTPException(status_code=503, detail="Database unavailable for verification") from exc
+        raise HTTPException(
+            status_code=503, detail="Database unavailable for verification"
+        ) from exc
 
     run = None
     want_id = payload.remediation_run_id if payload else None
@@ -2330,7 +2356,11 @@ async def verify_scan_remediation(
         if want_id and r.id == want_id:
             run = r
             break
-        if want_id is None and r.lifecycle_state in (STATE_PR_OPEN, STATE_VERIFIED, STATE_VERIFYING):
+        if want_id is None and r.lifecycle_state in (
+            STATE_PR_OPEN,
+            STATE_VERIFIED,
+            STATE_VERIFYING,
+        ):
             run = r
             break
     if run is None or not run.pr_number or not run.head_branch:

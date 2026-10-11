@@ -78,11 +78,7 @@ async def upsert_remediation_run(
     if existing is not None:
         # Idempotent recovery: never remutate when a PR URL/number is already known
         # (covers PR_OPEN and PR_PERSIST_FAILED after GitHub accepted the PR).
-        if (
-            lifecycle_state == STATE_MUTATING
-            and existing.pr_number is not None
-            and existing.pr_url
-        ):
+        if lifecycle_state == STATE_MUTATING and existing.pr_number is not None and existing.pr_url:
             if existing.lifecycle_state != STATE_PR_OPEN:
                 existing.lifecycle_state = STATE_PR_OPEN
                 existing.updated_at = now
@@ -203,9 +199,7 @@ async def persist_verification_run(
     return row
 
 
-async def list_verifications_for_scan(
-    session: Any, scan_id: uuid.UUID
-) -> list[VerificationRun]:
+async def list_verifications_for_scan(session: Any, scan_id: uuid.UUID) -> list[VerificationRun]:
     result = await session.execute(
         select(VerificationRun)
         .where(VerificationRun.scan_id == scan_id)

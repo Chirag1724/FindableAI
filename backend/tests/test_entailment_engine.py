@@ -356,8 +356,8 @@ async def test_batch_preserves_order_and_is_concurrent():
 
     assert [r.intent_id for r in results] == [i.intent_id for i in intents]
     assert [r.query for r in results] == [i.query for i in intents]
-    assert handler.await_count == 3
-    assert llm.calls_made == 3
+    assert handler.await_count == 10
+    assert llm.calls_made == 10
     # Overlapping execution: second batch starts before first batch finishes
     assert started[1] < finished[0]
 
@@ -391,7 +391,7 @@ async def test_shared_llm_client_budget_not_bypassed():
 
 
 @pytest.mark.asyncio
-async def test_thirty_intents_make_three_batch_llm_calls():
+async def test_thirty_intents_make_ten_batch_llm_calls_with_default_batch_three():
     import re
 
     chunks = _chunks(2)
@@ -420,6 +420,44 @@ async def test_thirty_intents_make_three_batch_llm_calls():
     results = await EntailmentEngine(
         llm_client=llm,
         retriever=AsyncMock(return_value=chunks),
+    ).evaluate_intents(intents=intents, scan_id=uuid.uuid4())
+
+    assert len(results) == 30
+    assert handler.await_count == 10
+    assert llm.calls_made == 10
+
+
+@pytest.mark.asyncio
+async def test_custom_batch_size_configurable():
+    import re
+
+    chunks = _chunks(2)
+
+    def create_batch_mock(**kwargs):
+        user = kwargs["messages"][1]["content"]
+        ids = re.findall(r"INTENT ID: (edge_cases_\d+)", user)
+        return IntentEvaluationBatch(
+            evaluations=[
+                _evaluation(
+                    status=EntailmentStatus.SUPPORTED,
+                    chunk_ids=[str(chunks[0].id)],
+                ).model_copy(update={"intent_id": pid})
+                for pid in ids
+            ]
+        )
+
+    handler = AsyncMock(side_effect=create_batch_mock)
+    llm = _llm(handler, max_calls=35)
+    intents = [
+        _intent(query=f"Unique question number {i}?").model_copy(
+            update={"intent_id": f"edge_cases_{i:02d}"}
+        )
+        for i in range(1, 31)
+    ]
+    results = await EntailmentEngine(
+        llm_client=llm,
+        retriever=AsyncMock(return_value=chunks),
+        batch_size=10,
     ).evaluate_intents(intents=intents, scan_id=uuid.uuid4())
 
     assert len(results) == 30

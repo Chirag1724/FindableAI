@@ -199,9 +199,7 @@ async def enqueue_scan_job(
             conflict,
             existing.correlation_id,
         )
-        return EnqueueResult(
-            job=existing, scan=scan, created=False, conflict=conflict
-        )
+        return EnqueueResult(job=existing, scan=scan, created=False, conflict=conflict)
     metrics.incr("scan_jobs_enqueued")
     logger.info(
         "scan_job_enqueued job_id=%s scan_id=%s correlation_id=%s status=%s",
@@ -229,9 +227,7 @@ def _claimable_stmt(now: datetime):
                     ScanJob.next_run_at <= now,
                 ),
                 and_(
-                    ScanJob.status.in_(
-                        [JobStatus.CLAIMED.value, JobStatus.RUNNING.value]
-                    ),
+                    ScanJob.status.in_([JobStatus.CLAIMED.value, JobStatus.RUNNING.value]),
                     ScanJob.lease_expires_at.is_not(None),
                     ScanJob.lease_expires_at < now,
                 ),
@@ -250,7 +246,9 @@ async def claim_next_job(
 ) -> ClaimedJob | None:
     """Atomically claim one available job. Short transaction; no network I/O."""
     now = _utcnow()
-    lease_secs = lease_seconds if lease_seconds is not None else int(settings.SCAN_JOB_LEASE_SECONDS)
+    lease_secs = (
+        lease_seconds if lease_seconds is not None else int(settings.SCAN_JOB_LEASE_SECONDS)
+    )
     lease_until = now + timedelta(seconds=lease_secs)
 
     dialect = session.bind.dialect.name if session.bind is not None else ""
@@ -356,7 +354,9 @@ async def heartbeat(
     lease_seconds: int | None = None,
 ) -> bool:
     now = _utcnow()
-    lease_secs = lease_seconds if lease_seconds is not None else int(settings.SCAN_JOB_LEASE_SECONDS)
+    lease_secs = (
+        lease_seconds if lease_seconds is not None else int(settings.SCAN_JOB_LEASE_SECONDS)
+    )
     result = await session.execute(
         update(ScanJob)
         .where(
@@ -484,11 +484,7 @@ async def fail_or_retry_job(
         )
         return JobStatus.RETRY_SCHEDULED
 
-    terminal = (
-        JobStatus.DEAD_LETTER
-        if retryable and not attempts_left
-        else JobStatus.FAILED
-    )
+    terminal = JobStatus.DEAD_LETTER if retryable and not attempts_left else JobStatus.FAILED
     if category == FailureCategory.BUDGET_EXHAUSTED:
         terminal = JobStatus.FAILED
         job.error_code = JobErrorCode.BUDGET_EXHAUSTED.value
@@ -531,9 +527,7 @@ async def update_llm_checkpoint(
 
 
 async def queue_depth(session: AsyncSession) -> dict[str, int]:
-    rows = await session.execute(
-        select(ScanJob.status, func.count()).group_by(ScanJob.status)
-    )
+    rows = await session.execute(select(ScanJob.status, func.count()).group_by(ScanJob.status))
     counts = {status: int(count) for status, count in rows.all()}
     depth = int(counts.get(JobStatus.QUEUED.value, 0)) + int(
         counts.get(JobStatus.RETRY_SCHEDULED.value, 0)

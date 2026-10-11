@@ -5,9 +5,7 @@ from __future__ import annotations
 import re
 from enum import StrEnum
 
-_SECRET_KV = re.compile(
-    r"(?i)\b(api[_-]?key|token|authorization|bearer|secret)\b\s*[:=]\s*\S+"
-)
+_SECRET_KV = re.compile(r"(?i)\b(api[_-]?key|token|authorization|bearer|secret)\b\s*[:=]\s*\S+")
 _SECRET_LITERALS = (
     re.compile(r"(?i)gsk_[A-Za-z0-9]+"),
     re.compile(r"(?i)ghp_[A-Za-z0-9]+"),

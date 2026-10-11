@@ -21,6 +21,11 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
 from app.engines.fact_extractor import extract_business_facts
+from app.engines.framework_adapter import (
+    generate_git_diff,
+    inject_component_into_layout,
+    synthesize_framework_component,
+)
 from app.engines.jsonld_generator import JsonLdGenerator
 from app.engines.llms_txt_generator import generate_llms_txt
 from app.engines.patch_formatter import format_jsonld_patch
@@ -29,7 +34,7 @@ from app.engines.projected_score import project_score_for_generated
 from app.engines.robots_analyzer import generate_optimized_robots_txt
 from app.engines.scorer import ScoreInputs
 from app.schemas.intelligence import Contradiction
-from app.schemas.patch import DOMSelectorAnchor, PatchProposal, PatchType
+from app.schemas.patch import AuxiliaryFile, DOMSelectorAnchor, PatchProposal, PatchType
 from app.schemas.patching import (
     BusinessFacts,
     PatchFormatStatus,
@@ -205,10 +210,57 @@ def assemble_real_patches(
             + "\n+  </script>\n</head>"
         )
 
+        # Framework-native Next.js / React component defaults
+        base_layout = (
+            "import type { Metadata } from 'next';\n"
+            "import './globals.css';\n\n"
+            "export const metadata: Metadata = {\n"
+            f"  title: '{clean_name}',\n"
+            f"  description: 'AI discoverability manifest for {clean_name}',\n"
+            "};\n\n"
+            "export default function RootLayout({\n"
+            "  children,\n"
+            "}: {\n"
+            "  children: React.ReactNode;\n"
+            "}) {\n"
+            "  return (\n"
+            '    <html lang="en">\n'
+            '      <body className="antialiased">\n'
+            "        {children}\n"
+            "      </body>\n"
+            "    </html>\n"
+            "  );\n"
+            "}\n"
+        )
+        patched_layout = inject_component_into_layout(
+            base_layout, component_name="JsonLd", import_path="@/components/JsonLd"
+        )
+        layout_target_file = "src/app/layout.tsx"
+        layout_code_diff = generate_git_diff(base_layout, patched_layout, layout_target_file)
+        raw_schema_patch = PatchProposal(
+            patch_id=f"patch_org_{uuid.uuid4().hex[:8]}",
+            patch_type=PatchType.SCHEMA_MICRODATA,
+            title=f"Inject Schema.org {clean_name} WebSite & Organization JSON-LD",
+            rationale=(
+                f"AI search engines (SearchGPT, Perplexity, Google AI Overviews) rely heavily on "
+                f"structured WebSite and Organization JSON-LD microdata to index entity identity for {clean_name}."
+            ),
+            impact_score_delta=5.5,
+            dom_anchor=DOMSelectorAnchor(
+                css_selector="head",
+                tag_name="head",
+                original_snippet=base_head_snippet,
+                suggested_snippet=suggested_head,
+            ),
+            unified_diff=diff_snippet,
+            applied=False,
+        )
+        comp_content = synthesize_framework_component([raw_schema_patch])
+
         proposals.insert(
             0,
             PatchProposal(
-                patch_id=f"patch_org_{uuid.uuid4().hex[:8]}",
+                patch_id=raw_schema_patch.patch_id,
                 patch_type=PatchType.SCHEMA_MICRODATA,
                 title=f"Inject Schema.org {clean_name} WebSite & Organization JSON-LD",
                 rationale=(
@@ -224,6 +276,18 @@ def assemble_real_patches(
                 ),
                 unified_diff=diff_snippet,
                 applied=False,
+                target_file=layout_target_file,
+                code_diff=layout_code_diff,
+                framework="nextjs_app_router",
+                auxiliary_files=[
+                    AuxiliaryFile(
+                        file_path="src/components/JsonLd.tsx",
+                        content=comp_content,
+                        action="create",
+                    )
+                ]
+                if comp_content
+                else [],
             ),
         )
 
@@ -289,8 +353,9 @@ def assemble_real_patches(
         site_name=facts.name or target_domain,
     )
     robots_lines = robots_content.splitlines()
+    robots_file = "public/robots.txt"
     robots_diff = (
-        f"--- /dev/null\n+++ b/robots.txt\n@@ -0,0 +1,{len(robots_lines)} @@\n"
+        f"--- /dev/null\n+++ b/{robots_file}\n@@ -0,0 +1,{len(robots_lines)} @@\n"
         + "\n".join(f"+{line}" for line in robots_lines)
     )
     proposals.append(
@@ -311,7 +376,9 @@ def assemble_real_patches(
             ),
             unified_diff=robots_diff,
             applied=False,
-            target_file="robots.txt",
+            target_file=robots_file,
+            code_diff=robots_diff,
+            framework="nextjs_app_router",
         )
     )
 
@@ -344,7 +411,8 @@ def assemble_real_patches(
         business_facts=business_facts_dict if business_facts_dict else None,
     )
     llms_lines = llms_content.splitlines()
-    llms_diff = f"--- /dev/null\n+++ b/llms.txt\n@@ -0,0 +1,{len(llms_lines)} @@\n" + "\n".join(
+    llms_file = "public/llms.txt"
+    llms_diff = f"--- /dev/null\n+++ b/{llms_file}\n@@ -0,0 +1,{len(llms_lines)} @@\n" + "\n".join(
         f"+{line}" for line in llms_lines
     )
     proposals.append(
@@ -365,7 +433,9 @@ def assemble_real_patches(
             ),
             unified_diff=llms_diff,
             applied=False,
-            target_file="llms.txt",
+            target_file=llms_file,
+            code_diff=llms_diff,
+            framework="nextjs_app_router",
         )
     )
 

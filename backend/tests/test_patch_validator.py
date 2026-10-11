@@ -61,7 +61,9 @@ def test_missing_evidence_blocks():
         current_file_content="<html><body>hi</body></html>",
     )
     assert result.eligible_for_validated_pr is False
-    assert any(c.name == "evidence_grounding" and c.status == CheckStatus.FAILED for c in result.checks)
+    assert any(
+        c.name == "evidence_grounding" and c.status == CheckStatus.FAILED for c in result.checks
+    )
 
 
 def test_owned_evidence_and_html_pass():

@@ -1,10 +1,18 @@
+from pathlib import Path
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(".env", "../.env"),
+        env_file=(
+            str(_BACKEND_ROOT / ".env"),
+            str(_REPO_ROOT / ".env"),
+        ),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -29,19 +37,23 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
     # LLM Providers & Configurable Models
+    NVIDIA_API_KEY: str = ""
     OPENROUTER_API_KEY: str = ""
     GROQ_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
 
-    # Primary & Fallback model selections (fully configurable via .env)
-    DEFAULT_LLM_MODEL: str = "openrouter/google/gemini-2.5-flash"
-    FALLBACK_LLM_MODEL: str = "groq/qwen/qwen3.8-27b"
+    # Primary, Tiered & Fallback model selections (fully configurable via .env)
+    HEAVY_LLM_MODEL: str = "groq/openai/gpt-oss-120b"
+    FAST_LLM_MODEL: str = "groq/openai/gpt-oss-20b"
+    DEFAULT_LLM_MODEL: str = "groq/openai/gpt-oss-120b"
+    FALLBACK_LLM_MODEL: str = "groq/openai/gpt-oss-20b"
 
     # Provider default models (used when model prefix or fallback references provider)
+    NVIDIA_MODEL: str = ""
     OPENROUTER_MODEL: str = "google/gemini-2.5-flash"
-    GROQ_MODEL: str = "qwen/qwen3.8-27b"
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
     GEMINI_MODEL: str = "gemini-2.5-flash"
     OPENAI_MODEL: str = "gpt-4o-mini"
 

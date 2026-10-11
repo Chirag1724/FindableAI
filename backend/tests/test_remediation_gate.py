@@ -52,7 +52,7 @@ def _base_scan(**overrides) -> ScanResponse:
         ],
     )
     data.update(overrides)
-    return ScanResponse(**data)
+    return ScanResponse.model_validate(data)
 
 
 @pytest.fixture

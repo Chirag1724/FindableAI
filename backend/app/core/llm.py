@@ -121,6 +121,10 @@ def _parse_model_spec(spec: str) -> tuple[str, str]:
         return ("groq", s[5:])
     if s.startswith("gemini/"):
         return ("gemini", s[7:])
+    if s.startswith("nvidia/"):
+        return ("nvidia", s)
+    if s.startswith("nvidia:"):
+        return ("nvidia", s[7:])
     if s.startswith("openai/"):
         sub = s[7:]
         if sub.startswith("gpt-oss"):
@@ -128,9 +132,11 @@ def _parse_model_spec(spec: str) -> tuple[str, str]:
         return ("openai", sub)
 
     lower = s.lower()
-    if lower in ("openrouter", "groq", "gemini", "openai"):
+    if lower in ("openrouter", "groq", "gemini", "openai", "nvidia"):
         return (lower, "")
 
+    if "nvidia" in lower or "nemotron" in lower:
+        return ("nvidia", s)
     if "openrouter" in lower:
         return ("openrouter", s.split("/", 1)[-1] if "/" in s else "")
     if "gemini" in lower:
@@ -245,6 +251,8 @@ class LLMClient:
 
     def _secrets(self) -> tuple[str, ...]:
         secrets = [self._api_key]
+        if settings.NVIDIA_API_KEY:
+            secrets.append(settings.NVIDIA_API_KEY)
         if settings.OPENROUTER_API_KEY:
             secrets.append(settings.OPENROUTER_API_KEY)
         if settings.OPENAI_API_KEY:
@@ -364,6 +372,28 @@ class LLMClient:
                 mode=instructor.Mode.TOOLS,
             )
 
+        if provider_name == "nvidia":
+            nvidia_key = (
+                self._api_key
+                if (self._api_key and self._api_key.startswith("nvapi-"))
+                else settings.NVIDIA_API_KEY
+            )
+            if not nvidia_key and self._api_key and self._api_key.startswith("nvapi-"):
+                nvidia_key = self._api_key
+            if not nvidia_key:
+                return None
+
+            model = (
+                preferred_model or settings.NVIDIA_MODEL or "nvidia/nemotron-3.5-lightning-30b-a3b"
+            )
+            return ProviderEndpoint(
+                name="nvidia",
+                model=model,
+                api_key=nvidia_key,
+                base_url="https://integrate.api.nvidia.com/v1",
+                mode=instructor.Mode.JSON,
+            )
+
         return None
 
     def _get_provider_chain(self, requested_model: str | None = None) -> list[ProviderEndpoint]:
@@ -381,7 +411,7 @@ class LLMClient:
             providers_order.append(p_provider)
         if f_provider and f_provider not in providers_order:
             providers_order.append(f_provider)
-        for p in ("openrouter", "groq", "gemini", "openai"):
+        for p in ("groq", "openrouter", "gemini", "openai", "nvidia"):
             if p not in providers_order:
                 providers_order.append(p)
 
@@ -551,7 +581,7 @@ class LLMClient:
                 safe_limit = getattr(LLMClient, "_openrouter_max_tokens_override", 1000) or 1000
                 provider_max_tokens = min(requested_max_tokens, safe_limit)
             elif endpoint.name == "groq":
-                provider_max_tokens = max(requested_max_tokens, 2048)
+                provider_max_tokens = requested_max_tokens
             else:
                 provider_max_tokens = requested_max_tokens
 
@@ -676,6 +706,12 @@ class LLMClient:
                     is_daily_quota = (
                         "resource_exhausted" in sanitized.lower()
                         or "generaterequestsperday" in sanitized.lower()
+                        or "tokens per day" in sanitized.lower()
+                        or "requests per day" in sanitized.lower()
+                        or "daily limit" in sanitized.lower()
+                        or "quota exceeded" in sanitized.lower()
+                        or "tpd" in sanitized.lower()
+                        or "rpd" in sanitized.lower()
                     )
                     has_fallback = ep_idx + 1 < len(endpoints)
 

@@ -127,9 +127,7 @@ class ScanJob(Base):
     """PostgreSQL-backed durable scan execution job (Phase 3)."""
 
     __tablename__ = "scan_jobs"
-    __table_args__ = (
-        UniqueConstraint("idempotency_key", name="uq_scan_jobs_idempotency"),
-    )
+    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_scan_jobs_idempotency"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     scan_id: Mapped[uuid.UUID] = mapped_column(
@@ -147,7 +145,9 @@ class ScanJob(Base):
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     fencing_token: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     claimed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     next_run_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
@@ -321,9 +321,7 @@ class RemediationRun(Base):
     """Recoverable GitHub PR lifecycle state (Phase 2 Stage 5)."""
 
     __tablename__ = "remediation_runs"
-    __table_args__ = (
-        UniqueConstraint("idempotency_key", name="uq_remediation_runs_idempotency"),
-    )
+    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_remediation_runs_idempotency"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     scan_id: Mapped[uuid.UUID] = mapped_column(
