@@ -1234,6 +1234,8 @@ async def get_scan(scan_id: str) -> ScanResponse:
                     scan_status = (
                         ScanStatus(db_scan.status)
                         if db_scan.status in [e.value for e in ScanStatus]
+                        else ScanStatus.PENDING
+                        if db_scan.status == "in_progress"
                         else ScanStatus.COMPLETED
                     )
                     pages_crawled = integrity.pages_crawled
