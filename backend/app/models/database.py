@@ -118,6 +118,59 @@ class Scan(Base):
     verification_runs: Mapped[list["VerificationRun"]] = relationship(
         "VerificationRun", back_populates="scan", cascade="all, delete-orphan"
     )
+    jobs: Mapped[list["ScanJob"]] = relationship(
+        "ScanJob", back_populates="scan", cascade="all, delete-orphan"
+    )
+
+
+class ScanJob(Base):
+    """PostgreSQL-backed durable scan execution job (Phase 3)."""
+
+    __tablename__ = "scan_jobs"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_scan_jobs_idempotency"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    job_type: Mapped[str] = mapped_column(String(50), nullable=False, default="scan_pipeline")
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="queued", index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    fencing_token: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    claimed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failure_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    llm_calls_checkpoint: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    scan: Mapped[Scan] = relationship("Scan", back_populates="jobs")
 
 
 class DOMChunk(Base):

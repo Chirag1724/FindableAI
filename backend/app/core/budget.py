@@ -80,15 +80,29 @@ class BudgetGuard:
       raises or the task is cancelled before/during the provider await.
     """
 
-    def __init__(self, limit: int | None = None) -> None:
+    def __init__(self, limit: int | None = None, *, initial_used: int = 0) -> None:
         resolved = settings.MAX_LLM_CALLS_PER_SCAN if limit is None else limit
         if not isinstance(resolved, int) or isinstance(resolved, bool):
             raise ValueError("BudgetGuard limit must be an int >= 0")
         if resolved < 0:
             raise ValueError("BudgetGuard limit must be >= 0")
+        if not isinstance(initial_used, int) or isinstance(initial_used, bool) or initial_used < 0:
+            raise ValueError("BudgetGuard initial_used must be an int >= 0")
         self._limit = resolved
-        self._used = 0
+        self._used = initial_used
         self._lock = asyncio.Lock()
+
+    def restore_used(self, used: int) -> None:
+        """Raise the used counter to at least ``used`` (never decreases).
+
+        Used when a worker restarts mid-scan so queue retries cannot reset the
+        per-scan completion-call budget.
+        """
+        if not isinstance(used, int) or isinstance(used, bool) or used < 0:
+            raise ValueError("used must be an int >= 0")
+        # Synchronous; callers should not race with reserve without coordination.
+        if used > self._used:
+            self._used = used
 
     @property
     def limit(self) -> int:

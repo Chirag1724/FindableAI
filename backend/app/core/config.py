@@ -55,6 +55,27 @@ class Settings(BaseSettings):
     # Hard global LLM provider-call cap per scan (P2-4.2). Not per-engine.
     MAX_LLM_CALLS_PER_SCAN: int = 100
 
+    # Durable scan job queue (PostgreSQL-backed; no separate broker)
+    DURABLE_SCAN_JOBS: bool = True
+    # After enqueue, also schedule an in-process claim via BackgroundTasks.
+    # Default False so production cannot silently depend on the API process for
+    # execution. Enable explicitly for local/dev/test (see .env.example / CI).
+    SCAN_JOB_INLINE_FALLBACK: bool = False
+    SCAN_JOB_MAX_ATTEMPTS: int = 3
+    SCAN_JOB_LEASE_SECONDS: int = 600
+    SCAN_JOB_POLL_INTERVAL_SECONDS: float = 2.0
+    SCAN_JOB_BACKOFF_BASE_SECONDS: float = 5.0
+    SCAN_JOB_BACKOFF_MAX_SECONDS: float = 300.0
+    SCAN_JOB_EXECUTION_DEADLINE_SECONDS: int = 3600
+    SCAN_JOB_IDEMPOTENCY_TTL_SECONDS: int = 86400
+    SCAN_WORKER_ID: str = ""
+    # Provider HTTP timeouts (LiteLLM / instructor)
+    LLM_CONNECT_TIMEOUT_SECONDS: float = 10.0
+    LLM_REQUEST_TIMEOUT_SECONDS: float = 90.0
+    LLM_PROVIDER_MAX_ATTEMPTS: int = 4
+    # Global concurrent structured completion calls across this process
+    LLM_GLOBAL_CONCURRENCY: int = 8
+
     # Explicit opt-in for non-production synthetic demo fill (never remediation-eligible).
     # Normal scans must not inject fabricated intents/scores/patches unless this is true.
     ALLOW_SYNTHETIC_DEMO: bool = False

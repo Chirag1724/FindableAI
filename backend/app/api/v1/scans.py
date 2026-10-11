@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -409,7 +409,8 @@ async def run_scan_pipeline(
     url: str,
     max_pages: int,
     personas: list[str] | None = None,
-) -> None:
+    initial_llm_calls: int = 0,
+) -> int:
     """
     Autonomous scan worker pipeline:
     1. BFS Crawl (httpx / Playwright fallback)
@@ -421,6 +422,7 @@ async def run_scan_pipeline(
     """
     allow_private = settings.ENVIRONMENT.lower() != "production"
     start_time = datetime.now(UTC)
+    calls_made = max(0, int(initial_llm_calls or 0))
 
     try:
         # Phase 1: OBSERVE / Crawling
@@ -526,8 +528,12 @@ async def run_scan_pipeline(
             else f"Business URL: {url}\nGeneral commercial business website."
         )
 
-        # Single scan-scoped BudgetGuard
-        budget_guard = BudgetGuard(limit=settings.MAX_LLM_CALLS_PER_SCAN)
+        # Single scan-scoped BudgetGuard — restore checkpoint so job retries
+        # never reset the per-scan completion-call budget.
+        budget_guard = BudgetGuard(
+            limit=settings.MAX_LLM_CALLS_PER_SCAN,
+            initial_used=max(0, int(initial_llm_calls or 0)),
+        )
         llm_client = LLMClient(budget_guard=budget_guard)
 
         # Build orchestration chunks for DAG.
@@ -760,6 +766,7 @@ async def run_scan_pipeline(
         )
 
         llm_calls_made = llm_client.calls_made
+        calls_made = llm_calls_made
         logger.info(
             "Scan %s execution complete: execution_mode=%s, result_source=%s, outcome=%s, "
             "data_source=%s, remediation_eligible=%s, llm_calls_made=%d/%d, budget_remaining=%d",
@@ -965,9 +972,12 @@ async def run_scan_pipeline(
     except Exception as e:
         logger.exception("Scan pipeline failed for %s: %s", scan_id, e)
         await _finalize_hard_failure(scan_id, scan_uuid, e)
+        # Re-raise so the durable worker can classify retry vs permanent failure.
+        raise
     finally:
         for q in EVENT_QUEUES.get(scan_id, []):
             await q.put(None)
+    return calls_made
 
 
 @router.post(
@@ -976,11 +986,17 @@ async def run_scan_pipeline(
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(verify_api_key), Depends(rate_limit_scans)],
 )
-async def create_scan(request: ScanRequest, background_tasks: BackgroundTasks):
+async def create_scan(
+    request: ScanRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
+):
     """
     Initiates an asynchronous machine discoverability scan.
-    Validates URL SSRF security, registers scan in database,
-    and dispatches background crawler pipeline.
+
+    Persists the scan and a durable ``scan_jobs`` row before returning 202.
+    Execution is performed by a worker (or optional inline fallback), not as
+    the sole durability mechanism of FastAPI BackgroundTasks.
     """
     parsed = urlparse(str(request.url))
     allow_private = False
@@ -998,7 +1014,99 @@ async def create_scan(request: ScanRequest, background_tasks: BackgroundTasks):
             detail=f"Security rejection: {e}",
         ) from e
 
+    from app.jobs.correlation import bind_correlation_id, new_correlation_id
+    from app.jobs.queue import (
+        enqueue_scan_job,
+        request_fingerprint,
+        resolve_idempotency_key,
+    )
+    from app.jobs.worker import process_job_inline
+
+    client_idem = http_request.headers.get("Idempotency-Key")
+    correlation_id = (
+        http_request.headers.get("X-Correlation-ID")
+        or getattr(http_request.state, "request_id", None)
+        or new_correlation_id()
+    )
+    bind_correlation_id(correlation_id)
+
+    fingerprint = request_fingerprint(
+        url=str(request.url),
+        max_pages=request.max_pages,
+        personas=request.personas,
+        repo_url=str(request.repo_url) if request.repo_url else None,
+    )
+    idem_key = resolve_idempotency_key(client_idem, fingerprint=fingerprint)
+
     scan_uuid = uuid.uuid4()
+    job_id: uuid.UUID | None = None
+    durable_ok = False
+
+    if settings.DURABLE_SCAN_JOBS:
+        try:
+            async with AsyncSessionLocal() as s:
+                async with s.begin():
+                    result = await enqueue_scan_job(
+                        s,
+                        scan_uuid=scan_uuid,
+                        url=str(request.url),
+                        max_pages=request.max_pages,
+                        personas=request.personas or ["cto", "developer", "procurement"],
+                        repo_url=str(request.repo_url) if request.repo_url else None,
+                        idempotency_key=idem_key,
+                        fingerprint=fingerprint,
+                        correlation_id=correlation_id,
+                    )
+                    if result.conflict:
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail={
+                                "message": "Idempotency-Key reused with a different request payload",
+                                "idempotency_key": idem_key,
+                                "existing_scan_id": f"scan_{result.scan.id.hex}",
+                            },
+                        )
+                    scan_uuid = result.scan.id
+                    job_id = result.job.id
+                    correlation_id = result.job.correlation_id
+                    durable_ok = True
+                    if not result.created:
+                        # Return existing scan representation
+                        existing_id = f"scan_{result.scan.id.hex}"
+                        if existing_id in SCANS_DB:
+                            return SCANS_DB[existing_id]
+                        return ScanResponse(
+                            scan_id=existing_id,
+                            target_url=result.scan.url,
+                            status=ScanStatus.PENDING
+                            if result.scan.status == "in_progress"
+                            else ScanStatus(result.scan.status)
+                            if result.scan.status
+                            in {s.value for s in ScanStatus}
+                            else ScanStatus.PENDING,
+                            created_at=result.scan.created_at or datetime.now(UTC),
+                            repo_url=result.scan.repo_url,
+                            github_repo_url=result.scan.repo_url,
+                        )
+        except HTTPException:
+            raise
+        except Exception as db_err:
+            logger.warning(
+                "Durable job enqueue failed; refusing success without persistence: %s",
+                db_err,
+            )
+            # Production must never return 202 without a persisted durable job.
+            if settings.ENVIRONMENT.lower() == "production":
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=(
+                        "Scan could not be durably queued. "
+                        "Database persistence is required before acceptance."
+                    ),
+                ) from db_err
+            # Non-production: best-effort in-process path (CI/sqlite without migrations).
+            durable_ok = False
+
     scan_id = f"scan_{scan_uuid.hex}"
 
     new_scan = ScanResponse(
@@ -1018,34 +1126,46 @@ async def create_scan(request: ScanRequest, background_tasks: BackgroundTasks):
         status=ScanStatus.PENDING,
         progress_percent=5,
         current_step="Initializing Scan",
-        message="Connecting to FindableAI crawl dispatcher...",
+        message=(
+            "Scan accepted; durable job queued..."
+            if durable_ok
+            else "Connecting to FindableAI crawl dispatcher..."
+        ),
         timestamp=datetime.now(UTC),
     )
     EVENT_LOGS[scan_id] = [init_event]
     EVENT_LOGS[f"scan_{scan_uuid.hex[:12]}"] = [init_event]
 
-    # Persist initial scan record to database if available
-    try:
-        async with AsyncSessionLocal() as s:
-            async with s.begin():
-                db_scan = ScanModel(
-                    id=scan_uuid,
-                    url=str(request.url),
-                    repo_url=str(request.repo_url) if request.repo_url else None,
-                    status="in_progress",
-                )
-                s.add(db_scan)
-    except Exception as db_err:
-        logger.info("Database initial scan record skipped (offline DB): %s", db_err)
+    if not durable_ok:
+        # Best-effort legacy path when DB unavailable (non-durable).
+        try:
+            async with AsyncSessionLocal() as s:
+                async with s.begin():
+                    db_scan = ScanModel(
+                        id=scan_uuid,
+                        url=str(request.url),
+                        repo_url=str(request.repo_url) if request.repo_url else None,
+                        status="in_progress",
+                    )
+                    s.add(db_scan)
+        except Exception as db_err:
+            logger.info("Database initial scan record skipped (offline DB): %s", db_err)
 
-    background_tasks.add_task(
-        run_scan_pipeline,
-        scan_id,
-        scan_uuid,
-        str(request.url),
-        request.max_pages,
-        request.personas or ["cto", "developer", "procurement"],
-    )
+        background_tasks.add_task(
+            run_scan_pipeline,
+            scan_id,
+            scan_uuid,
+            str(request.url),
+            request.max_pages,
+            request.personas or ["cto", "developer", "procurement"],
+        )
+        return new_scan
+
+    # Durable path: optional in-process claim for local/test convenience.
+    # Production should set SCAN_JOB_INLINE_FALLBACK=false and run `python -m app.worker`.
+    if settings.SCAN_JOB_INLINE_FALLBACK and job_id is not None:
+        background_tasks.add_task(process_job_inline, job_id)
+
     return new_scan
 
 
@@ -1554,6 +1674,100 @@ class ApplyScanPatchRequest(BaseModel):
     target_branch: str = "main"
 
 
+async def _reconcile_github_pr_after_timeout(
+    *,
+    gh_client: Any,
+    source_repo: str,
+    target_branch: str,
+    scan_id: str,
+    scan_uuid: uuid.UUID | None,
+    idem_key: str,
+    formatted_patches: list[Any],
+    all_validation_checks: list[Any],
+    base_sha: str | None,
+) -> PullRequestResult | None:
+    """If GitHub accepted a PR before a client timeout, recover without opening a second PR."""
+    if gh_client is None:
+        return None
+    try:
+        from app.github.pr_engine import build_feature_branch_name
+
+        branch_name = build_feature_branch_name(scan_id)
+        source = gh_client.get_repository(source_repo)
+        login = gh_client.get_authenticated_login()
+        find_labels = [
+            f"{source.owner_login}:{branch_name}",
+            f"{login}:{branch_name}",
+            branch_name,
+        ]
+        existing = None
+        for label in find_labels:
+            existing = gh_client.find_open_pull(source, head_full=label, base=target_branch)
+            if existing is not None:
+                break
+        if existing is None:
+            logger.info(
+                "github_timeout_reconcile_miss scan_id=%s repo=%s branch=%s",
+                scan_id,
+                source_repo,
+                branch_name,
+            )
+            return None
+
+        remediation_run_id: str | None = None
+        if scan_uuid:
+            try:
+                async with AsyncSessionLocal() as s:
+                    async with s.begin():
+                        run = await upsert_remediation_run(
+                            s,
+                            scan_id=scan_uuid,
+                            idempotency_key=idem_key,
+                            repo_full_name=source_repo,
+                            base_branch=target_branch,
+                            base_sha=base_sha,
+                            head_branch=branch_name,
+                            pr_number=existing.number,
+                            pr_url=existing.url,
+                            lifecycle_state=STATE_PR_OPEN,
+                            changed_files=[fp.file_path for fp in formatted_patches],
+                            validation_results=all_validation_checks,
+                        )
+                        remediation_run_id = str(run.id)
+            except Exception as persist_err:
+                logger.warning(
+                    "github_timeout_reconcile_persist_failed scan_id=%s: %s",
+                    scan_id,
+                    persist_err,
+                )
+
+        logger.info(
+            "github_timeout_reconcile_hit scan_id=%s pr=%s url=%s",
+            scan_id,
+            existing.number,
+            existing.url,
+        )
+        return PullRequestResult(
+            pr_url=existing.url,
+            pr_number=existing.number,
+            branch_name=branch_name,
+            title=f"FindableAI: Machine Discoverability Remediation Patches ({scan_id})",
+            created_at=datetime.now(UTC),
+            remediation_run_id=remediation_run_id,
+            lifecycle_state=STATE_PR_OPEN,
+            validation_checks=all_validation_checks,
+            base_sha=base_sha,
+            head_sha=None,
+        )
+    except Exception as reconcile_err:
+        logger.warning(
+            "github_timeout_reconcile_error scan_id=%s: %s",
+            scan_id,
+            reconcile_err,
+        )
+        return None
+
+
 @router.post(
     "/{scan_id}/patches/apply",
     response_model=PullRequestResult,
@@ -1780,10 +1994,11 @@ async def apply_scan_patch(
     except Exception as manifest_err:
         logger.debug("Manifest generation skipped for PR on scan %s: %s", scan_id, manifest_err)
 
+    gh_client: Any = None
+    base_sha: str | None = None
     try:
         gh_client = build_pygithub_client_from_token(token)
         # Re-validate against live base file content when readable.
-        base_sha: str | None = None
         try:
             repo_ref = gh_client.get_repository(source_repo)
             base_sha = None
@@ -1934,6 +2149,23 @@ async def apply_scan_patch(
     except HTTPException:
         raise
     except (PREngineError, GitHubClientError) as exc:
+        # Ambiguous timeout: GitHub may have accepted the PR before the client
+        # saw a response. Reconcile via open-PR lookup before surfacing failure.
+        msg = str(exc).lower()
+        if "timed out" in msg or "timeout" in msg:
+            reconciled = await _reconcile_github_pr_after_timeout(
+                gh_client=gh_client,
+                source_repo=source_repo,
+                target_branch=target_branch,
+                scan_id=scan_id,
+                scan_uuid=scan_uuid,
+                idem_key=idem_key,
+                formatted_patches=formatted_patches,
+                all_validation_checks=all_validation_checks,
+                base_sha=base_sha,
+            )
+            if reconciled is not None:
+                return reconciled
         logger.error("GitHub PR creation failed for scan %s: %s", scan_id, exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1943,6 +2175,19 @@ async def apply_scan_patch(
         logger.exception("Unexpected error during PR creation for scan %s", scan_id)
         msg = str(exc)
         if "timed out" in msg.lower() or "timeout" in msg.lower():
+            reconciled = await _reconcile_github_pr_after_timeout(
+                gh_client=gh_client,
+                source_repo=source_repo,
+                target_branch=target_branch,
+                scan_id=scan_id,
+                scan_uuid=scan_uuid,
+                idem_key=idem_key,
+                formatted_patches=formatted_patches,
+                all_validation_checks=all_validation_checks,
+                base_sha=base_sha,
+            )
+            if reconciled is not None:
+                return reconciled
             raise HTTPException(
                 status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                 detail="GitHub API timed out while communicating with repository. Please retry.",

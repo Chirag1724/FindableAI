@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -13,10 +14,52 @@ from pydantic import BaseModel
 
 from app.core.budget import BudgetExhausted, BudgetGuard, LLMBudgetExceededError
 from app.core.config import settings
+from app.core.provider_throttle import PROVIDER_THROTTLES
 
 logger = logging.getLogger(__name__)
 
 _RETRY_AFTER_RE = re.compile(r"try again in (?:(\d+)m)?([\d\.]+)s", re.IGNORECASE)
+_HTTP_RETRY_AFTER_RE = re.compile(r"(?i)retry-after['\"\s:=]+(\d+)")
+
+# Process-wide concurrency gate for structured completion calls.
+_global_llm_sema: asyncio.Semaphore | None = None
+
+
+def _get_global_llm_semaphore() -> asyncio.Semaphore:
+    global _global_llm_sema
+    if _global_llm_sema is None:
+        _global_llm_sema = asyncio.Semaphore(max(1, int(settings.LLM_GLOBAL_CONCURRENCY)))
+    return _global_llm_sema
+
+
+def _is_permanent_provider_error(sanitized: str) -> bool:
+    lower = sanitized.lower()
+    markers = (
+        "invalid api key",
+        "incorrect api key",
+        "authentication",
+        "unauthorized",
+        "forbidden",
+        "invalid_api_key",
+        "permission_denied",
+        "model_not_found",
+        "does not exist",
+        "invalid request",
+        "unsupported",
+    )
+    if any(m in lower for m in markers):
+        # Rate-limit 403s from some providers still look "forbidden"; keep retryable.
+        if "rate limit" in lower or "429" in lower:
+            return False
+        return True
+    if "401" in lower:
+        return True
+    return False
+
+
+def _backoff_with_jitter(base: float, *, cap: float = 30.0) -> float:
+    jitter = random.uniform(0.0, min(1.0, base * 0.25))
+    return min(cap, base + jitter)
 
 
 def _parse_retry_after(text: str) -> float | None:
@@ -378,11 +421,24 @@ class LLMClient:
             import instructor
             from openai import AsyncOpenAI
 
-            raw_client = (
-                AsyncOpenAI(api_key=endpoint.api_key, base_url=endpoint.base_url)
-                if endpoint.base_url
-                else AsyncOpenAI(api_key=endpoint.api_key)
-            )
+            timeout = float(settings.LLM_REQUEST_TIMEOUT_SECONDS)
+            connect = float(settings.LLM_CONNECT_TIMEOUT_SECONDS)
+            http_timeout: Any = timeout
+            try:
+                import httpx
+
+                http_timeout = httpx.Timeout(timeout, connect=connect)
+            except Exception:
+                http_timeout = timeout
+
+            client_kwargs: dict[str, Any] = {
+                "api_key": endpoint.api_key,
+                "timeout": http_timeout,
+                "max_retries": 0,  # Retries owned by LLMClient (avoid nested loops).
+            }
+            if endpoint.base_url:
+                client_kwargs["base_url"] = endpoint.base_url
+            raw_client = AsyncOpenAI(**client_kwargs)
             self._provider_clients[endpoint.name] = instructor.from_openai(
                 raw_client, mode=endpoint.mode
             )
@@ -414,8 +470,11 @@ class LLMClient:
             raise ValueError("max_retries must be >= 0")
 
         selected_model = model or self._model
-        attempts = max_retries + 1
+        # Cap provider attempts; ignore caller max_retries inflation beyond config.
+        configured_cap = max(1, int(settings.LLM_PROVIDER_MAX_ATTEMPTS))
+        attempts = min(max_retries + 1, configured_cap)
         last_failure: Exception | None = None
+        sem = _get_global_llm_semaphore()
 
         if self._instructor_client is not None:
             for attempt_index in range(attempts):
@@ -442,7 +501,11 @@ class LLMClient:
                     create_kwargs["api_key"] = self._api_key
 
                 try:
-                    result = await self._instructor_client.chat.completions.create(**create_kwargs)
+                    async with sem:
+                        result = await asyncio.wait_for(
+                            self._instructor_client.chat.completions.create(**create_kwargs),
+                            timeout=float(settings.LLM_REQUEST_TIMEOUT_SECONDS),
+                        )
                 except LLMBudgetExceededError:
                     raise
                 except Exception as exc:
@@ -458,8 +521,11 @@ class LLMClient:
                     )
                     last_failure = RuntimeError(f"LLM structured call failed: {sanitized}")
                     last_failure.__cause__ = exc
+                    if _is_permanent_provider_error(sanitized):
+                        raise last_failure from exc
                     if attempt_index + 1 >= attempts:
                         raise last_failure from exc
+                    await asyncio.sleep(_backoff_with_jitter(1.0 * (attempt_index + 1)))
                     continue
 
                 if not isinstance(result, response_model):
@@ -476,7 +542,7 @@ class LLMClient:
                 continue
 
             client = self._get_provider_client(endpoint)
-            provider_attempts = max(attempts, 4)
+            provider_attempts = min(max(attempts, 2), configured_cap)
             has_fallback = ep_idx + 1 < len(endpoints)
 
             # Safe completion ceiling calculated per provider without corrupting kwargs for failover providers
@@ -512,7 +578,14 @@ class LLMClient:
                 create_kwargs["max_retries"] = 0
 
                 try:
-                    result = await client.chat.completions.create(**create_kwargs)
+                    throttle = PROVIDER_THROTTLES.get(endpoint.name)
+                    if throttle is not None:
+                        await throttle.acquire()
+                    async with sem:
+                        result = await asyncio.wait_for(
+                            client.chat.completions.create(**create_kwargs),
+                            timeout=float(settings.LLM_REQUEST_TIMEOUT_SECONDS),
+                        )
                 except LLMBudgetExceededError:
                     raise
                 except Exception as exc:
@@ -529,6 +602,17 @@ class LLMClient:
                         f"LLM structured call failed ({endpoint.name}): {sanitized}"
                     )
                     last_failure.__cause__ = exc
+
+                    if _is_permanent_provider_error(sanitized):
+                        if has_fallback:
+                            self._tripped_providers.add(endpoint.name)
+                            logger.warning(
+                                "Provider '%s' permanent error (%s); failing over",
+                                endpoint.name,
+                                sanitized,
+                            )
+                            break
+                        raise last_failure from exc
 
                     is_credit_limit = (
                         "can only afford" in sanitized.lower()
@@ -608,6 +692,9 @@ class LLMClient:
                             break
 
                     retry_delay = _parse_retry_after(sanitized)
+                    http_ra = _HTTP_RETRY_AFTER_RE.search(sanitized)
+                    if http_ra and retry_delay is None:
+                        retry_delay = float(http_ra.group(1))
                     if retry_delay and retry_delay > 30.0 and has_fallback:
                         self._tripped_providers.add(endpoint.name)
                         next_ep = endpoints[ep_idx + 1]
@@ -620,8 +707,11 @@ class LLMClient:
                         break
 
                     if is_rate_limit and attempt_index + 1 < provider_attempts:
-                        backoff = min(
-                            15.0, (retry_delay + 0.5) if retry_delay else (attempt_index + 1) * 3.0
+                        backoff = _backoff_with_jitter(
+                            min(
+                                15.0,
+                                (retry_delay + 0.5) if retry_delay else (attempt_index + 1) * 3.0,
+                            )
                         )
                         logger.warning(
                             "LLM rate limited call=%s provider=%s; waiting %.1fs for token bucket reset",
@@ -633,7 +723,7 @@ class LLMClient:
                         continue
 
                     if attempt_index + 1 < provider_attempts and not is_daily_quota:
-                        backoff = 1.0 * (attempt_index + 1)
+                        backoff = _backoff_with_jitter(1.0 * (attempt_index + 1))
                         logger.warning(
                             "LLM call attempt %d failed on provider=%s (%s); retrying in %.1fs",
                             attempt_index + 1,
