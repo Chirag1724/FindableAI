@@ -6,6 +6,12 @@ from app.core.budget import BudgetGuard
 from app.core.llm import LLMClient
 from app.crawler.crawler import AsyncCrawler
 from app.engines.intent_generator import IntentGenerator
+from app.engines.lighthouse import LighthouseEngine
+from app.engines.llms_txt_generator import generate_llms_full_txt, generate_llms_txt
+from app.engines.robots_analyzer import (
+    analyze_robots_txt,
+    generate_optimized_robots_txt,
+)
 from app.orchestration.dag import FindableAIDAG, ObservationInput, OrchestrationChunk
 from app.schemas.intelligence import (
     EntailmentStatus,
@@ -91,6 +97,111 @@ async def test_findableai_live_crawl_and_intent_generation():
     # 4. Verify all 3 active personas are represented
     personas = {q.persona for q in intent_batch.queries}
     assert personas == {"cto", "developer", "procurement"}
+
+
+@pytest.mark.asyncio
+async def test_findableai_live_robots_and_ai_governance():
+    """Verify crawler governance, AI bot matrix, and remediation for findableai.vercel.app."""
+    import httpx
+
+    robots_url = f"{TARGET_URL.rstrip('/')}/robots.txt"
+    robots_text = ""
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            resp = await client.get(robots_url)
+            if resp.status_code == 200:
+                robots_text = resp.text
+    except Exception:
+        robots_text = ""
+
+    # Synthesize crawler governance (handles both 200 OK or 404 missing robots.txt)
+    governance = analyze_robots_txt(robots_text, llms_txt_present=False)
+
+    assert 0 <= governance.ai_visibility_index <= 100
+    assert governance.scraping_risk in ("low", "medium", "high", "critical")
+    assert len(governance.bot_matrix) == 9
+
+    # Verify key AI search bots are tracked
+    bots_tracked = {b.bot for b in governance.bot_matrix}
+    assert "GPTBot" in bots_tracked
+    assert "PerplexityBot" in bots_tracked
+    assert "ClaudeBot" in bots_tracked
+    assert "OAI-SearchBot" in bots_tracked
+
+    # Verify Pareto-optimal robots.txt remediation can be generated
+    optimized_robots = generate_optimized_robots_txt(
+        domain="findableai.vercel.app",
+        site_name="FindableAI",
+    )
+    assert "FindableAI Optimized robots.txt" in optimized_robots
+    assert "User-agent: OAI-SearchBot" in optimized_robots
+    assert "User-agent: CCBot" in optimized_robots
+    assert "Disallow: /" in optimized_robots
+
+
+@pytest.mark.asyncio
+async def test_findableai_live_remediation_and_llms_txt():
+    """Verify /llms.txt and /llms-full.txt generation directly from crawled content."""
+    crawler = AsyncCrawler(max_pages=2, timeout_seconds=15.0, allow_private=True)
+    crawl_results = await crawler.crawl(TARGET_URL)
+    assert len(crawl_results) >= 1
+
+    chunks = [
+        OrchestrationChunk(
+            id=f"chunk_{i}",
+            url=p.url,
+            dom_path=f"html > body > main > div:nth-child({i + 1})",
+            content=f"FindableAI discoverability audit platform for AI search and LLM agents. Verified content from {p.url}.",
+            tag="div",
+            word_count=16,
+        )
+        for i, p in enumerate(crawl_results)
+    ]
+
+    llms_txt = generate_llms_txt(
+        domain="findableai.vercel.app",
+        title="FindableAI",
+        description="Machine Discoverability Optimization Platform",
+        crawled_urls=[p.url for p in crawl_results],
+    )
+    assert "# FindableAI" in llms_txt
+    assert "findableai.vercel.app" in llms_txt
+
+    llms_full = generate_llms_full_txt(
+        domain="findableai.vercel.app",
+        title="FindableAI",
+        description="Machine Discoverability Optimization Platform",
+        chunks=chunks,
+    )
+    assert "# FindableAI - Full Knowledge Corpus" in llms_full
+    assert len(llms_full) > len(llms_txt)
+
+
+@pytest.mark.asyncio
+async def test_findableai_live_lighthouse_audit():
+    """Verify AI Lighthouse multi-engine readiness audit on findableai.vercel.app."""
+    crawler = AsyncCrawler(max_pages=1, timeout_seconds=15.0, allow_private=True)
+    crawl_results = await crawler.crawl(TARGET_URL)
+    html_docs = [p.html for p in crawl_results if p.html]
+    assert len(html_docs) >= 1
+
+    governance = analyze_robots_txt("", llms_txt_present=False)
+    engine = LighthouseEngine(
+        url=TARGET_URL,
+        html_documents=html_docs,
+        governance=governance,
+        scan_id="test_findableai_lh",
+    )
+    report = engine.evaluate()
+
+    assert set(report.engines.keys()) == {"chatgpt", "gemini", "perplexity", "claude"}
+    for _engine_name, engine_score in report.engines.items():
+        assert 0 <= engine_score.score <= 100
+        assert engine_score.tier in ("good", "needs_improvement", "poor")
+        assert len(engine_score.criteria) >= 2
+
+    assert report.audits is not None
+    assert len(report.audits.passed) >= 1
 
 
 @pytest.mark.asyncio

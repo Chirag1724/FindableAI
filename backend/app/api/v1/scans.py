@@ -528,13 +528,15 @@ async def run_scan_pipeline(
             else f"Business URL: {url}\nGeneral commercial business website."
         )
 
-        # Single scan-scoped BudgetGuard — restore checkpoint so job retries
-        # never reset the per-scan completion-call budget.
+        # Dual-tier LLM clients sharing single scan-scoped BudgetGuard — restore
+        # checkpoint so job retries never reset the per-scan completion-call budget.
         budget_guard = BudgetGuard(
             limit=settings.MAX_LLM_CALLS_PER_SCAN,
             initial_used=max(0, int(initial_llm_calls or 0)),
         )
-        llm_client = LLMClient(budget_guard=budget_guard)
+        heavy_llm = LLMClient(model=settings.HEAVY_LLM_MODEL, budget_guard=budget_guard)
+        fast_llm = LLMClient(model=settings.FAST_LLM_MODEL, budget_guard=budget_guard)
+        llm_client = heavy_llm
 
         # Build orchestration chunks for DAG.
         # Prefer persisted DOMChunk UUIDs so evidence citations are durable FKs.
@@ -591,8 +593,24 @@ async def run_scan_pipeline(
             "Evaluating claim entailment and detecting factual contradictions...",
         )
 
-        # Execute FindableAIDAG orchestrator
-        dag = FindableAIDAG(llm_client=llm_client, budget_guard=budget_guard)
+        async def _on_nli_progress(completed: int, total: int, item: Any) -> None:
+            pct = min(90, 80 + int((completed / max(total, 1)) * 10))
+            query_preview = getattr(item, "query", "")[:45]
+            await _emit_event(
+                scan_id,
+                ScanStatus.NLI_EVALUATION,
+                pct,
+                "NLI Entailment Classifier",
+                f"[{completed}/{total}] Grounded claim: \"{query_preview}...\"",
+            )
+
+        # Execute FindableAIDAG orchestrator with dual-tier clients & live progress
+        dag = FindableAIDAG(
+            llm_client=heavy_llm,
+            fast_llm_client=fast_llm,
+            budget_guard=budget_guard,
+            progress_callback=_on_nli_progress,
+        )
         obs = ObservationInput(
             scan_id=str(scan_uuid),
             business_context=business_context,
@@ -724,13 +742,14 @@ async def run_scan_pipeline(
             patches = []
             patches_source = PatchesSource.NONE
 
+        llm_calls_made = budget_guard.used
         integrity = decide_scan_integrity(
             IntegrityInput(
                 dag_evaluation_count=dag_eval_count,
                 dag_success=bool(orch_result.success),
                 dag_error=orch_result.error,
                 dag_error_reason=orch_result.error_reason,
-                llm_calls_made=llm_client.calls_made,
+                llm_calls_made=llm_calls_made,
                 used_synthetic_intents=used_synthetic_intents,
                 used_synthetic_contradictions=used_synthetic_contradictions,
                 final_evaluation_count=len(evaluations),
@@ -765,7 +784,6 @@ async def run_scan_pipeline(
             synthetic_intents_count=synthetic_intents_count,
         )
 
-        llm_calls_made = llm_client.calls_made
         calls_made = llm_calls_made
         logger.info(
             "Scan %s execution complete: execution_mode=%s, result_source=%s, outcome=%s, "
@@ -1175,7 +1193,7 @@ def enrich_patches_with_framework(
     """Enriches patches with framework-native diffs and auxiliary files when repo is connected."""
     if not repo_url or not isinstance(repo_url, str) or not repo_url.strip() or not patches:
         return patches
-    if any(p.target_file for p in patches):
+    if any(p.framework for p in patches):
         return patches
     try:
         from app.engines.framework_adapter import resolve_framework_patches
@@ -1202,7 +1220,7 @@ async def get_scan(scan_id: str) -> ScanResponse:
     if scan_id in SCANS_DB:
         record = SCANS_DB[scan_id]
         target_repo = record.repo_url or record.github_repo_url
-        if target_repo and not any(p.target_file for p in record.patches):
+        if target_repo and not any(p.framework for p in record.patches):
             record.patches = enrich_patches_with_framework(record.patches, target_repo)
         return record
 

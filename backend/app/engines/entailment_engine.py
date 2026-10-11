@@ -33,6 +33,7 @@ from app.schemas.intelligence import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_TOP_K = 5
+DEFAULT_BATCH_SIZE = 3
 
 NLI_SYSTEM_PROMPT = """You are an evidence-grounded classifier.
 
@@ -168,7 +169,7 @@ def format_evidence_for_prompt(evidence: Sequence[RetrievedEvidence]) -> str:
     blocks: list[str] = []
     for item in evidence:
         raw_text = (item.content or "").strip()
-        truncated = raw_text[:800] if len(raw_text) > 800 else raw_text
+        truncated = raw_text[:400] if len(raw_text) > 400 else raw_text
         blocks.append(
             f"[{item.chunk_id}]\n"
             f"URL: {item.url or '(none)'}\n"
@@ -328,13 +329,17 @@ class EntailmentEngine:
         llm_client: LLMClient | None = None,
         retriever: Retriever | None = None,
         top_k: int = DEFAULT_TOP_K,
+        batch_size: int = DEFAULT_BATCH_SIZE,
         concurrency: int = 1,
     ) -> None:
         if top_k < 1:
             raise ValueError("top_k must be >= 1")
+        if batch_size < 1:
+            raise ValueError("batch_size must be >= 1")
         self._llm = llm_client or LLMClient()
         self._retriever: Retriever = retriever or default_hybrid_retriever
         self._top_k = top_k
+        self._batch_size = batch_size
         self._concurrency = max(1, concurrency)
 
     @property
@@ -344,6 +349,10 @@ class EntailmentEngine:
     @property
     def top_k(self) -> int:
         return self._top_k
+
+    @property
+    def batch_size(self) -> int:
+        return self._batch_size
 
     async def _retrieve(
         self,
@@ -517,7 +526,7 @@ class EntailmentEngine:
                     {"role": "user", "content": user_prompt},
                 ],
                 max_retries=2,
-                max_tokens=2500,
+                max_tokens=min(4096, max(1500, 450 * len(items_for_llm))),
             )
         except BudgetExhausted:
             raise
@@ -631,8 +640,8 @@ class EntailmentEngine:
         retrieved_list = await asyncio.gather(*retrieval_tasks)
         paired = list(zip(intents, retrieved_list, strict=True))
 
-        # Step 2: Split into batches of 10 (3 batches for 30 intents)
-        batch_size = 10
+        # Step 2: Split into batches (default 3 items per batch)
+        batch_size = self._batch_size
         chunks = [paired[i : i + batch_size] for i in range(0, len(paired), batch_size)]
 
         async def _process_batch(
@@ -652,7 +661,15 @@ class EntailmentEngine:
             return evaluations
 
         if self._concurrency > 1:
-            batch_results = await asyncio.gather(*[_process_batch(c) for c in chunks])
+            sem = asyncio.Semaphore(self._concurrency)
+
+            async def _bounded_batch(
+                c: Sequence[tuple[IntentQuery, Sequence[RetrievedEvidence]]],
+            ) -> list[IntentEvaluation]:
+                async with sem:
+                    return await _process_batch(c)
+
+            batch_results = await asyncio.gather(*[_bounded_batch(c) for c in chunks])
         else:
             batch_results = []
             for c in chunks:
@@ -680,7 +697,13 @@ async def evaluate_intents(
     scan_id: uuid.UUID,
     llm_client: LLMClient | None = None,
     retriever: Retriever | None = None,
+    batch_size: int = DEFAULT_BATCH_SIZE,
     concurrency: int = 1,
 ) -> list[IntentEvaluation]:
-    engine = EntailmentEngine(llm_client=llm_client, retriever=retriever, concurrency=concurrency)
+    engine = EntailmentEngine(
+        llm_client=llm_client,
+        retriever=retriever,
+        batch_size=batch_size,
+        concurrency=concurrency,
+    )
     return await engine.evaluate_intents(intents=intents, scan_id=scan_id)

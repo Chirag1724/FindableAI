@@ -401,7 +401,7 @@ class IntentGenerator:
                 {"role": "user", "content": _build_persona_user_prompt(cleaned_context, persona)},
             ],
             max_retries=0,
-            max_tokens=600,
+            max_tokens=4096,
         )
 
     async def generate_intents(

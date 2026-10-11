@@ -225,6 +225,7 @@ class FindableAIDAG:
         self,
         *,
         llm_client: LLMClient | None = None,
+        fast_llm_client: LLMClient | None = None,
         budget_guard: BudgetGuard | None = None,
         intent_generator: IntentGenerator | None = None,
         entailment_engine: EntailmentEngine | None = None,
@@ -252,6 +253,8 @@ class FindableAIDAG:
         else:
             self._budget = budget_guard or default_scan_budget()
             self._llm = LLMClient(budget_guard=self._budget)
+
+        self._fast_llm = fast_llm_client or self._llm
 
         self._intent = intent_generator or IntentGenerator(llm_client=self._llm)
         self._entailment_injected = entailment_engine
@@ -430,9 +433,10 @@ class FindableAIDAG:
         if retriever is None:
             retriever = build_act_retriever(ctx.chunks)
         self._entailment = EntailmentEngine(
-            llm_client=self._llm,
+            llm_client=self._fast_llm,
             retriever=retriever,
-            concurrency=3,
+            batch_size=3,
+            concurrency=1,
         )
         return self._entailment
 

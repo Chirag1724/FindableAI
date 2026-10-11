@@ -53,6 +53,18 @@ class IntentQuery(BaseModel):
         default=None, description="Originating persona: cto, developer, or procurement"
     )
 
+    @field_validator("difficulty", mode="before")
+    @classmethod
+    def _normalize_difficulty(cls, v: Any) -> str:
+        if isinstance(v, str):
+            v_lower = v.strip().lower()
+            if v_lower in ("easy", "low", "simple", "basic"):
+                return "easy"
+            if v_lower in ("hard", "high", "complex", "difficult", "advanced"):
+                return "hard"
+            return "medium"
+        return "medium"
+
 
 class IntentBatch(BaseModel):
     business_type: str = Field(..., min_length=1, description="Inferred business category")
