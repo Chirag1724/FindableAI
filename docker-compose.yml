@@ -50,8 +50,41 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      DURABLE_SCAN_JOBS: "true"
+      SCAN_JOB_INLINE_FALLBACK: "false"
     ports:
       - "8000:8000"
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: findable-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-findable}:${POSTGRES_PASSWORD:-findable_secret}@postgres:5432/${POSTGRES_DB:-findable_db}
+      REDIS_URL: redis://redis:6379/0
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      DURABLE_SCAN_JOBS: "true"
+      SCAN_JOB_INLINE_FALLBACK: "false"
+      SCAN_JOB_POLL_INTERVAL_SECONDS: "2"
+      SCAN_JOB_LEASE_SECONDS: "600"
+      SCAN_JOB_MAX_ATTEMPTS: "3"
+    # Worker image still runs migrations in the default CMD; override to the job loop.
+    command: ["python", "-m", "app.worker"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import app.jobs.worker; print('ok')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   frontend:
     build:

@@ -114,11 +114,10 @@ async def root():
 
 @app.get("/health", tags=["Health"])
 async def health_check():
-    return {
-        "status": "healthy",
-        "service": settings.PROJECT_NAME,
-        "version": settings.VERSION,
-    }
+    """Liveness for Docker HEALTHCHECK — process only (no DB dependency)."""
+    from app.api.v1.health import health_check as v1_health_check
+
+    return await v1_health_check()
 
 
 if __name__ == "__main__":

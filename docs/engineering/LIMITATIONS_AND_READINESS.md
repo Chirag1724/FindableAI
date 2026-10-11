@@ -4,7 +4,7 @@
 
 **Evidence date:** working tree after P0 integrity + P1 persistence + pre-commit hardening. This document does **not** claim that live provider calls, production deploys, or full CI runs were executed during documentation updates.
 
-**Related:** [ADR-001 F-Score](ARCHITECTURE_DECISIONS.md#adr-001-canonical-f-score-weight-formulation) · [SYSTEM_FLOW.md](SYSTEM_FLOW.md) · [FRONTEND_INTEGRITY_CONTRACT.md](FRONTEND_INTEGRITY_CONTRACT.md) · [ROADMAP.md](ROADMAP.md) · [docs/04 §10](../04_TEAM_TASK_ALLOCATION.md#10-production-readiness-roadmap)
+**Related:** [ADR-001 F-Score](ARCHITECTURE_DECISIONS.md#adr-001-canonical-f-score-weight-formulation) · [DURABLE_JOBS.md](DURABLE_JOBS.md) · [SYSTEM_FLOW.md](SYSTEM_FLOW.md) · [FRONTEND_INTEGRITY_CONTRACT.md](FRONTEND_INTEGRITY_CONTRACT.md) · [ROADMAP.md](ROADMAP.md) · [docs/04 §10](../04_TEAM_TASK_ALLOCATION.md#10-production-readiness-roadmap)
 
 ---
 
@@ -34,7 +34,7 @@ Do **not** describe the product as production-ready solely because Dockerfiles, 
 | **GitHub PR creation** | Credential-gated + lifecycle | Real PyGithub path; `remediation_runs` + idempotency (`0004`); deterministic validation before mutation | Live GitHub **unverified** without `GITHUB_TOKEN`. Opening a PR ≠ verified fix. |
 | **Post-PR verification** | Implemented (Stage 6) | `POST .../remediation/verify` fetches PR head, fresh evidence excerpt, outcomes `fixed`/`unresolved`/`inconclusive` separate from ops errors | Live verify **unverified** without token + PR. |
 | **Hard-failure handling** | Implemented | `_finalize_hard_failure` sets failed/partial integrity, `remediation_eligible=False`, sanitized public/SSE errors, best-effort DB persist | If DB is down during failure, durability is best-effort (logged); in-memory/API state still fail-closed. |
-| **Deployment & ops** | Partial | Docker/Compose/CI exist | Live deploy **unverified**. Redis composed but unused. Scans use `BackgroundTasks`, not Celery. |
+| **Deployment & ops** | Partial (Phase 3 queue in code) | `scan_jobs` + `python -m app.worker`; Compose `worker` service; `/ready` | Live multi-worker deploy **unverified**. Redis still unused as broker. `SCAN_JOB_INLINE_FALLBACK` must be false in production. PG SKIP LOCKED tests require `FINDABLE_PG_INTEGRATION=1`. |
 
 ---
 

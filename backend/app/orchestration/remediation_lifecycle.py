@@ -76,12 +76,17 @@ async def upsert_remediation_run(
     existing = await get_run_by_idempotency(session, idempotency_key)
     now = datetime.now(UTC)
     if existing is not None:
-        # Idempotent recovery: do not reopen mutation if PR already recorded.
+        # Idempotent recovery: never remutate when a PR URL/number is already known
+        # (covers PR_OPEN and PR_PERSIST_FAILED after GitHub accepted the PR).
         if (
-            existing.lifecycle_state == STATE_PR_OPEN
+            lifecycle_state == STATE_MUTATING
             and existing.pr_number is not None
-            and lifecycle_state == STATE_MUTATING
+            and existing.pr_url
         ):
+            if existing.lifecycle_state != STATE_PR_OPEN:
+                existing.lifecycle_state = STATE_PR_OPEN
+                existing.updated_at = now
+                existing.error = None
             return existing
         existing.lifecycle_state = lifecycle_state
         existing.updated_at = now

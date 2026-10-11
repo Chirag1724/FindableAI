@@ -52,4 +52,7 @@ jobs:
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
           GROQ_API_KEY: "dummy_ci_key"
           DEFAULT_LLM_MODEL: "groq/qwen/qwen3.8-27b"
+          # Explicit: CI has no worker process; allow in-process claim after enqueue
+          # when a disposable DB is available. Default remains false for production.
+          SCAN_JOB_INLINE_FALLBACK: "true"
         run: pytest -v
