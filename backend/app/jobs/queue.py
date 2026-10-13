@@ -138,6 +138,43 @@ async def enqueue_scan_job(
             return EnqueueResult(job=existing, scan=scan, created=False, conflict=True)
         scan = await session.get(ScanModel, existing.scan_id)
         assert scan is not None
+
+        # Zombie recovery: if the job is non-terminal but has no active worker
+        # (no lease, no finished_at), a server restart orphaned it. Reset to QUEUED
+        # so the caller spawns a fresh pipeline instead of returning a dead row forever.
+        #
+        # Age guard: a freshly-QUEUED job also has no lease and no finished_at, so
+        # require available_at to be older than SCAN_JOB_LEASE_SECONDS before treating
+        # it as orphaned. Within that window a live worker may still claim it.
+        now = _utcnow()
+        is_terminal_status = is_terminal(existing.status)
+        lease_active = (
+            existing.lease_expires_at is not None and existing.lease_expires_at > now
+        )
+        lease_window = timedelta(seconds=int(settings.SCAN_JOB_LEASE_SECONDS))
+        is_stale = existing.available_at is not None and existing.available_at < now - lease_window
+        if not is_terminal_status and not lease_active and existing.finished_at is None and is_stale:
+            metrics.incr("scan_jobs_zombie_recovered")
+            logger.warning(
+                "scan_job_zombie_recovered job_id=%s scan_id=%s status=%s age_hours=%.1f"
+                " correlation_id=%s; resetting to queued",
+                existing.id,
+                existing.scan_id,
+                existing.status,
+                (now - existing.created_at.replace(tzinfo=UTC)).total_seconds() / 3600
+                if existing.created_at
+                else -1,
+                existing.correlation_id,
+            )
+            existing.status = JobStatus.QUEUED.value
+            existing.claimed_by = None
+            existing.lease_expires_at = None
+            existing.available_at = now
+            existing.next_run_at = now
+            existing.updated_at = now
+            await session.flush()
+            return EnqueueResult(job=existing, scan=scan, created=True, conflict=False)
+
         metrics.incr("scan_jobs_idempotent_hits")
         logger.info(
             "scan_job_idempotent_hit job_id=%s scan_id=%s correlation_id=%s",

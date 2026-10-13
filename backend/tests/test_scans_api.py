@@ -76,9 +76,19 @@ async def test_create_scan_and_get_details():
 
 
 @pytest.mark.asyncio
-async def test_scan_subresources_endpoints():
+async def test_scan_subresources_endpoints(monkeypatch):
     """Without valid LLM credentials, subresources stay empty — no silent synthetic fill."""
     import asyncio
+
+    from app.core.config import settings
+
+    # Disable durable job idempotency so a fresh scan is always created.
+    # Without this, the SCAN_JOB_IDEMPOTENCY_TTL_SECONDS=86400 window returns a
+    # zombie `pending` row from a prior server run, pipeline never restarts, test hangs.
+    monkeypatch.setattr(settings, "DURABLE_SCAN_JOBS", False)
+    # Ensure no live LLM calls regardless of local .env contents.
+    # CI uses GROQ_API_KEY=dummy_ci_key; this makes local runs identical to CI.
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "dummy_test_key")
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -90,8 +100,9 @@ async def test_scan_subresources_endpoints():
         scan_id = resp.json()["scan_id"]
 
         # Wait for background pipeline to settle (no Groq → zero real evals).
+        # 80 * 0.25s = 20s headroom covers crawler variance without live LLM waits.
         detail = None
-        for _ in range(40):
+        for _ in range(80):
             detail_resp = await client.get(f"/api/v1/scans/{scan_id}")
             assert detail_resp.status_code == 200
             detail = detail_resp.json()
