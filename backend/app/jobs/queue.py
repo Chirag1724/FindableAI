@@ -60,6 +60,14 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def _as_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
 def _dml_rowcount(result: Result[Any]) -> int:
     """Rowcount from a DML execute result.
 
@@ -139,41 +147,106 @@ async def enqueue_scan_job(
         scan = await session.get(ScanModel, existing.scan_id)
         assert scan is not None
 
-        # Zombie recovery: if the job is non-terminal but has no active worker
-        # (no lease, no finished_at), a server restart orphaned it. Reset to QUEUED
-        # so the caller spawns a fresh pipeline instead of returning a dead row forever.
-        #
-        # Age guard: a freshly-QUEUED job also has no lease and no finished_at, so
-        # require available_at to be older than SCAN_JOB_LEASE_SECONDS before treating
-        # it as orphaned. Within that window a live worker may still claim it.
+        # Zombie recovery: if the job is non-terminal, verify it has an active,
+        # healthy worker. If the heartbeat is stale or the job sat in queue past the
+        # heartbeat timeout, treat it as dead, mark the old row failed, and allow a
+        # fresh scan to be created and executed.
         now = _utcnow()
-        is_terminal_status = is_terminal(existing.status)
-        lease_active = (
-            existing.lease_expires_at is not None and existing.lease_expires_at > now
+        heartbeat_timeout = timedelta(
+            seconds=int(getattr(settings, "SCAN_JOB_HEARTBEAT_TIMEOUT_SECONDS", 300))
         )
-        lease_window = timedelta(seconds=int(settings.SCAN_JOB_LEASE_SECONDS))
-        is_stale = existing.available_at is not None and existing.available_at < now - lease_window
-        if not is_terminal_status and not lease_active and existing.finished_at is None and is_stale:
+        is_term = is_terminal(existing.status)
+
+        is_zombie = False
+        if not is_term and existing.finished_at is None:
+            if existing.status in (JobStatus.CLAIMED.value, JobStatus.RUNNING.value):
+                # Worker claimed or running: must have a fresh heartbeat and unexpired lease
+                hb = _as_utc(existing.last_heartbeat_at)
+                lease = _as_utc(existing.lease_expires_at)
+                if hb is None or hb < now - heartbeat_timeout:
+                    is_zombie = True
+                elif lease is not None and lease < now:
+                    is_zombie = True
+            elif existing.status in (JobStatus.QUEUED.value, JobStatus.RETRY_SCHEDULED.value):
+                # Queued or retry scheduled: check if waiting too long without being claimed
+                if (
+                    existing.status == JobStatus.RETRY_SCHEDULED.value
+                    and existing.next_run_at is not None
+                    and _as_utc(existing.next_run_at) > now
+                ):
+                    is_zombie = False
+                else:
+                    ref_time = _as_utc(existing.available_at or existing.created_at)
+                    if ref_time is not None and ref_time < now - heartbeat_timeout:
+                        is_zombie = True
+
+        if is_zombie:
             metrics.incr("scan_jobs_zombie_recovered")
             logger.warning(
-                "scan_job_zombie_recovered job_id=%s scan_id=%s status=%s age_hours=%.1f"
-                " correlation_id=%s; resetting to queued",
+                "scan_job_zombie_recovered job_id=%s old_scan_id=%s new_scan_id=%s status=%s "
+                "last_heartbeat=%s available_at=%s correlation_id=%s; superseding with fresh scan",
                 existing.id,
                 existing.scan_id,
+                scan_uuid,
                 existing.status,
-                (now - existing.created_at.replace(tzinfo=UTC)).total_seconds() / 3600
-                if existing.created_at
-                else -1,
+                existing.last_heartbeat_at,
+                existing.available_at,
                 existing.correlation_id,
             )
-            existing.status = JobStatus.QUEUED.value
-            existing.claimed_by = None
-            existing.lease_expires_at = None
-            existing.available_at = now
-            existing.next_run_at = now
+            existing.status = JobStatus.FAILED.value
+            existing.error_code = JobErrorCode.EXECUTION_DEADLINE.value
+            existing.failure_category = FailureCategory.TIMEOUT.value
+            existing.error_detail = redact_error(
+                "heartbeat timeout; zombie job superseded by fresh scan"
+            )
+            existing.finished_at = now
             existing.updated_at = now
+            existing.lease_expires_at = None
+            existing.idempotency_key = f"{existing.idempotency_key}:zombie:{existing.id.hex}"
+
+            if scan is not None and scan.status in ("in_progress", "pending"):
+                scan.status = "failed"
+                scan.error = "Scan timed out (worker heartbeat lost)"
+                scan.completed_at = now
+
+            cid = correlation_id or new_correlation_id()
+            db_scan = ScanModel(
+                id=scan_uuid,
+                url=url,
+                repo_url=repo_url,
+                status="in_progress",
+            )
+            job = ScanJob(
+                id=uuid.uuid4(),
+                scan_id=scan_uuid,
+                job_type="scan_pipeline",
+                status=JobStatus.QUEUED.value,
+                idempotency_key=idempotency_key,
+                request_fingerprint=fingerprint,
+                correlation_id=cid,
+                payload={
+                    "url": url,
+                    "max_pages": max_pages,
+                    "personas": personas or ["cto", "developer", "procurement"],
+                    "repo_url": repo_url,
+                },
+                attempt_count=0,
+                max_attempts=int(settings.SCAN_JOB_MAX_ATTEMPTS),
+                fencing_token=0,
+                available_at=now,
+            )
+            session.add(db_scan)
+            session.add(job)
             await session.flush()
-            return EnqueueResult(job=existing, scan=scan, created=True, conflict=False)
+            metrics.incr("scan_jobs_enqueued")
+            logger.info(
+                "scan_job_enqueued job_id=%s scan_id=%s correlation_id=%s status=%s",
+                job.id,
+                scan_uuid,
+                cid,
+                job.status,
+            )
+            return EnqueueResult(job=job, scan=db_scan, created=True, conflict=False)
 
         metrics.incr("scan_jobs_idempotent_hits")
         logger.info(
