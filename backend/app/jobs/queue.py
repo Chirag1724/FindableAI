@@ -169,10 +169,11 @@ async def enqueue_scan_job(
                     is_zombie = True
             elif existing.status in (JobStatus.QUEUED.value, JobStatus.RETRY_SCHEDULED.value):
                 # Queued or retry scheduled: check if waiting too long without being claimed
+                next_run = _as_utc(existing.next_run_at)
                 if (
                     existing.status == JobStatus.RETRY_SCHEDULED.value
-                    and existing.next_run_at is not None
-                    and _as_utc(existing.next_run_at) > now
+                    and next_run is not None
+                    and next_run > now
                 ):
                     is_zombie = False
                 else:
