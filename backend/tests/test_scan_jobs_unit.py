@@ -289,6 +289,154 @@ async def test_idempotent_enqueue(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_zombie_stale_heartbeat_allows_fresh_scan(session: AsyncSession):
+    """A running job with a stale heartbeat must NOT block a new scan of the same URL."""
+    old_scan_id = uuid.uuid4()
+    fp = request_fingerprint(url="https://example.com/zombie-hb", max_pages=1, personas=None, repo_url=None)
+    key = "client:zombie-hb"
+    async with session.begin():
+        r1 = await enqueue_scan_job(
+            session,
+            scan_uuid=old_scan_id,
+            url="https://example.com/zombie-hb",
+            max_pages=1,
+            personas=None,
+            repo_url=None,
+            idempotency_key=key,
+            fingerprint=fp,
+        )
+    assert r1.created is True
+
+    # Simulate worker crash mid-execution: status running, stale heartbeat 10 minutes ago,
+    # but lease_expires_at still has time remaining (simulates long lease window).
+    now = datetime.now(UTC)
+    async with session.begin():
+        job1 = await session.get(_ScanJob, r1.job.id)
+        assert job1 is not None
+        job1.status = JobStatus.RUNNING.value
+        job1.last_heartbeat_at = now - timedelta(minutes=10)
+        job1.lease_expires_at = now + timedelta(minutes=5)
+        job1.started_at = now - timedelta(minutes=10)
+
+    # Retrying the same URL / key must supersede the zombie with a fresh scan
+    new_scan_id = uuid.uuid4()
+    async with session.begin():
+        r2 = await enqueue_scan_job(
+            session,
+            scan_uuid=new_scan_id,
+            url="https://example.com/zombie-hb",
+            max_pages=1,
+            personas=None,
+            repo_url=None,
+            idempotency_key=key,
+            fingerprint=fp,
+        )
+    assert r2.created is True
+    assert r2.conflict is False
+    assert r2.job.id != r1.job.id
+    assert r2.scan.id == new_scan_id
+    assert r2.job.status == JobStatus.QUEUED.value
+
+    # Verify old zombie job and old scan were finalized as failed
+    async with session.begin():
+        old_j = await session.get(_ScanJob, r1.job.id)
+        assert old_j is not None
+        assert old_j.status == JobStatus.FAILED.value
+        assert old_j.error_code == JobErrorCode.EXECUTION_DEADLINE.value
+        assert "heartbeat timeout" in (old_j.error_detail or "")
+
+        old_s = await session.get(_Scan, old_scan_id)
+        assert old_s is not None
+        assert old_s.status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_healthy_running_job_recent_heartbeat_deduplicates(session: AsyncSession):
+    """An actively running job with a fresh heartbeat MUST deduplicate and return created=False."""
+    scan_id = uuid.uuid4()
+    fp = request_fingerprint(url="https://example.com/healthy-hb", max_pages=1, personas=None, repo_url=None)
+    key = "client:healthy-hb"
+    async with session.begin():
+        r1 = await enqueue_scan_job(
+            session,
+            scan_uuid=scan_id,
+            url="https://example.com/healthy-hb",
+            max_pages=1,
+            personas=None,
+            repo_url=None,
+            idempotency_key=key,
+            fingerprint=fp,
+        )
+
+    # Worker active with fresh heartbeat (5 seconds ago)
+    now = datetime.now(UTC)
+    async with session.begin():
+        job1 = await session.get(_ScanJob, r1.job.id)
+        assert job1 is not None
+        job1.status = JobStatus.RUNNING.value
+        job1.last_heartbeat_at = now - timedelta(seconds=5)
+        job1.lease_expires_at = now + timedelta(minutes=5)
+
+    async with session.begin():
+        r2 = await enqueue_scan_job(
+            session,
+            scan_uuid=uuid.uuid4(),
+            url="https://example.com/healthy-hb",
+            max_pages=1,
+            personas=None,
+            repo_url=None,
+            idempotency_key=key,
+            fingerprint=fp,
+        )
+    assert r2.created is False
+    assert r2.conflict is False
+    assert r2.job.id == r1.job.id
+
+
+@pytest.mark.asyncio
+async def test_zombie_queued_job_past_timeout_allows_fresh_scan(session: AsyncSession):
+    """A queued job left unhandled past the timeout must NOT block a new scan."""
+    old_scan_id = uuid.uuid4()
+    fp = request_fingerprint(url="https://example.com/zombie-q", max_pages=1, personas=None, repo_url=None)
+    key = "client:zombie-q"
+    async with session.begin():
+        r1 = await enqueue_scan_job(
+            session,
+            scan_uuid=old_scan_id,
+            url="https://example.com/zombie-q",
+            max_pages=1,
+            personas=None,
+            repo_url=None,
+            idempotency_key=key,
+            fingerprint=fp,
+        )
+
+    # Simulate sitting in queue for 10 minutes without any worker
+    now = datetime.now(UTC)
+    async with session.begin():
+        job1 = await session.get(_ScanJob, r1.job.id)
+        assert job1 is not None
+        job1.available_at = now - timedelta(minutes=10)
+        job1.created_at = now - timedelta(minutes=10)
+
+    new_scan_id = uuid.uuid4()
+    async with session.begin():
+        r2 = await enqueue_scan_job(
+            session,
+            scan_uuid=new_scan_id,
+            url="https://example.com/zombie-q",
+            max_pages=1,
+            personas=None,
+            repo_url=None,
+            idempotency_key=key,
+            fingerprint=fp,
+        )
+    assert r2.created is True
+    assert r2.job.id != r1.job.id
+
+
+
+@pytest.mark.asyncio
 async def test_idempotency_conflict(session: AsyncSession):
     fp1 = request_fingerprint(
         url="https://example.com/1", max_pages=1, personas=None, repo_url=None
