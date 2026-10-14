@@ -31,6 +31,16 @@ MODE_LEXICAL_ONLY = "lexical_only"
 MODE_MEMORY_FALLBACK = "memory_fallback"
 MODE_EMPTY = "empty"
 
+# Deterministic namespace for ephemeral in-memory retrieval ids (UUID5).
+# Durable DOMChunk primary keys are UUID4; evidence persistence rejects UUID5 cites.
+MEMORY_FALLBACK_NS = uuid.UUID("6f696e64-6162-4c65-9a69-6d656d303031")
+
+
+def ephemeral_memory_chunk_id(scan_id: uuid.UUID, index: int, content: str) -> uuid.UUID:
+    """Stable-looking but non-durable UUID5 id for process-local memory fallback chunks."""
+    digest = f"{scan_id}:{index}:{content[:240]}"
+    return uuid.uuid5(MEMORY_FALLBACK_NS, digest)
+
 
 @dataclass
 class RetrievalMeta:
@@ -59,9 +69,16 @@ def reciprocal_rank_fusion(
         k = 60
     scores: dict[uuid.UUID, float] = {}
     for ranked in ranked_id_lists:
-        for rank, cid in enumerate(ranked, start=1):
+        seen_in_list: set[uuid.UUID] = set()
+        rank = 0
+        for cid in ranked:
             if not isinstance(cid, uuid.UUID):
                 continue
+            if cid in seen_in_list:
+                # Duplicate within one ranked list must not inflate RRF score.
+                continue
+            seen_in_list.add(cid)
+            rank += 1
             scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank)
     ordered = sorted(scores.items(), key=lambda item: (-item[1], str(item[0])))
     return ordered[: max(0, int(limit))]
@@ -99,18 +116,35 @@ async def store_dom_chunks(
         texts = [chunk.content for chunk in chunks]
         embeddings = await get_embeddings_batch(texts)
 
-        db_records = [
-            DOMChunk(
-                scan_id=scan_id,
-                url=chunk.url,
-                dom_path=chunk.dom_path,
-                content=chunk.content,
-                tag=chunk.tag,
-                word_count=chunk.word_count,
-                embedding=embeddings[i] if i < len(embeddings) else None,
+        db_records: list[DOMChunk] = []
+        for i, chunk in enumerate(chunks):
+            emb = embeddings[i] if i < len(embeddings) else None
+            if emb is not None:
+                try:
+                    emb_list = [float(x) for x in list(emb)]
+                except (TypeError, ValueError):
+                    emb_list = None
+                if emb_list is None or len(emb_list) != EMBEDDING_DIM:
+                    logger.warning(
+                        "Dropping embedding for scan %s chunk[%s]: dim=%s expected=%s",
+                        scan_id,
+                        i,
+                        None if emb_list is None else len(emb_list),
+                        EMBEDDING_DIM,
+                    )
+                    emb_list = None
+                emb = emb_list
+            db_records.append(
+                DOMChunk(
+                    scan_id=scan_id,
+                    url=chunk.url,
+                    dom_path=chunk.dom_path,
+                    content=chunk.content,
+                    tag=chunk.tag,
+                    word_count=chunk.word_count,
+                    embedding=emb,
+                )
             )
-            for i, chunk in enumerate(chunks)
-        ]
         s.add_all(db_records)
         await s.flush()
         return db_records
@@ -266,14 +300,27 @@ async def dense_search(
         return [], warnings
 
 
+def _coerce_scan_uuid(scan_id: uuid.UUID | str) -> uuid.UUID:
+    if isinstance(scan_id, uuid.UUID):
+        return scan_id
+    try:
+        return uuid.UUID(str(scan_id))
+    except (ValueError, AttributeError, TypeError):
+        return uuid.uuid5(uuid.NAMESPACE_URL, f"findableai:scan:{scan_id}")
+
+
 def _memory_fallback_chunks(query: str, scan_id: uuid.UUID, k: int) -> list[DOMChunk]:
+    """Lexical scoring over process-local CHUNKS_DB when the database path fails.
+
+    Chunk ids are either the real persisted UUID (when present) or a deterministic
+    ephemeral uuid5. Never invents small-int UUIDs that could collide with durable rows.
+    """
     from app.api.v1 import scans as scans_module
 
-    lookup_keys = [str(scan_id)]
-    if hasattr(scan_id, "hex"):
-        lookup_keys.append(scan_id.hex)
-        lookup_keys.append(f"scan_{scan_id.hex}")
-        lookup_keys.append(f"scan_{scan_id.hex[:12]}")
+    resolved_scan = _coerce_scan_uuid(scan_id)
+    lookup_keys = [str(resolved_scan), resolved_scan.hex]
+    lookup_keys.append(f"scan_{resolved_scan.hex}")
+    lookup_keys.append(f"scan_{resolved_scan.hex[:12]}")
     raw_chunks = []
     for key in lookup_keys:
         if key in scans_module.CHUNKS_DB:
@@ -290,15 +337,20 @@ def _memory_fallback_chunks(query: str, scan_id: uuid.UUID, k: int) -> list[DOMC
         match_score = sum(1.0 for word in words if word in text)
         if match_score > 0:
             c_id = getattr(rc, "id", None)
+            if isinstance(c_id, str):
+                try:
+                    c_id = uuid.UUID(c_id)
+                except (ValueError, AttributeError, TypeError):
+                    c_id = None
             if not isinstance(c_id, uuid.UUID):
-                c_id = uuid.UUID(int=i + 1)
+                c_id = ephemeral_memory_chunk_id(resolved_scan, i, content)
             chunk_obj = DOMChunk(
                 id=c_id,
-                scan_id=scan_id if isinstance(scan_id, uuid.UUID) else uuid.uuid4(),
-                url=getattr(rc, "url", ""),
-                dom_path=getattr(rc, "dom_path", ""),
+                scan_id=resolved_scan,
+                url=getattr(rc, "url", "") or "",
+                dom_path=getattr(rc, "dom_path", "") or f"/memory[{i}]",
                 content=content,
-                tag=getattr(rc, "tag", "div"),
+                tag=getattr(rc, "tag", "div") or "div",
                 word_count=getattr(rc, "word_count", len(content.split())),
             )
             scored.append((match_score, chunk_obj))

@@ -49,10 +49,17 @@ from app.models.database import (
 )
 from app.orchestration.dag import FindableAIDAG, ObservationInput
 from app.orchestration.evidence_persistence import (
+    HYDRATE_WARN,
+    NO_DURABLE_EVIDENCE_REMEDIATION_WARN,
+    PERSISTENCE_FAIL_WARN,
+    apply_persisted_evidence_integrity,
+    apply_response_evidence_integrity,
     build_evidence_rows_for_intent,
+    downgrade_unvalidated_evaluations,
     evidence_persistence_warning,
     hydrate_evidence_for_intents,
     load_chunk_id_map,
+    refine_remediation_eligible,
 )
 from app.orchestration.remediation_lifecycle import (
     STATE_MUTATING,
@@ -1012,28 +1019,10 @@ async def run_scan_pipeline(
         except Exception as lh_err:
             logger.warning("Lighthouse evaluation error for %s: %s", scan_id, lh_err)
 
-        if scan_id in SCANS_DB:
-            record = SCANS_DB[scan_id]
-            record.status = final_status
-            record.completed_at = end_time
-            record.f_score = f_score
-            record.summary = summary
-            record.crawled_pages = crawled_pages_detail
-            record.patches = patches
-            record.intents = evaluations
-            record.contradictions = contradictions
-            record.execution_mode = execution_mode
-            record.data_source = data_source
-            record.result_source = integrity.result_source.value
-            record.outcome = integrity.outcome.value
-            record.score_source = integrity.score_source.value
-            record.patches_source = integrity.patches_source.value
-            record.remediation_eligible = integrity.remediation_eligible
-            record.intelligence_warnings = list(integrity.warnings)
-            record.llm_calls_made = llm_calls_made
-            record.error = final_error
-
-        # Persist status + integrity contract to database if connected
+        # Persist status + integrity contract to database if connected.
+        # Evidence integrity runs at this authoritative boundary before process-local
+        # intents are treated as durable / evidence-backed.
+        evidence_durably_validated = False
         try:
             async with AsyncSessionLocal() as s:
                 async with s.begin():
@@ -1078,35 +1067,58 @@ async def run_scan_pipeline(
                         chunk_map = await load_chunk_id_map(s, scan_uuid)
                         cite_total = 0
                         cite_persisted = 0
+                        sanitized_evaluations: list[IntentEvaluation] = []
                         for eval_item in dag_evaluations:
-                            status_str = (
-                                eval_item.status.value
-                                if hasattr(eval_item.status, "value")
-                                else str(eval_item.status)
-                            )
-                            cat_val = eval_item.category.value if eval_item.category else "general"
                             intent_row_id = uuid.uuid4()
+                            built = build_evidence_rows_for_intent(
+                                intent_id=intent_row_id,
+                                evaluation=eval_item,
+                                chunk_map=chunk_map,
+                                intent_scan_id=scan_uuid,
+                            )
+                            clean = apply_persisted_evidence_integrity(eval_item, built)
+                            sanitized_evaluations.append(clean)
+                            cite_total += built.citation_count
+                            cite_persisted += built.persisted_count
+                            status_str = (
+                                clean.status.value
+                                if hasattr(clean.status, "value")
+                                else str(clean.status)
+                            )
+                            cat_val = clean.category.value if clean.category else "general"
                             s.add(
                                 IntentModel(
                                     id=intent_row_id,
                                     scan_id=scan_uuid,
                                     category=cat_val,
-                                    persona=eval_item.persona,
-                                    query=eval_item.query,
+                                    persona=clean.persona,
+                                    query=clean.query,
                                     status=status_str,
-                                    reasoning=eval_item.reasoning,
-                                    confidence=eval_item.confidence,
+                                    reasoning=clean.reasoning,
+                                    confidence=clean.confidence,
                                 )
                             )
-                            built = build_evidence_rows_for_intent(
-                                intent_id=intent_row_id,
-                                evaluation=eval_item,
-                                chunk_map=chunk_map,
-                            )
-                            cite_total += built.citation_count
-                            cite_persisted += built.persisted_count
                             for ev_row in built.rows:
                                 s.add(ev_row)
+
+                        # Prefer sanitized evidence-backed intents for in-process responses.
+                        evaluations = sanitized_evaluations
+                        dag_evaluations = sanitized_evaluations
+                        evidence_durably_validated = True
+
+                        # Recompute eligibility from final validated findings (not pre-sanitize).
+                        refined = refine_remediation_eligible(
+                            integrity.remediation_eligible, evaluations
+                        )
+                        if integrity.remediation_eligible and not refined:
+                            warns = list(integrity.warnings)
+                            if NO_DURABLE_EVIDENCE_REMEDIATION_WARN not in warns:
+                                warns.append(NO_DURABLE_EVIDENCE_REMEDIATION_WARN)
+                            integrity.warnings = warns
+                        integrity.remediation_eligible = refined
+                        if db_scan is not None:
+                            db_scan.remediation_eligible = refined
+                            db_scan.intelligence_warnings = list(integrity.warnings)
 
                         ev_warn = evidence_persistence_warning(cite_total, cite_persisted)
                         if ev_warn and db_scan:
@@ -1114,8 +1126,7 @@ async def run_scan_pipeline(
                             if ev_warn not in warns:
                                 warns.append(ev_warn)
                             db_scan.intelligence_warnings = warns
-                            if scan_id in SCANS_DB:
-                                SCANS_DB[scan_id].intelligence_warnings = list(warns)
+                            integrity.warnings = list(warns)
 
                     # Persist only non-synthetic contradictions
                     if not used_synthetic_contradictions:
@@ -1158,6 +1169,43 @@ async def run_scan_pipeline(
                             )
         except Exception as db_err:
             logger.info("Scan record DB update skipped (offline DB): %s", db_err)
+            evidence_durably_validated = False
+
+        # Never publish process-local evidence-backed intents without durable validation.
+        publish_remediation_eligible = integrity.remediation_eligible
+        publish_warnings = list(integrity.warnings)
+        if not evidence_durably_validated and not used_synthetic_intents:
+            evaluations = downgrade_unvalidated_evaluations(
+                evaluations, reason="persistence"
+            )
+            dag_evaluations = evaluations
+            publish_remediation_eligible = False
+            if PERSISTENCE_FAIL_WARN not in publish_warnings:
+                publish_warnings.append(PERSISTENCE_FAIL_WARN)
+            integrity.warnings = list(publish_warnings)
+            # Fail closed: unverified cites cannot authorize remediation.
+            integrity.remediation_eligible = False
+
+        if scan_id in SCANS_DB:
+            record = SCANS_DB[scan_id]
+            record.status = final_status
+            record.completed_at = end_time
+            record.f_score = f_score
+            record.summary = summary
+            record.crawled_pages = crawled_pages_detail
+            record.patches = patches
+            record.intents = evaluations
+            record.contradictions = contradictions
+            record.execution_mode = execution_mode
+            record.data_source = data_source
+            record.result_source = integrity.result_source.value
+            record.outcome = integrity.outcome.value
+            record.score_source = integrity.score_source.value
+            record.patches_source = integrity.patches_source.value
+            record.remediation_eligible = publish_remediation_eligible
+            record.intelligence_warnings = list(publish_warnings)
+            record.llm_calls_made = llm_calls_made
+            record.error = final_error
 
         if final_status is ScanStatus.FAILED:
             await _emit_event(
@@ -1493,6 +1541,9 @@ async def get_scan(scan_id: str) -> ScanResponse:
                         )
                         for it in db_intents
                     ]
+                    converted_intents = apply_response_evidence_integrity(
+                        converted_intents, hydrate_failed=hydrate_failed
+                    )
 
                     converted_cons: list[Contradiction] = [
                         Contradiction(
@@ -1553,12 +1604,19 @@ async def get_scan(scan_id: str) -> ScanResponse:
                     integrity = unpack_integrity_from_scan_row(db_scan)
                     response_warnings = list(integrity.intelligence_warnings)
                     if hydrate_failed:
-                        hydrate_warn = (
-                            "Persisted evidence could not be hydrated for this request; "
-                            "evidence list may be incomplete."
-                        )
-                        if hydrate_warn not in response_warnings:
-                            response_warnings.append(hydrate_warn)
+                        if HYDRATE_WARN not in response_warnings:
+                            response_warnings.append(HYDRATE_WARN)
+                    # Eligibility must reflect post-hydration evidence integrity, not
+                    # a stale pre-sanitize persisted flag alone.
+                    response_remediation_eligible = refine_remediation_eligible(
+                        bool(integrity.remediation_eligible) and not hydrate_failed,
+                        converted_intents,
+                    )
+                    if integrity.remediation_eligible and not response_remediation_eligible:
+                        if hydrate_failed:
+                            pass  # HYDRATE_WARN already recorded
+                        elif NO_DURABLE_EVIDENCE_REMEDIATION_WARN not in response_warnings:
+                            response_warnings.append(NO_DURABLE_EVIDENCE_REMEDIATION_WARN)
 
                     scan_status = (
                         ScanStatus(db_scan.status)
@@ -1625,7 +1683,7 @@ async def get_scan(scan_id: str) -> ScanResponse:
                         outcome=integrity.outcome,
                         score_source=integrity.score_source,
                         patches_source=integrity.patches_source,
-                        remediation_eligible=integrity.remediation_eligible,
+                        remediation_eligible=response_remediation_eligible,
                         intelligence_warnings=response_warnings,
                         llm_calls_made=integrity.llm_calls_made,
                         repo_url=db_scan.repo_url,
@@ -1866,7 +1924,7 @@ async def get_scan_chunks(scan_id: str) -> list[dict[str, Any]]:
 
 @router.get("/{scan_id}/intents")
 async def get_scan_intents(scan_id: str) -> list[dict[str, Any]]:
-    """Returns intent evaluations for this scan."""
+    """Returns intent evaluations for this scan (cold-path hydrates durable evidence)."""
     if scan_id in SCANS_DB and SCANS_DB[scan_id].intents:
         return [eval_item.model_dump(mode="json") for eval_item in SCANS_DB[scan_id].intents]
 
@@ -1878,24 +1936,45 @@ async def get_scan_intents(scan_id: str) -> list[dict[str, Any]]:
                 result = await s.execute(stmt)
                 db_intents = result.scalars().all()
                 if db_intents:
-                    return [
-                        {
-                            "intent_id": f"intent_{it.id.hex[:8]}",
-                            "query": it.query,
-                            "category": it.category,
-                            "persona": getattr(it, "persona", None)
+                    evidence_by_intent: dict[uuid.UUID, list[EvidenceReference]] = {}
+                    hydrate_failed = False
+                    try:
+                        evidence_by_intent = await hydrate_evidence_for_intents(
+                            s, list(db_intents)
+                        )
+                    except Exception as hydrate_err:
+                        hydrate_failed = True
+                        logger.warning(
+                            "Evidence hydration failed for GET intents scan %s: %s",
+                            scan_id,
+                            hydrate_err,
+                        )
+                    converted: list[IntentEvaluation] = [
+                        IntentEvaluation(
+                            intent_id=f"intent_{it.id.hex[:8]}",
+                            query=it.query,
+                            category=IntentCategory(it.category)
+                            if it.category in [c.value for c in IntentCategory]
+                            else None,
+                            persona=getattr(it, "persona", None)
                             or resolve_query_persona(
                                 IntentCategory(it.category)
                                 if it.category in [c.value for c in IntentCategory]
                                 else IntentCategory.POLICY
                             ),
-                            "status": it.status,
-                            "reasoning": it.reasoning,
-                            "evidence": [],
-                            "confidence": it.confidence,
-                        }
+                            status=EntailmentStatus(it.status)
+                            if it.status in [e.value for e in EntailmentStatus]
+                            else EntailmentStatus.UNKNOWN,
+                            reasoning=it.reasoning or "",
+                            evidence=evidence_by_intent.get(it.id, []),
+                            confidence=it.confidence if it.confidence is not None else 0.0,
+                        )
                         for it in db_intents
                     ]
+                    converted = apply_response_evidence_integrity(
+                        converted, hydrate_failed=hydrate_failed
+                    )
+                    return [item.model_dump(mode="json") for item in converted]
         except Exception as e:
             logger.debug("DB intents lookup error: %s", e)
 

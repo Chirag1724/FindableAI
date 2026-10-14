@@ -146,9 +146,17 @@ def _observe_chunks_retriever(chunks: Sequence[OrchestrationChunk]) -> Retriever
                 scored.append((norm_score, chunk))
 
         if scored:
-            scored.sort(key=lambda item: item[0], reverse=True)
+            # Deterministic tie-break: score desc, then stable chunk id, then dom_path.
+            scored.sort(
+                key=lambda item: (
+                    -item[0],
+                    str(getattr(item[1], "id", "")),
+                    str(getattr(item[1], "dom_path", "") or ""),
+                )
+            )
             return [item[1] for item in scored[:limit]]
 
+        # Empty keyword overlap: preserve input order (stable), do not reshuffle.
         return snapshot[:limit]
 
     return _retrieve

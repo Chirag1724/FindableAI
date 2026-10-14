@@ -248,6 +248,105 @@ def test_persistence_warning_partial_and_empty():
     assert "Only 1 of 3" in (evidence_persistence_warning(3, 1) or "")
 
 
+def test_apply_integrity_downgrades_unresolved_evidence_backed_finding():
+    from app.orchestration.evidence_persistence import (
+        EvidenceBuildResult,
+        apply_persisted_evidence_integrity,
+    )
+
+    evaluation = IntentEvaluation(
+        intent_id="intent_x",
+        query="Hours?",
+        status=EntailmentStatus.SUPPORTED,
+        reasoning="Cited something.",
+        confidence=0.9,
+        category=IntentCategory.AVAILABILITY,
+        evidence=[EvidenceReference(chunk_id="chunk_0", dom_path="main > p", rank=1)],
+    )
+    built = EvidenceBuildResult(citation_count=1, persisted_count=0, unresolved_count=1)
+    clean = apply_persisted_evidence_integrity(evaluation, built)
+    assert clean.status is EntailmentStatus.UNKNOWN
+    assert clean.evidence == []
+    assert clean.confidence <= 0.25
+    assert "Evidence validation failed" in clean.reasoning
+
+
+def test_apply_integrity_keeps_durable_refs_only():
+    from app.models.database import Evidence as EvidenceModel
+    from app.orchestration.evidence_persistence import (
+        EvidenceBuildResult,
+        apply_persisted_evidence_integrity,
+    )
+
+    cid = uuid.uuid4()
+    intent_id = uuid.uuid4()
+    row = EvidenceModel(
+        id=uuid.uuid4(),
+        intent_id=intent_id,
+        chunk_id=cid,
+        rank=1,
+        rrf_score=0.02,
+        source_url="https://ex.com",
+        excerpt="Open 9-5",
+        dom_path="main > p",
+        observation_phase=OBSERVATION_SCAN,
+    )
+    evaluation = IntentEvaluation(
+        intent_id="intent_y",
+        query="Hours?",
+        status=EntailmentStatus.SUPPORTED,
+        reasoning="ok",
+        confidence=0.9,
+        category=IntentCategory.AVAILABILITY,
+        evidence=[
+            EvidenceReference(chunk_id="chunk_0", dom_path="main > p", rank=1),
+            EvidenceReference(chunk_id=str(cid), dom_path="main > p", rank=2),
+        ],
+    )
+    built = EvidenceBuildResult(
+        rows=[row], citation_count=2, persisted_count=1, unresolved_count=1
+    )
+    clean = apply_persisted_evidence_integrity(evaluation, built)
+    assert clean.status is EntailmentStatus.SUPPORTED
+    assert len(clean.evidence) == 1
+    assert clean.evidence[0].chunk_id == str(cid)
+    assert clean.evidence[0].excerpt == "Open 9-5"
+
+
+def test_cross_scan_chunk_rejected_when_intent_scan_provided():
+    intent_id = uuid.uuid4()
+    scan_a = uuid.uuid4()
+    scan_b = uuid.uuid4()
+    foreign = uuid.uuid4()
+    chunk_map = {
+        foreign: SimpleNamespace(
+            id=foreign,
+            scan_id=scan_b,
+            url="https://other.example/",
+            dom_path="main > p",
+            content="Foreign hours",
+        )
+    }
+    evaluation = IntentEvaluation(
+        intent_id="intent_z",
+        query="Hours?",
+        status=EntailmentStatus.SUPPORTED,
+        reasoning="cross",
+        confidence=0.8,
+        category=IntentCategory.AVAILABILITY,
+        evidence=[EvidenceReference(chunk_id=str(foreign), dom_path="main > p", rank=1)],
+    )
+    built = build_evidence_rows_for_intent(
+        intent_id=intent_id,
+        evaluation=evaluation,
+        chunk_map=chunk_map,
+        intent_scan_id=scan_a,
+    )
+    assert built.persisted_count == 0
+    assert built.cross_scan_count == 1
+    assert built.unresolved_count == 1
+
+
 @pytest.mark.asyncio
 async def test_hydrate_uses_stored_dom_path_without_chunk_join():
     """Cold hydrate must work from Evidence provenance when chunk is unavailable."""
