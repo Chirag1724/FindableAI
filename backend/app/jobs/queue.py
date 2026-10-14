@@ -45,6 +45,8 @@ class ClaimedJob:
     correlation_id: str
     payload: dict[str, Any]
     llm_calls_checkpoint: int
+    llm_usd_checkpoint: float
+    checkpoint_json: dict[str, Any] | None
     idempotency_key: str
 
 
@@ -285,6 +287,8 @@ async def enqueue_scan_job(
         available_at=_utcnow(),
         next_run_at=_utcnow(),
         llm_calls_checkpoint=0,
+        llm_usd_checkpoint=0.0,
+        checkpoint_json=None,
     )
     try:
         # Savepoint so a uniqueness race does not poison the outer transaction.
@@ -426,6 +430,10 @@ async def claim_next_job(
         correlation_id=job.correlation_id,
         payload=dict(job.payload or {}),
         llm_calls_checkpoint=int(job.llm_calls_checkpoint or 0),
+        llm_usd_checkpoint=float(getattr(job, "llm_usd_checkpoint", 0.0) or 0.0),
+        checkpoint_json=(
+            {**job.checkpoint_json} if isinstance(job.checkpoint_json, dict) else None
+        ),
         idempotency_key=job.idempotency_key,
     )
 
@@ -622,19 +630,25 @@ async def update_llm_checkpoint(
     fencing_token: int,
     worker_id: str,
     llm_calls: int,
-) -> None:
-    await session.execute(
+    llm_usd: float | None = None,
+) -> bool:
+    """Fenced durable budget checkpoint. Returns False if fence mismatch."""
+    values: dict[str, Any] = {
+        "llm_calls_checkpoint": int(llm_calls),
+        "updated_at": _utcnow(),
+    }
+    if llm_usd is not None:
+        values["llm_usd_checkpoint"] = float(llm_usd)
+    result = await session.execute(
         update(ScanJob)
         .where(
             ScanJob.id == job_id,
             ScanJob.fencing_token == fencing_token,
             ScanJob.claimed_by == worker_id,
         )
-        .values(
-            llm_calls_checkpoint=llm_calls,
-            updated_at=_utcnow(),
-        )
+        .values(**values)
     )
+    return _dml_rowcount(result) > 0
 
 
 async def queue_depth(session: AsyncSession) -> dict[str, int]:

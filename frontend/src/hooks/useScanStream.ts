@@ -97,14 +97,26 @@ export function useScanStream(
         try {
           const scan = await getScan(id, ac.signal);
           if (!isMountedRef.current) return;
-          // Synthesize a ScanStatusEvent from the poll result
+          // Prefer durable progress fields from PostgreSQL — never fabricate mid-run %.
+          const durablePercent =
+            typeof scan.progress_percent === "number"
+              ? scan.progress_percent
+              : TERMINAL.includes(scan.status)
+                ? 100
+                : 0;
           const synth: ScanStatusEvent = {
             scan_id: scan.scan_id,
             status: scan.status,
-            progress_percent: TERMINAL.includes(scan.status) ? 100 : 50,
-            current_step: scan.status,
-            message: `Polled status: ${scan.status}`,
+            progress_percent: durablePercent,
+            current_step: scan.progress_stage || scan.status,
+            message:
+              scan.progress_message ||
+              scan.error ||
+              `Polled status: ${scan.status}`,
             timestamp: new Date().toISOString(),
+            seq: scan.progress_seq ?? null,
+            progress_current: scan.progress_current ?? null,
+            progress_total: scan.progress_total ?? null,
           };
           pushEvent(synth);
           if (TERMINAL.includes(scan.status)) {

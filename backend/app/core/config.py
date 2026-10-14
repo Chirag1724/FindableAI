@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     MAX_SCAN_PAGES: int = 15
     SCAN_TIMEOUT_SECONDS: int = 60
     LLM_BUDGET_CAP_USD: float = 0.01
+    # Estimated USD charged per reserved provider call (not a provider invoice).
+    # Used with LLM_BUDGET_CAP_USD when LLM_ENFORCE_USD_BUDGET is true.
+    LLM_ESTIMATED_USD_PER_CALL: float = 0.0001
+    # When true, BudgetGuard also hard-stops on estimated USD >= LLM_BUDGET_CAP_USD.
+    LLM_ENFORCE_USD_BUDGET: bool = True
     # Hard global LLM provider-call cap per scan (P2-4.2). Not per-engine.
     MAX_LLM_CALLS_PER_SCAN: int = 100
 

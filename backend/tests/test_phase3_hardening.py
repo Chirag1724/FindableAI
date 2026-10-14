@@ -118,6 +118,8 @@ async def test_worker_marks_failed_prior_scan_without_success(monkeypatch):
         correlation_id="c1",
         payload={"url": "https://example.com", "max_pages": 1},
         llm_calls_checkpoint=5,
+        llm_usd_checkpoint=0.0,
+        checkpoint_json=None,
         idempotency_key="k",
     )
 

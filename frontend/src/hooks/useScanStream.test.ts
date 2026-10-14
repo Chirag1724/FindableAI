@@ -122,6 +122,10 @@ describe("useScanStream - error fallback to polling", () => {
         created_at: new Date().toISOString(),
         patches: [],
         target_url: "https://example.com",
+        progress_percent: 85,
+        progress_stage: "NLI Entailment Classifier",
+        progress_message: "Evaluating claims",
+        progress_seq: 12,
       }),
     });
 
@@ -129,6 +133,32 @@ describe("useScanStream - error fallback to polling", () => {
     act(() => { lastES!.onerror!(new Event("error")); });
     await waitFor(() => expect(result.current.connectionState).toBe("error"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(result.current.latestEvent?.progress_percent).toBe(85)
+    );
+    expect(result.current.latestEvent?.current_step).toBe(
+      "NLI Entailment Classifier"
+    );
+  });
+
+  it("does not fabricate mid-run progress percent when durable fields missing", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        scan_id: "scan_test",
+        status: "crawling",
+        created_at: new Date().toISOString(),
+        patches: [],
+        target_url: "https://example.com",
+      }),
+    });
+
+    const { result } = renderHook(() => useScanStream("scan_test", true));
+    act(() => { lastES!.onerror!(new Event("error")); });
+    await waitFor(() =>
+      expect(result.current.latestEvent?.progress_percent).toBe(0)
+    );
   });
 
   it("stops polling when polled status is 'completed'", async () => {

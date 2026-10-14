@@ -284,13 +284,67 @@ def generate_mock_patches(url: str = "https://example.com", html: str = "") -> l
     ]
 
 
+def _db_status_to_scan_status(status_raw: str | None) -> ScanStatus:
+    """Map durable DB status strings onto the API ScanStatus enum."""
+    if status_raw in [e.value for e in ScanStatus]:
+        return ScanStatus(status_raw)
+    if status_raw == "completed":
+        return ScanStatus.COMPLETED
+    if status_raw == "failed":
+        return ScanStatus.FAILED
+    return ScanStatus.PENDING
+
+
 async def _emit_event(
     scan_id: str,
     status_val: ScanStatus,
     percent: int,
     step_name: str,
     message: str,
+    *,
+    current: int | None = None,
+    total: int | None = None,
+    scan_uuid: uuid.UUID | None = None,
 ) -> ScanStatusEvent:
+    """Emit progress to process-local subscribers and durable PostgreSQL (best-effort).
+
+    Durable DB state is authoritative across API/worker processes. Process-local
+    EVENT_* mirrors remain best-effort for same-process SSE only and must not be
+    treated as the source of truth.
+    """
+    seq: int | None = None
+    resolved_uuid = scan_uuid
+    if resolved_uuid is None:
+        try:
+            resolved_uuid = resolve_scan_uuid(scan_id)
+        except Exception:
+            resolved_uuid = None
+    if resolved_uuid is not None:
+        try:
+            from app.jobs.progress import best_effort_persist_progress
+
+            # Map ScanStatus enum to DB status string for in-progress rows.
+            db_status = None
+            if status_val == ScanStatus.COMPLETED:
+                db_status = "completed"
+            elif status_val == ScanStatus.FAILED:
+                db_status = "failed"
+            elif status_val in (ScanStatus.PENDING,):
+                db_status = "pending"
+            else:
+                db_status = "in_progress"
+            seq = await best_effort_persist_progress(
+                scan_id=resolved_uuid,
+                status=db_status,
+                stage=step_name,
+                message=message,
+                percent=percent,
+                current=current,
+                total=total,
+            )
+        except Exception as exc:
+            logger.warning("durable_progress_emit_failed scan_id=%s: %s", scan_id, exc)
+
     event = ScanStatusEvent(
         scan_id=scan_id,
         status=status_val,
@@ -298,9 +352,20 @@ async def _emit_event(
         current_step=step_name,
         message=message,
         timestamp=datetime.now(UTC),
+        seq=seq,
+        progress_current=current,
+        progress_total=total,
     )
     if scan_id in SCANS_DB:
-        SCANS_DB[scan_id].status = status_val
+        record = SCANS_DB[scan_id]
+        record.status = status_val
+        record.progress_percent = percent
+        record.progress_stage = step_name
+        record.progress_message = message
+        record.progress_current = current
+        record.progress_total = total
+        if seq is not None:
+            record.progress_seq = seq
 
     EVENT_LOGS.setdefault(scan_id, []).append(event)
     for q in EVENT_QUEUES.get(scan_id, []):
@@ -410,6 +475,8 @@ async def run_scan_pipeline(
     max_pages: int,
     personas: list[str] | None = None,
     initial_llm_calls: int = 0,
+    initial_llm_usd: float = 0.0,
+    resume_checkpoint: dict[str, Any] | None = None,
 ) -> int:
     """
     Autonomous scan worker pipeline:
@@ -419,101 +486,220 @@ async def run_scan_pipeline(
     4. Synthetic intent generation & hybrid search
     5. NLI entailment evaluation
     6. F-Score calculation & patch generation
+
+    When a compatible crawl/chunks checkpoint exists, crawl+embed are skipped and
+    persisted DOMChunks are reloaded. LLM budget is restored from durable
+    checkpoints and re-checkpointed after each reservation.
     """
+    from app.jobs.checkpoints import (
+        best_effort_save_checkpoint,
+        checkpoint_compatible,
+        empty_checkpoint,
+        mark_stage,
+        request_stage_fingerprint,
+        stage_done,
+    )
+    from app.jobs.execution_context import get_job_execution_context
+    from app.jobs.queue import update_llm_checkpoint
+
     allow_private = settings.ENVIRONMENT.lower() != "production"
     start_time = datetime.now(UTC)
     calls_made = max(0, int(initial_llm_calls or 0))
+    stage_fp = request_stage_fingerprint(url=url, max_pages=max_pages, personas=personas)
+    checkpoint: dict[str, Any] = (
+        {**resume_checkpoint}
+        if checkpoint_compatible(resume_checkpoint, fingerprint=stage_fp)
+        and isinstance(resume_checkpoint, dict)
+        else empty_checkpoint(fingerprint=stage_fp)
+    )
+    job_ctx = get_job_execution_context()
+
+    async def _durable_budget_hook(used: int, usd: float) -> None:
+        if job_ctx is None:
+            return
+        try:
+            async with AsyncSessionLocal() as session:
+                async with session.begin():
+                    await update_llm_checkpoint(
+                        session,
+                        job_id=job_ctx.job_id,
+                        fencing_token=job_ctx.fencing_token,
+                        worker_id=job_ctx.worker_id,
+                        llm_calls=used,
+                        llm_usd=usd,
+                    )
+        except Exception as exc:
+            logger.warning("mid_pipeline_llm_checkpoint_failed: %s", exc)
+
+    async def _save_checkpoint(updated: dict[str, Any]) -> None:
+        nonlocal checkpoint
+        checkpoint = updated
+        if job_ctx is None:
+            return
+        await best_effort_save_checkpoint(
+            job_id=job_ctx.job_id,
+            fencing_token=job_ctx.fencing_token,
+            worker_id=job_ctx.worker_id,
+            checkpoint=checkpoint,
+        )
 
     try:
-        # Phase 1: OBSERVE / Crawling
-        await _emit_event(
-            scan_id,
-            ScanStatus.CRAWLING,
-            15,
-            "Playwright Crawling",
-            f"Fetching DOM snapshots from {url}...",
-        )
-        crawler = AsyncCrawler(
-            max_pages=max_pages,
-            concurrency=5,
-            timeout_seconds=15.0,
-            allow_private=allow_private,
-        )
-        crawl_results = await crawler.crawl(url)
-        pages_crawled = len(crawl_results) if crawl_results else 1
-        robots_txt_content = (
-            crawl_results[0].robots_txt if crawl_results and crawl_results[0].robots_txt else ""
-        )
-        ROBOTS_DB[scan_id] = robots_txt_content
-        ROBOTS_DB[str(scan_uuid)] = robots_txt_content
-        ROBOTS_DB[scan_uuid.hex] = robots_txt_content
-
-        # Phase 2: EXTRACTING_DOM
-        await _emit_event(
-            scan_id,
-            ScanStatus.EXTRACTING_DOM,
-            30,
-            "DOM Structural Extraction",
-            f"Parsing semantic hierarchy and CSS selector paths across {pages_crawled} pages...",
-        )
-        chunker = DOMChunker()
+        skip_crawl = False
+        persisted_chunks = None
         extracted_chunks: list[ChunkData] = []
         html_docs: list[str] = []
         crawled_pages_detail: list[CrawledPageDetail] = []
-        if crawl_results:
-            for page in crawl_results:
-                chunks = chunker.chunk(page.html, page.url) if page.html else []
-                extracted_chunks.extend(chunks)
-                if page.html:
-                    html_docs.append(page.html)
-                crawled_pages_detail.append(
+        pages_crawled = 1
+        robots_txt_content = ""
+
+        if stage_done(checkpoint, "chunks"):
+            try:
+                async with AsyncSessionLocal() as session:
+                    stmt = select(DOMChunkModel).where(DOMChunkModel.scan_id == scan_uuid)
+                    rows = list((await session.execute(stmt)).scalars().all())
+                if rows:
+                    skip_crawl = True
+                    pages_crawled = int(
+                        (checkpoint.get("stages") or {}).get("chunks", {}).get("pages") or 1
+                    )
+                    extracted_chunks = [
+                        ChunkData(
+                            url=r.url,
+                            dom_path=r.dom_path,
+                            content=r.content,
+                            tag=r.tag,
+                            word_count=r.word_count,
+                        )
+                        for r in rows
+                    ]
+                    persisted_chunks = rows
+                    html_docs = [
+                        f"<html><body><main>{c.content}</main></body></html>"
+                        for c in extracted_chunks[: max(1, min(len(extracted_chunks), 5))]
+                    ]
+                    crawled_pages_detail = [
+                        CrawledPageDetail(
+                            url=url,
+                            status_code=200,
+                            chunks_count=len(extracted_chunks),
+                            is_spa=False,
+                        )
+                    ]
+                    await _emit_event(
+                        scan_id,
+                        ScanStatus.EXTRACTING_DOM,
+                        45,
+                        "Resume from checkpoint",
+                        f"Reusing {len(extracted_chunks)} persisted chunks (compatible fingerprint).",
+                        scan_uuid=scan_uuid,
+                    )
+            except Exception as resume_err:
+                logger.info("checkpoint_resume_skipped: %s", resume_err)
+                skip_crawl = False
+
+        if not skip_crawl:
+            # Phase 1: OBSERVE / Crawling
+            await _emit_event(
+                scan_id,
+                ScanStatus.CRAWLING,
+                15,
+                "Playwright Crawling",
+                f"Fetching DOM snapshots from {url}...",
+                scan_uuid=scan_uuid,
+            )
+            crawler = AsyncCrawler(
+                max_pages=max_pages,
+                concurrency=5,
+                timeout_seconds=15.0,
+                allow_private=allow_private,
+            )
+            crawl_results = await crawler.crawl(url)
+            pages_crawled = len(crawl_results) if crawl_results else 1
+            robots_txt_content = (
+                crawl_results[0].robots_txt if crawl_results and crawl_results[0].robots_txt else ""
+            )
+            await _save_checkpoint(
+                mark_stage(checkpoint, "crawl", meta={"pages": pages_crawled})
+            )
+
+            # Phase 2: EXTRACTING_DOM
+            await _emit_event(
+                scan_id,
+                ScanStatus.EXTRACTING_DOM,
+                30,
+                "DOM Structural Extraction",
+                f"Parsing semantic hierarchy and CSS selector paths across {pages_crawled} pages...",
+                scan_uuid=scan_uuid,
+            )
+            chunker = DOMChunker()
+            if crawl_results:
+                for page in crawl_results:
+                    chunks = chunker.chunk(page.html, page.url) if page.html else []
+                    extracted_chunks.extend(chunks)
+                    if page.html:
+                        html_docs.append(page.html)
+                    crawled_pages_detail.append(
+                        CrawledPageDetail(
+                            url=page.url,
+                            status_code=page.status_code,
+                            chunks_count=len(chunks),
+                            is_spa=page.is_spa,
+                        )
+                    )
+            else:
+                default_html = (
+                    "<html><body><main><h1>Welcome</h1><p>Findable content</p></main></body></html>"
+                )
+                extracted_chunks = chunker.chunk(default_html, url)
+                html_docs = [default_html]
+                crawled_pages_detail = [
                     CrawledPageDetail(
-                        url=page.url,
-                        status_code=page.status_code,
-                        chunks_count=len(chunks),
-                        is_spa=page.is_spa,
+                        url=url,
+                        status_code=200,
+                        chunks_count=len(extracted_chunks),
+                        is_spa=False,
+                    )
+                ]
+
+            if not html_docs:
+                html_docs = [
+                    "<html><body><main><h1>Welcome</h1><p>Findable content</p></main></body></html>"
+                ]
+
+            # Phase 3: Embedding & Vector Indexing (remains under EXTRACTING_DOM status)
+            await _emit_event(
+                scan_id,
+                ScanStatus.EXTRACTING_DOM,
+                45,
+                "Embedding & Vector Indexing",
+                f"Generating 1536-dim embeddings for {len(extracted_chunks)} chunks...",
+                scan_uuid=scan_uuid,
+            )
+            try:
+                persisted_chunks = await store_dom_chunks(scan_uuid, extracted_chunks)
+                await _save_checkpoint(
+                    mark_stage(
+                        checkpoint,
+                        "chunks",
+                        meta={
+                            "count": len(extracted_chunks),
+                            "pages": pages_crawled,
+                            "persisted": bool(persisted_chunks),
+                        },
                     )
                 )
-        else:
-            default_html = (
-                "<html><body><main><h1>Welcome</h1><p>Findable content</p></main></body></html>"
-            )
-            extracted_chunks = chunker.chunk(default_html, url)
-            html_docs = [default_html]
-            crawled_pages_detail = [
-                CrawledPageDetail(
-                    url=url,
-                    status_code=200,
-                    chunks_count=len(extracted_chunks),
-                    is_spa=False,
-                )
-            ]
+            except Exception as db_err:
+                logger.info("Database store_dom_chunks unavailable, retained in memory: %s", db_err)
 
-        if not html_docs:
-            html_docs = [
-                "<html><body><main><h1>Welcome</h1><p>Findable content</p></main></body></html>"
-            ]
-
+        ROBOTS_DB[scan_id] = robots_txt_content
+        ROBOTS_DB[str(scan_uuid)] = robots_txt_content
+        ROBOTS_DB[scan_uuid.hex] = robots_txt_content
         CHUNKS_DB[scan_id] = extracted_chunks
         CHUNKS_DB[str(scan_uuid)] = extracted_chunks
         CHUNKS_DB[scan_uuid.hex] = extracted_chunks
         HTML_DB[scan_id] = html_docs
         HTML_DB[str(scan_uuid)] = html_docs
         HTML_DB[scan_uuid.hex] = html_docs
-
-        # Phase 3: Embedding & Vector Indexing (remains under EXTRACTING_DOM status)
-        await _emit_event(
-            scan_id,
-            ScanStatus.EXTRACTING_DOM,
-            45,
-            "Embedding & Vector Indexing",
-            f"Generating 1536-dim embeddings for {len(extracted_chunks)} chunks...",
-        )
-        persisted_chunks = None
-        try:
-            persisted_chunks = await store_dom_chunks(scan_uuid, extracted_chunks)
-        except Exception as db_err:
-            logger.info("Database store_dom_chunks unavailable, retained in memory: %s", db_err)
 
         # Derive business context from extracted chunks
         sample_texts = [
@@ -533,6 +719,8 @@ async def run_scan_pipeline(
         budget_guard = BudgetGuard(
             limit=settings.MAX_LLM_CALLS_PER_SCAN,
             initial_used=max(0, int(initial_llm_calls or 0)),
+            initial_usd=max(0.0, float(initial_llm_usd or 0.0)),
+            on_reserve=_durable_budget_hook,
         )
         heavy_llm = LLMClient(model=settings.HEAVY_LLM_MODEL, budget_guard=budget_guard)
         fast_llm = LLMClient(model=settings.FAST_LLM_MODEL, budget_guard=budget_guard)
@@ -618,6 +806,13 @@ async def run_scan_pipeline(
             html_documents=html_docs,
         )
         orch_result = await dag.run(obs)
+        await _save_checkpoint(
+            mark_stage(
+                checkpoint,
+                "dag",
+                meta={"evaluations": len(orch_result.evaluations or [])},
+            )
+        )
 
         # Preserve DAG outputs before any synthetic substitution.
         dag_evaluations: list[IntentEvaluation] = list(orch_result.evaluations)
@@ -1398,6 +1593,19 @@ async def get_scan(scan_id: str) -> ScanResponse:
                             dag_evaluations_count=integrity.dag_evaluations_count,
                             synthetic_intents_count=integrity.synthetic_intents_count,
                         )
+                    progress_seq = None
+                    try:
+                        from app.jobs.progress import load_progress_snapshot
+
+                        snap = await load_progress_snapshot(s, scan_uuid)
+                        if snap:
+                            progress_seq = snap.get("progress_seq")
+                    except Exception:
+                        progress_seq = None
+                    # Prefer durable progress for in-flight scans; terminal scans use 100.
+                    durable_percent = getattr(db_scan, "progress_percent", None)
+                    if scan_status in (ScanStatus.COMPLETED, ScanStatus.FAILED):
+                        durable_percent = 100 if durable_percent is None else durable_percent
                     scan_resp = ScanResponse(
                         scan_id=scan_id,
                         target_url=db_scan.url,
@@ -1422,6 +1630,12 @@ async def get_scan(scan_id: str) -> ScanResponse:
                         llm_calls_made=integrity.llm_calls_made,
                         repo_url=db_scan.repo_url,
                         github_repo_url=db_scan.repo_url,
+                        progress_percent=durable_percent,
+                        progress_stage=getattr(db_scan, "progress_stage", None),
+                        progress_message=getattr(db_scan, "progress_message", None),
+                        progress_current=getattr(db_scan, "progress_current", None),
+                        progress_total=getattr(db_scan, "progress_total", None),
+                        progress_seq=progress_seq,
                     )
                     SCANS_DB[scan_id] = scan_resp
                     return scan_resp
@@ -1432,47 +1646,169 @@ async def get_scan(scan_id: str) -> ScanResponse:
 
 
 @router.get("/{scan_id}/stream")
-async def stream_scan_progress(scan_id: str):
-    """Server-Sent Events (SSE) endpoint broadcasting live scan progression."""
-    if scan_id not in SCANS_DB:
-        scan_uuid = resolve_scan_uuid(scan_id)
-        exists_in_db = False
-        if scan_uuid:
-            try:
-                async with AsyncSessionLocal() as s:
-                    db_scan = await s.get(ScanModel, scan_uuid)
-                    if db_scan:
-                        exists_in_db = True
-            except Exception:
-                pass
-        if not exists_in_db:
-            raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+async def stream_scan_progress(
+    scan_id: str,
+    request: Request,
+    last_event_id: int | None = Query(default=None, alias="last_event_id", ge=0),
+):
+    """SSE progress stream with durable DB replay (cross-process safe).
+
+    Prefer ``Last-Event-ID`` header or ``last_event_id`` query for reconnect.
+    Process-local EVENT_* is best-effort only; PostgreSQL events/snapshot are
+    authoritative. Polling GET /scans/{id} remains the reliable fallback.
+    """
+    scan_uuid = resolve_scan_uuid(scan_id)
+    if scan_uuid is None and scan_id not in SCANS_DB:
+        raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+
+    if scan_uuid is not None:
+        try:
+            async with AsyncSessionLocal() as s:
+                db_scan = await s.get(ScanModel, scan_uuid)
+                if db_scan is None and scan_id not in SCANS_DB:
+                    raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+        except HTTPException:
+            raise
+        except Exception:
+            if scan_id not in SCANS_DB:
+                raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found") from None
+
+    header_leid = request.headers.get("last-event-id") or request.headers.get("Last-Event-ID")
+    after_seq = int(last_event_id or 0)
+    if header_leid:
+        try:
+            after_seq = max(after_seq, int(header_leid))
+        except ValueError:
+            pass
 
     async def event_generator() -> AsyncGenerator[str, None]:
+        from app.jobs.progress import list_progress_events_after, load_progress_snapshot
+
+        cursor = after_seq
+        # Same-process subscribers still get live pushes when available.
         queue: asyncio.Queue[ScanStatusEvent | None] = asyncio.Queue()
         EVENT_QUEUES.setdefault(scan_id, []).append(queue)
-
         try:
-            # 1. Replay past events already logged
-            past_events = EVENT_LOGS.get(scan_id, [])
-            for ev in past_events:
-                yield f"data: {json.dumps(ev.model_dump(mode='json'))}\n\n"
-
-            # If already completed or failed, terminate stream
-            if past_events and past_events[-1].status in (ScanStatus.COMPLETED, ScanStatus.FAILED):
-                return
-
-            # 2. Consume real-time events from background pipeline
-            while True:
+            if scan_uuid is not None:
                 try:
-                    event = await asyncio.wait_for(queue.get(), timeout=5.0)
+                    async with AsyncSessionLocal() as s:
+                        rows = await list_progress_events_after(
+                            s, scan_uuid, after_seq=cursor, limit=500
+                        )
+                        snap = await load_progress_snapshot(s, scan_uuid)
+                    if not rows and snap and cursor == 0:
+                        # Snapshot fallback when event history is empty/unavailable.
+                        status_raw = str(snap.get("status") or "in_progress")
+                        status_enum = _db_status_to_scan_status(status_raw)
+                        synth = ScanStatusEvent(
+                            scan_id=scan_id,
+                            status=status_enum,
+                            progress_percent=int(snap.get("progress_percent") or 0),
+                            current_step=str(snap.get("progress_stage") or status_raw),
+                            message=str(snap.get("progress_message") or "Restored progress snapshot"),
+                            timestamp=datetime.now(UTC),
+                            seq=int(snap.get("progress_seq") or 0) or None,
+                            progress_current=snap.get("progress_current"),
+                            progress_total=snap.get("progress_total"),
+                        )
+                        if synth.seq:
+                            yield f"id: {synth.seq}\n"
+                        yield f"data: {json.dumps(synth.model_dump(mode='json'))}\n\n"
+                        if status_enum in (ScanStatus.COMPLETED, ScanStatus.FAILED):
+                            return
+                    for row in rows:
+                        st = _db_status_to_scan_status(row.status)
+                        ev = ScanStatusEvent(
+                            scan_id=scan_id,
+                            status=st,
+                            progress_percent=int(row.percent or 0),
+                            current_step=str(row.stage or row.status or "progress"),
+                            message=str(row.message or ""),
+                            timestamp=row.created_at or datetime.now(UTC),
+                            seq=row.seq,
+                            progress_current=row.current,
+                            progress_total=row.total,
+                        )
+                        cursor = max(cursor, int(row.seq))
+                        yield f"id: {row.seq}\n"
+                        yield f"data: {json.dumps(ev.model_dump(mode='json'))}\n\n"
+                        if st in (ScanStatus.COMPLETED, ScanStatus.FAILED):
+                            return
+                except Exception as exc:
+                    logger.warning("sse_durable_replay_failed scan_id=%s: %s", scan_id, exc)
+
+            # Live tail: merge durable polling with optional same-process queue.
+            idle_rounds = 0
+            while True:
+                delivered = False
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=0.5)
                     if event is None:
                         break
+                    if event.seq:
+                        yield f"id: {event.seq}\n"
+                        cursor = max(cursor, int(event.seq))
                     yield f"data: {json.dumps(event.model_dump(mode='json'))}\n\n"
+                    delivered = True
                     if event.status in (ScanStatus.COMPLETED, ScanStatus.FAILED):
-                        break
+                        return
                 except TimeoutError:
-                    yield ": heartbeat\n\n"
+                    pass
+
+                if scan_uuid is not None and not delivered:
+                    try:
+                        async with AsyncSessionLocal() as s:
+                            rows = await list_progress_events_after(
+                                s, scan_uuid, after_seq=cursor, limit=50
+                            )
+                            snap = await load_progress_snapshot(s, scan_uuid)
+                        for row in rows:
+                            st = _db_status_to_scan_status(row.status)
+                            ev = ScanStatusEvent(
+                                scan_id=scan_id,
+                                status=st,
+                                progress_percent=int(row.percent or 0),
+                                current_step=str(row.stage or "progress"),
+                                message=str(row.message or ""),
+                                timestamp=row.created_at or datetime.now(UTC),
+                                seq=row.seq,
+                                progress_current=row.current,
+                                progress_total=row.total,
+                            )
+                            cursor = max(cursor, int(row.seq))
+                            yield f"id: {row.seq}\n"
+                            yield f"data: {json.dumps(ev.model_dump(mode='json'))}\n\n"
+                            delivered = True
+                            if st in (ScanStatus.COMPLETED, ScanStatus.FAILED):
+                                return
+                        if snap and (snap.get("status") in ("completed", "failed")) and not rows:
+                            st = _db_status_to_scan_status(str(snap.get("status")))
+                            synth = ScanStatusEvent(
+                                scan_id=scan_id,
+                                status=st,
+                                progress_percent=100,
+                                current_step=str(snap.get("progress_stage") or snap.get("status")),
+                                message=str(
+                                    snap.get("progress_message")
+                                    or snap.get("error")
+                                    or f"Scan {snap.get('status')}"
+                                ),
+                                timestamp=datetime.now(UTC),
+                                seq=int(snap.get("progress_seq") or cursor) or None,
+                            )
+                            if synth.seq:
+                                yield f"id: {synth.seq}\n"
+                            yield f"data: {json.dumps(synth.model_dump(mode='json'))}\n\n"
+                            return
+                    except Exception:
+                        pass
+
+                if not delivered:
+                    idle_rounds += 1
+                    if idle_rounds % 10 == 0:
+                        yield ": heartbeat\n\n"
+                else:
+                    idle_rounds = 0
         finally:
             if scan_id in EVENT_QUEUES and queue in EVENT_QUEUES[scan_id]:
                 EVENT_QUEUES[scan_id].remove(queue)
@@ -2453,6 +2789,11 @@ async def verify_scan_remediation(
                     detail=row.detail,
                     fresh_evidence=list(row.fresh_evidence or []),
                     created_at=row.created_at,
+                    verification_method=getattr(
+                        row, "verification_method", "heuristic_post_pr"
+                    ),
+                    fully_verified=bool(getattr(row, "fully_verified", False)),
+                    is_full_rescan=bool(getattr(row, "is_full_rescan", False)),
                 )
     except Exception as exc:
         raise HTTPException(
@@ -2484,6 +2825,11 @@ async def list_scan_verifications(scan_id: str) -> list[VerificationRunOut]:
                     detail=r.detail,
                     fresh_evidence=list(r.fresh_evidence or []),
                     created_at=r.created_at,
+                    verification_method=getattr(
+                        r, "verification_method", "heuristic_post_pr"
+                    ),
+                    fully_verified=bool(getattr(r, "fully_verified", False)),
+                    is_full_rescan=bool(getattr(r, "is_full_rescan", False)),
                 )
                 for r in rows
             ]

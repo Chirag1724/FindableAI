@@ -20,6 +20,10 @@ export interface ScanStatusEvent {
   current_step: string;
   message: string;
   timestamp: string;
+  /** Monotonic durable event sequence when persisted by the worker */
+  seq?: number | null;
+  progress_current?: number | null;
+  progress_total?: number | null;
 }
 
 export interface SubScoreMetric {
@@ -135,6 +139,13 @@ export interface ScanResponse {
   llm_calls_made?: number;
   repo_url?: string;
   github_repo_url?: string;
+  /** Durable progress snapshot from PostgreSQL (authoritative across API/worker) */
+  progress_percent?: number | null;
+  progress_stage?: string | null;
+  progress_message?: string | null;
+  progress_current?: number | null;
+  progress_total?: number | null;
+  progress_seq?: number | null;
 }
 
 // Intelligence layer types (mirrors backend schemas/intelligence.py)

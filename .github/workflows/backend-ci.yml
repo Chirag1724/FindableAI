@@ -41,10 +41,10 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run Ruff Linter
-        run: ruff check .
+        run: python -m ruff check .
 
       - name: Run Mypy Type Checker
-        run: mypy app
+        run: python -m mypy app
 
       - name: Run Pytest Suite
         env:
@@ -55,4 +55,124 @@ jobs:
           # Explicit: CI has no worker process; allow in-process claim after enqueue
           # when a disposable DB is available. Default remains false for production.
           SCAN_JOB_INLINE_FALLBACK: "true"
-        run: pytest -v
+          # Keep PG integration opt-in job separate; do not silently skip there.
+          FINDABLE_PG_INTEGRATION: "0"
+        run: python -m pytest -q --ignore=tests/test_findableai_live_scan.py
+
+  backend-pg-integration:
+    name: PostgreSQL Integration (pgvector)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    # Disposable CI-only credentials (not production). Loopback via published port
+    # satisfies test_scan_jobs_pg.py fail-closed host policy.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: findable_ci
+          POSTGRES_PASSWORD: findable_ci_secret
+          POSTGRES_DB: findable_itest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U findable_ci -d findable_itest"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      ENVIRONMENT: "test"
+      FINDABLE_PG_INTEGRATION: "1"
+      FINDABLE_PG_DATABASE_URL: "postgresql+asyncpg://findable_ci:findable_ci_secret@127.0.0.1:5432/findable_itest"
+      # App settings fallback (unused when FINDABLE_PG_DATABASE_URL is set)
+      DATABASE_URL: "postgresql+asyncpg://findable_ci:findable_ci_secret@127.0.0.1:5432/findable_itest"
+      GROQ_API_KEY: "dummy_ci_key"
+      DEFAULT_LLM_MODEL: "groq/qwen/qwen3.8-27b"
+      SCAN_JOB_INLINE_FALLBACK: "false"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Apply Alembic migrations on clean disposable database
+        run: |
+          # ``-P`` avoids cwd ``backend/alembic`` shadowing the installed package.
+          python -P -m alembic upgrade head
+
+      - name: Collect PostgreSQL integration tests (must be exactly 3)
+        run: |
+          python - <<'PY'
+          import subprocess
+          import sys
+
+          cmd = [
+              sys.executable,
+              "-m",
+              "pytest",
+              "tests/test_scan_jobs_pg.py",
+              "--collect-only",
+              "-q",
+          ]
+          proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+          sys.stdout.write(proc.stdout)
+          sys.stderr.write(proc.stderr)
+          collected = [
+              line.strip()
+              for line in proc.stdout.splitlines()
+              if line.startswith("tests/test_scan_jobs_pg.py::")
+          ]
+          expected = {
+              "tests/test_scan_jobs_pg.py::test_pg_two_workers_cannot_claim_same_job",
+              "tests/test_scan_jobs_pg.py::test_pg_migration_head_reachable",
+              "tests/test_scan_jobs_pg.py::test_pg_lease_recovery_and_fencing",
+          }
+          if set(collected) != expected:
+              print(f"Collected {collected!r}, expected {sorted(expected)!r}")
+              sys.exit(1)
+          print("Collected exactly 3 PostgreSQL integration tests")
+          PY
+
+      - name: Run PostgreSQL integration tests (fail if any skip)
+        run: |
+          python - <<'PY'
+          import subprocess
+          import sys
+
+          cmd = [
+              sys.executable,
+              "-m",
+              "pytest",
+              "tests/test_scan_jobs_pg.py",
+              "-vv",
+              "--tb=short",
+          ]
+          proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+          out = (proc.stdout or "") + (proc.stderr or "")
+          sys.stdout.write(proc.stdout)
+          sys.stderr.write(proc.stderr)
+          lowered = out.lower()
+          if proc.returncode != 0:
+              sys.exit(proc.returncode)
+          if "skipped" in lowered:
+              print("ERROR: PostgreSQL integration tests must execute in CI, not skip")
+              sys.exit(1)
+          if "3 passed" not in out:
+              print("ERROR: expected pytest summary '3 passed'")
+              sys.exit(1)
+          print("PostgreSQL integration: 3 passed, 0 skipped")
+          PY

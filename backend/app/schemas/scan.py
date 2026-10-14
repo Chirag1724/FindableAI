@@ -46,6 +46,12 @@ class ScanStatusEvent(BaseModel):
     current_step: str
     message: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    seq: int | None = Field(
+        default=None,
+        description="Monotonic per-scan durable event sequence when persisted",
+    )
+    progress_current: int | None = None
+    progress_total: int | None = None
 
 
 class CrawledPageDetail(BaseModel):
@@ -149,4 +155,18 @@ class ScanResponse(BaseModel):
     github_repo_url: str | None = Field(
         default=None,
         description="Alias for repo_url",
+    )
+    # Durable progress snapshot (authoritative across API/worker processes)
+    progress_percent: int | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Persisted progress percent from the worker; None if unknown",
+    )
+    progress_stage: str | None = Field(default=None, description="Current durable stage label")
+    progress_message: str | None = Field(default=None, description="Latest durable progress message")
+    progress_current: int | None = Field(default=None, description="Completed work units when known")
+    progress_total: int | None = Field(default=None, description="Total work units when known")
+    progress_seq: int | None = Field(
+        default=None, description="Last durable progress event sequence number"
     )

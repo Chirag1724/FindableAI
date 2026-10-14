@@ -29,6 +29,9 @@ OUTCOME_FIXED = "fixed"
 OUTCOME_UNRESOLVED = "unresolved"
 OUTCOME_INCONCLUSIVE = "inconclusive"
 
+# Post-PR verification is heuristic keyword/content checks — never a full re-scan.
+VERIFICATION_METHOD_HEURISTIC = "heuristic_post_pr"
+
 OPS_OK = "ok"
 OPS_ERROR = "error"
 OPS_TIMEOUT = "timeout"
@@ -137,6 +140,8 @@ def evaluate_verification_outcome(
     """Return (issue_outcome, operational_status, detail).
 
     Never marks fixed solely because a PR opened or syntax passed.
+    ``issue_outcome=fixed`` means heuristic keyword evidence on the PR head,
+    not a full website re-scan. Callers must expose ``fully_verified=False``.
     """
     if operational_error:
         return OUTCOME_INCONCLUSIVE, OPS_ERROR, operational_error
@@ -154,7 +159,8 @@ def evaluate_verification_outcome(
         return (
             OUTCOME_INCONCLUSIVE,
             OPS_OK,
-            "no acceptance keywords; cannot confirm issue-level fix",
+            "no acceptance keywords; cannot confirm issue-level fix "
+            "(heuristic post-PR check only; not a full re-scan)",
         )
 
     text = patched_content.lower()
@@ -163,12 +169,16 @@ def evaluate_verification_outcome(
         return (
             OUTCOME_FIXED,
             OPS_OK,
-            f"fresh content contains acceptance terms: {hits[:5]}",
+            (
+                "heuristic post-PR check: patched revision contains acceptance terms "
+                f"{hits[:5]} (not a full website re-scan; fully_verified=false)"
+            ),
         )
     return (
         OUTCOME_UNRESOLVED,
         OPS_OK,
-        "patched revision lacks required acceptance terms",
+        "patched revision lacks required acceptance terms "
+        "(heuristic post-PR check only; not a full re-scan)",
     )
 
 
@@ -182,7 +192,15 @@ async def persist_verification_run(
     operational_status: str,
     detail: str,
     fresh_evidence: list[Any] | None = None,
+    verification_method: str = VERIFICATION_METHOD_HEURISTIC,
+    fully_verified: bool = False,
+    is_full_rescan: bool = False,
 ) -> VerificationRun:
+    # Fail closed on honesty: heuristic method can never claim full verification.
+    method = verification_method or VERIFICATION_METHOD_HEURISTIC
+    if method == VERIFICATION_METHOD_HEURISTIC:
+        fully_verified = False
+        is_full_rescan = False
     row = VerificationRun(
         id=uuid.uuid4(),
         scan_id=scan_id,
@@ -192,6 +210,9 @@ async def persist_verification_run(
         operational_status=operational_status,
         detail=detail,
         fresh_evidence=fresh_evidence or [],
+        verification_method=method,
+        fully_verified=bool(fully_verified),
+        is_full_rescan=bool(is_full_rescan),
         created_at=datetime.now(UTC),
     )
     session.add(row)

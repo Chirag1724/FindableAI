@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -77,6 +77,8 @@ class _ScanJob(_TestBase):
     error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     failure_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
     llm_calls_checkpoint: Mapped[int] = mapped_column(Integer, default=0)
+    llm_usd_checkpoint: Mapped[float] = mapped_column(Float, default=0.0)
+    checkpoint_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     scan: Mapped[_Scan] = relationship(back_populates="jobs")

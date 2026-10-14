@@ -78,7 +78,12 @@ def test_initial_state():
     assert guard.used == 0
     assert guard.remaining == 35
     assert guard.limit == 35
-    assert guard.snapshot() == {"limit": 35, "used": 0, "remaining": 35}
+    snap = guard.snapshot()
+    assert snap["limit"] == 35
+    assert snap["used"] == 0
+    assert snap["remaining"] == 35
+    assert "usd_used" in snap
+    assert "enforce_usd" in snap
 
 
 @pytest.mark.asyncio

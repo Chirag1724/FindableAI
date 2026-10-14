@@ -95,6 +95,16 @@ class Scan(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Durable cross-process progress snapshot (authoritative for poll/SSE)
+    progress_stage: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    progress_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    progress_percent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    progress_current: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    progress_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    progress_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -120,6 +130,9 @@ class Scan(Base):
     )
     jobs: Mapped[list["ScanJob"]] = relationship(
         "ScanJob", back_populates="scan", cascade="all, delete-orphan"
+    )
+    progress_events: Mapped[list["ScanProgressEvent"]] = relationship(
+        "ScanProgressEvent", back_populates="scan", cascade="all, delete-orphan"
     )
 
 
@@ -163,6 +176,10 @@ class ScanJob(Base):
     error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     failure_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
     llm_calls_checkpoint: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    llm_usd_checkpoint: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    checkpoint_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -171,6 +188,34 @@ class ScanJob(Base):
     )
 
     scan: Mapped[Scan] = relationship("Scan", back_populates="jobs")
+
+
+class ScanProgressEvent(Base):
+    """Ordered durable progress events for SSE replay / cross-process poll."""
+
+    __tablename__ = "scan_progress_events"
+    __table_args__ = (UniqueConstraint("scan_id", "seq", name="uq_scan_progress_events_scan_seq"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False, default="progress")
+    status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    stage: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    percent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    current: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    scan: Mapped[Scan] = relationship("Scan", back_populates="progress_events")
 
 
 class DOMChunk(Base):
@@ -378,6 +423,12 @@ class VerificationRun(Base):
     fresh_evidence: Mapped[list[Any] | None] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=True
     )
+    # Honesty fields: heuristic post-PR checks are never a full re-scan.
+    verification_method: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="heuristic_post_pr"
+    )
+    fully_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_full_rescan: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

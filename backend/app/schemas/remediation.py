@@ -50,6 +50,25 @@ class VerificationRunOut(BaseModel):
     detail: str | None = None
     fresh_evidence: list[Any] = Field(default_factory=list)
     created_at: datetime | None = None
+    verification_method: str = Field(
+        default="heuristic_post_pr",
+        description=(
+            "How verification was performed. Current implementation is always "
+            "'heuristic_post_pr' (keyword/content checks on PR head files), "
+            "never a full website re-scan."
+        ),
+    )
+    fully_verified: bool = Field(
+        default=False,
+        description=(
+            "True only for a complete fresh re-scan verification. "
+            "Heuristic post-PR checks always leave this false."
+        ),
+    )
+    is_full_rescan: bool = Field(
+        default=False,
+        description="Whether verification re-ran the full FindableAI scan pipeline",
+    )
 
 
 class VerifyRemediationRequest(BaseModel):

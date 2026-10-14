@@ -21,8 +21,11 @@ if sys.platform == "win32":
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Connect to DB / Redis / Browser pool
+    # Startup: fail closed on production auth misconfiguration; never silently open.
+    from app.core.auth import assert_production_security_config
+
     print(f"Starting {settings.PROJECT_NAME} API v{settings.VERSION} [{settings.ENVIRONMENT}]")
+    assert_production_security_config()
     try:
         yield
     except (asyncio.CancelledError, GeneratorExit):

@@ -14,6 +14,7 @@ from typing import Any
 from app.core.config import settings
 from app.db import AsyncSessionLocal
 from app.jobs.correlation import bind_correlation_id
+from app.jobs.execution_context import JobExecutionContext, job_execution_context
 from app.jobs.metrics import metrics
 from app.jobs.queue import (
     ClaimedJob,
@@ -139,6 +140,12 @@ class ScanJobWorker:
                     correlation_id=job.correlation_id,
                     payload=dict(job.payload or {}),
                     llm_calls_checkpoint=int(job.llm_calls_checkpoint or 0),
+                    llm_usd_checkpoint=float(getattr(job, "llm_usd_checkpoint", 0.0) or 0.0),
+                    checkpoint_json=(
+                        {**job.checkpoint_json}
+                        if isinstance(job.checkpoint_json, dict)
+                        else None
+                    ),
                     idempotency_key=job.idempotency_key,
                 )
 
@@ -200,7 +207,16 @@ class ScanJobWorker:
 
         llm_checkpoint = claimed.llm_calls_checkpoint
         try:
-            llm_checkpoint = await self._execute_pipeline(claimed)
+            with job_execution_context(
+                JobExecutionContext(
+                    job_id=claimed.job_id,
+                    scan_id=claimed.scan_id,
+                    fencing_token=claimed.fencing_token,
+                    worker_id=self.worker_id,
+                    correlation_id=claimed.correlation_id,
+                )
+            ):
+                llm_checkpoint = await self._execute_pipeline(claimed)
             # Pipeline finished successfully — always persist success even if a
             # shutdown was requested during the run (avoid spurious retries).
             async with AsyncSessionLocal() as session:
@@ -279,6 +295,7 @@ class ScanJobWorker:
         scan_id = f"scan_{scan_uuid.hex}"
 
         initial_used = int(claimed.llm_calls_checkpoint or 0)
+        initial_usd = float(claimed.llm_usd_checkpoint or 0.0)
         try:
             async with AsyncSessionLocal() as session:
                 scan = await session.get(ScanModel, scan_uuid)
@@ -316,6 +333,8 @@ class ScanJobWorker:
                     max_pages,
                     personas,
                     initial_llm_calls=initial_used,
+                    initial_llm_usd=initial_usd,
+                    resume_checkpoint=claimed.checkpoint_json,
                 )
             else:
                 from app.api.v1.scans import run_scan_pipeline
@@ -327,6 +346,8 @@ class ScanJobWorker:
                     max_pages,
                     personas,
                     initial_llm_calls=initial_used,
+                    initial_llm_usd=initial_usd,
+                    resume_checkpoint=claimed.checkpoint_json,
                 )
             if isinstance(result, int):
                 return result
