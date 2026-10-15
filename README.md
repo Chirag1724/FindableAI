@@ -232,7 +232,7 @@ sequenceDiagram
     LLM-->>DAG: Structured Intent List (Pydantic validated)
 
     DAG-->>Frontend: SSE: Status = HYBRID_RETRIEVAL (75%)
-    DAG->>VectorDB: Evidence selection (default first-k chunks; optional FTS hybrid_search)
+    DAG->>VectorDB: Evidence selection (default first-k chunks, optional FTS hybrid_search)
     VectorDB-->>DAG: Top candidate chunks with CSS selector trace
 
     DAG-->>Frontend: SSE: Status = NLI_EVALUATION (85%)
