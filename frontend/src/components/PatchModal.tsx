@@ -15,10 +15,10 @@ import {
   Info,
   Code2,
 } from "lucide-react";
-import type { PatchProposal, PullRequestResult } from "@/types/scan";
+import type { PatchProposal, PullRequestResult, VerificationRun } from "@/types/scan";
 import { parseUnifiedDiff } from "@/lib/diff";
 import type { DiffLine } from "@/lib/diff";
-import { applyPatches, getPatches } from "@/lib/api";
+import { applyPatches, getPatches, verifyRemediation } from "@/lib/api";
 import type { ApiError } from "@/types/scan";
 import { EmptyState } from "./EmptyState";
 import { gsap, EASING, prefersReducedMotion } from "@/lib/motion";
@@ -437,6 +437,11 @@ export function PatchModal({
   >("idle");
   const [prResult, setPrResult] = useState<PullRequestResult | null>(null);
   const [prError, setPrError] = useState<string | null>(null);
+  const [verifyState, setVerifyState] = useState<
+    "idle" | "loading" | "done" | "error"
+  >("idle");
+  const [verifyResult, setVerifyResult] = useState<VerificationRun | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
 
   const backdropRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -592,6 +597,9 @@ export function PatchModal({
     if (prState === "loading") return;
     setPrState("loading");
     setPrError(null);
+    setVerifyState("idle");
+    setVerifyResult(null);
+    setVerifyError(null);
 
     try {
       const trimmedCustom = customRepoUrl.trim();
@@ -609,6 +617,24 @@ export function PatchModal({
       const apiErr = err as ApiError;
       setPrError(apiErr.message ?? "Failed to create pull request.");
       setPrState("error");
+    }
+  };
+
+  const handleVerifyRemediation = async () => {
+    if (verifyState === "loading" || !prResult) return;
+    setVerifyState("loading");
+    setVerifyError(null);
+    try {
+      const payload = prResult.remediation_run_id
+        ? { remediation_run_id: prResult.remediation_run_id }
+        : undefined;
+      const result = await verifyRemediation(scanId, payload);
+      setVerifyResult(result);
+      setVerifyState("done");
+    } catch (err) {
+      const apiErr = err as ApiError;
+      setVerifyError(apiErr.message ?? "Post-PR verification failed.");
+      setVerifyState("error");
     }
   };
 
@@ -747,8 +773,10 @@ export function PatchModal({
                     <p className="text-[11px] text-emerald-400/60 mt-0.5" data-testid="pr-lifecycle-state">
                       Lifecycle: {prResult.lifecycle_state}
                       {prResult.lifecycle_state === "pr_open"
-                        ? " — not verified fixed until post-PR verification"
-                        : ""}
+                        ? " — PR created is not a verified fix"
+                        : prResult.lifecycle_state === "verified"
+                          ? " — heuristic check only (not a full website re-scan)"
+                          : ""}
                     </p>
                   )}
                 </div>
@@ -761,6 +789,61 @@ export function PatchModal({
                   <ExternalLink size={12} aria-hidden="true" />
                   View on GitHub
                 </a>
+              </div>
+              <div className="flex flex-col gap-2 pt-1 border-t border-emerald-800/30">
+                {verifyState === "done" && verifyResult ? (
+                  <div data-testid="verify-result" className="text-xs space-y-1">
+                    <p className="font-semibold text-text-primary" data-testid="verify-outcome">
+                      {verifyResult.issue_outcome === "fixed"
+                        ? "Heuristic check: issue terms found"
+                        : verifyResult.issue_outcome === "unresolved"
+                          ? "Heuristic check: issue appears unresolved"
+                          : "Verification inconclusive"}
+                      {verifyResult.fully_verified
+                        ? " — fully verified"
+                        : " (not fully verified)"}
+                    </p>
+                    <p className="text-[10px] text-text-muted" data-testid="verify-method">
+                      method: {verifyResult.verification_method ?? "heuristic_post_pr"}
+                    </p>
+                    {verifyResult.detail && (
+                      <p className="text-text-muted leading-relaxed">{verifyResult.detail}</p>
+                    )}
+                    {verifyResult.evaluated_revision && (
+                      <p className="font-mono text-[10px] text-text-muted/80" data-testid="verify-revision">
+                        revision {verifyResult.evaluated_revision}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-[11px] text-text-muted leading-relaxed">
+                      Opening a PR does not prove the finding is fixed. Run a post-PR
+                      verification against the PR head revision.
+                    </p>
+                    <button
+                      type="button"
+                      data-testid="verify-remediation-btn"
+                      onClick={() => void handleVerifyRemediation()}
+                      disabled={verifyState === "loading"}
+                      className="inline-flex items-center justify-center gap-1.5 self-start rounded-lg border border-emerald-700/50 bg-emerald-950/40 px-3 py-1.5 text-xs font-semibold text-emerald-200 transition-colors hover:bg-emerald-900/50 disabled:opacity-60"
+                    >
+                      {verifyState === "loading" ? (
+                        <>
+                          <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+                          Verifying…
+                        </>
+                      ) : (
+                        "Run post-PR verification"
+                      )}
+                    </button>
+                    {verifyState === "error" && verifyError && (
+                      <p className="text-[11px] text-rose-400/90" data-testid="verify-error">
+                        {verifyError}
+                      </p>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           ) : (

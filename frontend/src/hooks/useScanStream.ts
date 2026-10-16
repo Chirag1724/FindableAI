@@ -45,10 +45,18 @@ export function useScanStream(
   const abortRef = useRef<AbortController | null>(null);
   const isMountedRef = useRef(true);
   const activeRef = useRef(active);
+  const lastSeqRef = useRef<number>(-1);
   activeRef.current = active;
 
   const pushEvent = useCallback((event: ScanStatusEvent) => {
     if (!isMountedRef.current) return;
+    // Ignore stale snapshots (lower seq) so refresh/poll cannot rewind progress.
+    if (typeof event.seq === "number" && event.seq >= 0) {
+      if (event.seq < lastSeqRef.current) {
+        return;
+      }
+      lastSeqRef.current = event.seq;
+    }
     setLatestEvent(event);
     if (event.status !== "failed") {
       setLastGoodStatus(event.status);
@@ -152,6 +160,7 @@ export function useScanStream(
     // Guard against StrictMode double-invocation: if a stream is already open for this id, skip
     if (esRef.current) return;
 
+    lastSeqRef.current = -1;
     setConnectionState("connecting");
 
     const es = new EventSource(`/api/v1/scans/${scanId}/stream`);

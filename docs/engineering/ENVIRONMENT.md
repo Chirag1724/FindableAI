@@ -50,7 +50,7 @@ Canonical reference derived from `backend/app/core/config.py`, root `.env.exampl
 
 1. **Port mismatch:** `Settings.DATABASE_URL` defaults to `localhost:5433` while Compose maps Postgres on `5432`. Always set `DATABASE_URL` explicitly for local work.
 2. **Redis:** present in Compose and config for future cache/queue use. Rate limiting is **in-process memory**, not Redis. Scans use FastAPI `BackgroundTasks`, not Celery.
-3. **Missing `GROQ_API_KEY`:** crawl/chunk may still succeed; intelligence completes as **inconclusive/failed** with zero real evaluations (no silent synthetic fill). Set `ALLOW_SYNTHETIC_DEMO=true` only for explicit non-production demos — never remediation-eligible. See [LIMITATIONS_AND_READINESS.md](LIMITATIONS_AND_READINESS.md).
+3. **Missing LLM credentials:** with `ALLOW_SYNTHETIC_DEMO=false`, `POST /api/v1/scans` fails closed (**503**) before queueing. Set at least one of `GROQ_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY`. Set `ALLOW_SYNTHETIC_DEMO=true` only for explicit non-production demos — never remediation-eligible. See [LIMITATIONS_AND_READINESS.md](LIMITATIONS_AND_READINESS.md) and [LOCAL_SMOKE.md](LOCAL_SMOKE.md).
 4. **Embeddings without `OPENAI_API_KEY`:** deterministic hash embeddings are used (`embeddings.py`).
 5. **Required vs optional:** only mark a variable required when the code path you need actually fails without it. Empty `API_KEY` is intentional for local demos.
 6. **`ALLOW_SYNTHETIC_DEMO`:** default `false`. Ignored / blocked in `ENVIRONMENT=production`.

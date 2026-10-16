@@ -2,7 +2,7 @@
 
 This guide walks through configuring, running, and testing FindableAI locally from a clean clone.
 
-**Also read:** [ENVIRONMENT.md](ENVIRONMENT.md) (canonical env vars) · [LIMITATIONS_AND_READINESS.md](LIMITATIONS_AND_READINESS.md) (what “working” means).
+**Also read:** [ENVIRONMENT.md](ENVIRONMENT.md) (canonical env vars) · [LIMITATIONS_AND_READINESS.md](LIMITATIONS_AND_READINESS.md) (what “working” means) · [LOCAL_SMOKE.md](LOCAL_SMOKE.md) (one real read-only scan).
 
 **Port pitfall:** `backend/app/core/config.py` defaults `DATABASE_URL` to port **5433**, while `.env.example` / Compose typically use **5432**. Set `DATABASE_URL` explicitly after copying `.env.example`.
 

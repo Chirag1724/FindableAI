@@ -181,16 +181,31 @@ export default function ScanDashboardPage() {
     const interval = setInterval(async () => {
       try {
         const fresh = await getScan(scanId);
-        if (TERMINAL_STATUSES.includes(fresh.status) || fresh.status !== initialScan?.status) {
-          setInitialScan(fresh);
-        }
+        setInitialScan((prev) => {
+          if (!prev) return fresh;
+          const prevSeq = prev.progress_seq ?? -1;
+          const nextSeq = fresh.progress_seq ?? -1;
+          // Never let a stale lower-seq snapshot rewind progress.
+          if (nextSeq >= 0 && prevSeq >= 0 && nextSeq < prevSeq) {
+            return prev;
+          }
+          if (
+            TERMINAL_STATUSES.includes(fresh.status) ||
+            fresh.status !== prev.status ||
+            nextSeq > prevSeq ||
+            (fresh.llm_calls_made ?? 0) > (prev.llm_calls_made ?? 0)
+          ) {
+            return fresh;
+          }
+          return prev;
+        });
       } catch {
         // Safe ignore transient poll error
       }
     }, 2500);
 
     return () => clearInterval(interval);
-  }, [scanId, isRunning, initialScan?.status]);
+  }, [scanId, isRunning]);
 
   // Check if data is fully ready to show completed dashboard
   const isFailed = currentStatus === "failed";
@@ -483,6 +498,58 @@ export default function ScanDashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* Durable observability strip (estimated cost; never claim invoice accuracy) */}
+        {(displayScan.llm_calls_made != null ||
+          displayScan.progress_current != null ||
+          displayScan.llm_usd_estimated != null ||
+          displayScan.batches_total != null) && (
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-mono text-text-muted border-b border-white/[0.06] pb-3 -mt-2">
+            {displayScan.progress_current != null && (
+              <span>
+                units {displayScan.progress_current}
+                {displayScan.progress_total != null ? `/${displayScan.progress_total}` : ""}
+              </span>
+            )}
+            {displayScan.batches_total != null && (
+              <span>
+                batches {displayScan.batches_completed ?? 0}/{displayScan.batches_total}
+                {displayScan.batches_failed
+                  ? ` (${displayScan.batches_failed} failed)`
+                  : ""}
+              </span>
+            )}
+            {displayScan.llm_calls_made != null && (
+              <span>LLM attempts {displayScan.llm_calls_made}</span>
+            )}
+            {(displayScan.provider_successes != null ||
+              displayScan.provider_failures != null) && (
+              <span>
+                provider ok/fail {displayScan.provider_successes ?? 0}/
+                {displayScan.provider_failures ?? 0}
+              </span>
+            )}
+            {displayScan.llm_usd_estimated != null && (
+              <span title="Estimated from LLM_ESTIMATED_USD_PER_CALL — not a provider invoice">
+                est. USD {Number(displayScan.llm_usd_estimated).toFixed(4)}
+                {displayScan.cost_basis ? ` (${displayScan.cost_basis})` : " (estimated)"}
+              </span>
+            )}
+            {displayScan.job_status && (
+              <span>
+                job {displayScan.job_status}
+                {displayScan.job_attempt_count != null
+                  ? ` · attempt ${displayScan.job_attempt_count}/${displayScan.job_max_attempts ?? "?"}`
+                  : ""}
+              </span>
+            )}
+            {displayScan.primary_llm_model && (
+              <span className="truncate max-w-[220px]" title={displayScan.primary_llm_model}>
+                model {displayScan.primary_llm_model}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Failed state */}
         {isFailed && (

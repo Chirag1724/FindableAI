@@ -643,12 +643,36 @@ class EntailmentEngine:
         # Step 2: Split into batches (default 3 items per batch)
         batch_size = self._batch_size
         chunks = [paired[i : i + batch_size] for i in range(0, len(paired), batch_size)]
+        obs = getattr(getattr(self._llm, "budget_guard", None), "observability", None)
+        if obs is not None:
+            try:
+                await obs.init_batches(len(chunks))
+            except Exception:
+                pass
 
         async def _process_batch(
             chunk: Sequence[tuple[IntentQuery, Sequence[RetrievedEvidence]]],
         ) -> list[IntentEvaluation]:
             nonlocal completed_count
-            evaluations = await self.evaluate_intent_batch(batch=chunk, scan_id=scan_id)
+            if obs is not None:
+                try:
+                    await obs.batch_started()
+                except Exception:
+                    pass
+            try:
+                evaluations = await self.evaluate_intent_batch(batch=chunk, scan_id=scan_id)
+            except Exception:
+                if obs is not None:
+                    try:
+                        await obs.batch_failed()
+                    except Exception:
+                        pass
+                raise
+            if obs is not None:
+                try:
+                    await obs.batch_completed()
+                except Exception:
+                    pass
             if progress_callback is not None:
                 for item in evaluations:
                     async with progress_lock:

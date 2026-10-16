@@ -13,8 +13,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
+from typing import TYPE_CHECKING
 
 from app.core.config import settings
+
+if TYPE_CHECKING:
+    from app.core.observability import ScanObservability
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +112,10 @@ class BudgetGuard:
         usd_per_call: float | None = None,
         enforce_usd: bool | None = None,
         on_reserve: ReserveHook | None = None,
+        observability: ScanObservability | None = None,
     ) -> None:
+        from app.core.observability import ScanObservability as _ScanObservability
+
         resolved = settings.MAX_LLM_CALLS_PER_SCAN if limit is None else limit
         if not isinstance(resolved, int) or isinstance(resolved, bool):
             raise ValueError("BudgetGuard limit must be an int >= 0")
@@ -131,6 +138,7 @@ class BudgetGuard:
             bool(settings.LLM_ENFORCE_USD_BUDGET) if enforce_usd is None else bool(enforce_usd)
         )
         self._on_reserve = on_reserve
+        self.observability = observability or _ScanObservability()
         self._lock = asyncio.Lock()
 
     def restore_used(self, used: int) -> None:
@@ -171,9 +179,9 @@ class BudgetGuard:
     def enforce_usd(self) -> bool:
         return self._enforce_usd
 
-    def snapshot(self) -> Mapping[str, int | float | bool]:
+    def snapshot(self) -> Mapping[str, int | float | bool | str | None]:
         """Safe observability snapshot (no secrets)."""
-        return {
+        base: dict[str, int | float | bool | str | None] = {
             "limit": self._limit,
             "used": self._used,
             "remaining": self.remaining,
@@ -181,7 +189,10 @@ class BudgetGuard:
             "usd_cap": self._usd_cap,
             "usd_per_call": self._usd_per_call,
             "enforce_usd": self._enforce_usd,
+            "cost_basis": "estimated",
         }
+        base.update(self.observability.snapshot())
+        return base
 
     def __repr__(self) -> str:
         return (

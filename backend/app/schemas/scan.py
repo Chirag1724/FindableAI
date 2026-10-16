@@ -146,7 +146,58 @@ class ScanResponse(BaseModel):
     )
     llm_calls_made: int | None = Field(
         default=0,
-        description="Total LLM provider calls consumed via BudgetGuard",
+        description="Total LLM provider call reservations via BudgetGuard (attempts)",
+    )
+    llm_usd_estimated: float | None = Field(
+        default=None,
+        description=(
+            "Estimated USD spend from BudgetGuard (LLM_ESTIMATED_USD_PER_CALL). "
+            "Not a provider invoice; never treat as exact cost."
+        ),
+    )
+    llm_usd_provider_reported: float | None = Field(
+        default=None,
+        description="Provider-reported USD when available; null if not returned by provider",
+    )
+    cost_basis: str | None = Field(
+        default=None,
+        description="estimated | provider_reported | unknown — how cost figures should be read",
+    )
+    provider_successes: int | None = Field(
+        default=None, description="Completed provider invocations that returned a valid response"
+    )
+    provider_failures: int | None = Field(
+        default=None, description="Completed provider invocations that failed after reservation"
+    )
+    primary_llm_model: str | None = Field(
+        default=None, description="Primary model spec used for this scan (no secrets)"
+    )
+    fallback_provider_used: bool | None = Field(
+        default=None, description="True when a failover provider was used for at least one call"
+    )
+    batches_total: int | None = Field(
+        default=None, description="Known NLI batch total; null until established"
+    )
+    batches_completed: int | None = Field(
+        default=None, description="Unique NLI batches completed successfully"
+    )
+    batches_failed: int | None = Field(
+        default=None, description="NLI batches that failed (may later retry)"
+    )
+    llm_tokens_in: int | None = Field(
+        default=None, description="Cumulative prompt tokens when provider reports usage"
+    )
+    llm_tokens_out: int | None = Field(
+        default=None, description="Cumulative completion tokens when provider reports usage"
+    )
+    job_status: str | None = Field(
+        default=None, description="Durable scan_jobs.status when durable jobs are enabled"
+    )
+    job_attempt_count: int | None = Field(
+        default=None, description="Durable job attempt_count"
+    )
+    job_max_attempts: int | None = Field(
+        default=None, description="Durable job max_attempts"
     )
     repo_url: str | None = Field(
         default=None,
@@ -170,3 +221,45 @@ class ScanResponse(BaseModel):
     progress_seq: int | None = Field(
         default=None, description="Last durable progress event sequence number"
     )
+
+
+class ScanJobStatusResponse(BaseModel):
+    """Authorized durable job status for a scan (no secrets / raw provider errors)."""
+
+    scan_id: str
+    job_id: str | None = None
+    job_status: str | None = None
+    job_type: str | None = None
+    attempt_count: int | None = None
+    max_attempts: int | None = None
+    fencing_token: int | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    last_heartbeat_at: datetime | None = None
+    error_code: str | None = None
+    error_detail: str | None = Field(
+        default=None, description="Sanitized public error detail (never raw provider payloads)"
+    )
+    failure_category: str | None = None
+    llm_calls_checkpoint: int | None = None
+    llm_usd_checkpoint: float | None = Field(
+        default=None,
+        description="Estimated USD checkpoint (not a provider invoice)",
+    )
+    cost_basis: str = "estimated"
+    progress_percent: int | None = None
+    progress_stage: str | None = None
+    progress_message: str | None = None
+    progress_current: int | None = None
+    progress_total: int | None = None
+    progress_seq: int | None = None
+    batches_total: int | None = None
+    batches_completed: int | None = None
+    batches_failed: int | None = None
+    provider_successes: int | None = None
+    provider_failures: int | None = None
+    primary_llm_model: str | None = None
+    fallback_provider_used: bool | None = None
+    llm_tokens_in: int | None = None
+    llm_tokens_out: int | None = None
+    correlation_id: str | None = None

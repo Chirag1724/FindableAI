@@ -443,6 +443,6 @@ async def test_pg_migration_0007_removes_legacy_cross_scan_evidence(pg_url: str)
             assert trigger == 1
 
             rev = await conn.scalar(text("SELECT version_num FROM alembic_version"))
-            assert rev == "0007_evidence_same_scan"
+            assert rev == "0009_scan_observability"
     finally:
         await engine.dispose()

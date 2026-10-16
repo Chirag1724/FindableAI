@@ -88,6 +88,16 @@ class Scan(Base):
     )
     data_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
     llm_calls_made: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    llm_usd_estimated: Mapped[float | None] = mapped_column(Float, nullable=True)
+    provider_successes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    provider_failures: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    primary_llm_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    fallback_provider_used: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    batches_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    batches_completed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    batches_failed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    llm_tokens_in: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    llm_tokens_out: Mapped[int | None] = mapped_column(Integer, nullable=True)
     dag_evaluations_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     synthetic_intents_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pages_crawled: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -388,6 +398,8 @@ class RemediationRun(Base):
         JSON().with_variant(JSONB, "postgresql"), nullable=True
     )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Optimistic concurrency token for CAS lifecycle transitions (migration 0008).
+    state_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -478,6 +478,18 @@ class LLMClient:
         """Reserve one provider-attempt unit via the shared BudgetGuard."""
         return await self._budget.reserve()
 
+    async def _record_provider_success(self) -> None:
+        try:
+            await self._budget.observability.record_provider_success()
+        except Exception:
+            logger.debug("provider_success_counter_failed", exc_info=True)
+
+    async def _record_provider_failure(self) -> None:
+        try:
+            await self._budget.observability.record_provider_failure()
+        except Exception:
+            logger.debug("provider_failure_counter_failed", exc_info=True)
+
     async def create(
         self,
         response_model: type[T],
@@ -500,6 +512,7 @@ class LLMClient:
             raise ValueError("max_retries must be >= 0")
 
         selected_model = model or self._model
+        await self._budget.observability.set_primary_model(selected_model)
         # Cap provider attempts; ignore caller max_retries inflation beyond config.
         configured_cap = max(1, int(settings.LLM_PROVIDER_MAX_ATTEMPTS))
         attempts = min(max_retries + 1, configured_cap)
@@ -539,6 +552,7 @@ class LLMClient:
                 except LLMBudgetExceededError:
                     raise
                 except Exception as exc:
+                    await self._record_provider_failure()
                     sanitized = _sanitize_text(str(exc), self._secrets())
                     logger.error(
                         "LLM structured call failed call=%s/%s attempt=%s/%s model=%s error=%s",
@@ -559,9 +573,11 @@ class LLMClient:
                     continue
 
                 if not isinstance(result, response_model):
+                    await self._record_provider_failure()
                     raise TypeError(
                         f"Expected {response_model.__name__}, got {type(result).__name__}"
                     )
+                await self._record_provider_success()
                 return result
 
         endpoints = self._get_provider_chain(selected_model)
@@ -619,6 +635,7 @@ class LLMClient:
                 except LLMBudgetExceededError:
                     raise
                 except Exception as exc:
+                    await self._record_provider_failure()
                     sanitized = _sanitize_text(str(exc), self._secrets())
                     logger.error(
                         "LLM call failed call=%s/%s provider=%s model=%s error=%s",
@@ -636,6 +653,7 @@ class LLMClient:
                     if _is_permanent_provider_error(sanitized):
                         if has_fallback:
                             self._tripped_providers.add(endpoint.name)
+                            await self._budget.observability.mark_fallback_used()
                             logger.warning(
                                 "Provider '%s' permanent error (%s); failing over",
                                 endpoint.name,
@@ -788,10 +806,14 @@ class LLMClient:
                     continue
 
                 if not isinstance(result, response_model):
+                    await self._record_provider_failure()
                     raise TypeError(
                         f"Expected {response_model.__name__}, got {type(result).__name__}"
                     )
 
+                if ep_idx > 0:
+                    await self._budget.observability.mark_fallback_used()
+                await self._record_provider_success()
                 logger.info(
                     "LLM structured call ok call=%s/%s provider=%s model=%s response_model=%s",
                     call_number,

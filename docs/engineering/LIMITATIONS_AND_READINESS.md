@@ -32,7 +32,9 @@ Do **not** describe the product as production-ready solely because Dockerfiles, 
 | **F-Score consistency** | Implemented | `F = 0.40*S_ans + 0.30*S_con + 0.20*S_str + 0.10*S_acc` (components already 0–100; **no** outer ×100) | `ScoreWeights` still labeled provisional in schema. Authoritative score only when `score_source=deterministic_scorer` on real evaluations. |
 | **Remediation authorization** | Fail-closed | Apply requires `remediation_eligible is True`; rejects `None`/`False`; rejects `is_synthetic` patches **before** GitHub mutation | Live GitHub PR success **unverified** without `GITHUB_TOKEN`. |
 | **GitHub PR creation** | Credential-gated + lifecycle | Real PyGithub path; `remediation_runs` + idempotency (`0004`); deterministic validation before mutation | Live GitHub **unverified** without `GITHUB_TOKEN`. Opening a PR ≠ verified fix. |
-| **Post-PR verification** | Implemented (Stage 6) | `POST .../remediation/verify` fetches PR head, fresh evidence excerpt, outcomes `fixed`/`unresolved`/`inconclusive` separate from ops errors | Live verify **unverified** without token + PR. |
+| **Post-PR verification** | Implemented (heuristic) | `POST .../remediation/verify` binds an immutable `head_sha`, keyword/content heuristic; `fully_verified` always false for `heuristic_post_pr` | Full website re-scan **not implemented**. Live verify **unverified** without token + PR. |
+| **Remediation lifecycle concurrency** | Implemented (CAS) | `remediation_runs.state_revision` + transition graph; idempotency key scoped to scan\|repo\|branch | Multi-worker load under production traffic **not load-tested**. |
+| **Remediation LLM budget** | Scan BudgetGuard + remediation helpers | Apply/verify are non-LLM; optional remediation LLM must `reserve()` first; exhaustion blocks mutation when LLM required | No separate USD ledger for GitHub API calls (rate limit only). |
 | **Hard-failure handling** | Implemented | `_finalize_hard_failure` sets failed/partial integrity, `remediation_eligible=False`, sanitized public/SSE errors, best-effort DB persist | If DB is down during failure, durability is best-effort (logged); in-memory/API state still fail-closed. |
 | **Deployment & ops** | Partial (Phase 3 queue in code) | `scan_jobs` + `python -m app.worker`; Compose `worker` service; `/ready` | Live multi-worker deploy **unverified**. Redis still unused as broker. `SCAN_JOB_INLINE_FALLBACK` must be false in production. PG SKIP LOCKED tests require `FINDABLE_PG_INTEGRATION=1`. |
 
@@ -92,9 +94,14 @@ SSE label `HYBRID_RETRIEVAL` is a progress milestone name, not proof that hybrid
 | Step | Status |
 | :--- | :--- |
 | Generate proposed remediation | Implemented (assembler) |
-| Backend eligibility gate | Fail-closed (`remediation_eligible is True`) |
-| Create branch / commit / open PR | When token + permissions allow |
-| Re-scan / verify defect fixed | **Missing** |
+| Backend eligibility gate | Fail-closed (`remediation_eligible is True` + Stage 2 evidence refine) |
+| Deterministic patch validation | Path/boundary/secrets/evidence checks before GitHub writes |
+| Durable lifecycle FSM | `remediation_runs.lifecycle_state` with enforced transitions |
+| Create branch / commit / open PR | When token + permissions allow; idempotent + timeout reconcile |
+| Post-PR verification | Implemented (`POST …/remediation/verify`); heuristic on PR head only |
+| Full website re-scan verification | **Not implemented** — `fully_verified` stays false for heuristic checks |
+
+**Honesty:** Opening a PR (`lifecycle_state=pr_open`) is **not** a verified fix. Heuristic keyword/content checks may yield `issue_outcome=fixed` with `fully_verified=false`. Projected F-Score improvements are never treated as verification.
 
 ---
 

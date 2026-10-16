@@ -137,6 +137,22 @@ export interface ScanResponse {
   remediation_eligible?: boolean;
   intelligence_warnings?: string[];
   llm_calls_made?: number;
+  /** Estimated USD from BudgetGuard — not a provider invoice */
+  llm_usd_estimated?: number | null;
+  llm_usd_provider_reported?: number | null;
+  cost_basis?: "estimated" | "provider_reported" | "unknown" | string | null;
+  provider_successes?: number | null;
+  provider_failures?: number | null;
+  primary_llm_model?: string | null;
+  fallback_provider_used?: boolean | null;
+  batches_total?: number | null;
+  batches_completed?: number | null;
+  batches_failed?: number | null;
+  llm_tokens_in?: number | null;
+  llm_tokens_out?: number | null;
+  job_status?: string | null;
+  job_attempt_count?: number | null;
+  job_max_attempts?: number | null;
   repo_url?: string;
   github_repo_url?: string;
   /** Durable progress snapshot from PostgreSQL (authoritative across API/worker) */
@@ -249,6 +265,11 @@ export interface VerificationRun {
   detail?: string | null;
   fresh_evidence?: unknown[];
   created_at?: string | null;
+  /** Always heuristic_post_pr today — never a full website re-scan. */
+  verification_method?: string | null;
+  /** True only for a complete fresh re-scan; heuristic checks leave this false. */
+  fully_verified?: boolean | null;
+  is_full_rescan?: boolean | null;
 }
 
 export interface ApiError {

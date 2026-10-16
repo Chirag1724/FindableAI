@@ -14,8 +14,6 @@ Create Date: 2026-10-15 00:00:00.000000
 
 from collections.abc import Sequence
 
-import sqlalchemy as sa
-
 from alembic import op
 
 revision: str = "0007_evidence_same_scan"
@@ -25,7 +23,10 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column("intents", sa.Column("persona", sa.String(length=50), nullable=True))
+    # Idempotent: local DBs may already have persona from ORM create_all / partial apply.
+    op.execute(
+        "ALTER TABLE intents ADD COLUMN IF NOT EXISTS persona VARCHAR(50)"
+    )
     # Auditable repair: drop only evidence whose intent and chunk disagree on scan.
     # Valid same-scan evidence and all intent/finding rows are preserved.
     op.execute(

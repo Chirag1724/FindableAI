@@ -1,7 +1,8 @@
-"""Deterministic pre-mutation patch validation (Stage 4).
+"""Deterministic pre-mutation patch validation (Stage 4 / Stage 3B).
 
 Never executes model-generated shell. A skipped check is not a passed check.
 Safety-critical failures block validated PR creation.
+Projected score improvements are never consulted here.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import PurePosixPath
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -18,9 +20,58 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger(__name__)
 
 _PATH_TRAVERSAL = re.compile(r"(^|/)\.\.(/|$)")
-_ALLOWED_SUFFIXES = (".html", ".htm", ".json", ".jsonld")
+# Aligned with GitHub PR engine allowlist (html + framework + text manifests).
+_ALLOWED_SUFFIXES = (
+    ".html",
+    ".htm",
+    ".json",
+    ".jsonld",
+    ".txt",
+    ".tsx",
+    ".jsx",
+    ".ts",
+    ".js",
+)
+_FORBIDDEN_PATH_PREFIXES = (
+    ".github/workflows/",
+    ".github/actions/",
+    ".git/",
+)
+_FORBIDDEN_BASENAMES = frozenset(
+    {
+        ".env",
+        ".env.local",
+        ".env.production",
+        "credentials.json",
+        "service-account.json",
+        "id_rsa",
+        "id_ed25519",
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "poetry.lock",
+        "cargo.lock",
+        "gemfile.lock",
+    }
+)
+_CONTROL_OR_NUL = re.compile(r"[\x00-\x1f\x7f]")
+_SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("private_key_block", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")),
+    ("aws_access_key", re.compile(r"AKIA[0-9A-Z]{16}")),
+    (
+        "github_token",
+        re.compile(r"(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{20,}"),
+    ),
+    (
+        "generic_api_key_assignment",
+        re.compile(
+            r"(?i)(?:api[_-]?key|secret[_-]?key|access[_-]?token)\s*[:=]\s*['\"][^'\"]{16,}['\"]"
+        ),
+    ),
+)
 _MAX_PATCH_CHARS = 200_000
 _MAX_FILE_CHARS = 2_000_000
+_BINARY_NUL = re.compile(r"\x00")
 
 
 class CheckStatus(StrEnum):
@@ -72,11 +123,51 @@ def _check(
     return ValidationCheck(name=name, status=status, detail=detail, safety_critical=safety_critical)
 
 
+def _normalize_repo_relative(path: str) -> str | None:
+    """Return a normalized repo-relative POSIX path, or None if unsafe.
+
+    Platform-independent: does not consult the local filesystem. Rejects UNC,
+    drive letters, absolute POSIX, control characters, and traversal.
+    """
+    if not path or not str(path).strip():
+        return None
+    raw = str(path).strip().replace("\\", "/")
+    if _CONTROL_OR_NUL.search(raw):
+        return None
+    if raw.startswith("//") or raw.startswith("\\\\"):
+        return None
+    if raw.startswith("/") or raw.startswith("~") or "://" in raw:
+        return None
+    if re.match(r"^[a-zA-Z]:", raw):
+        return None
+    if _PATH_TRAVERSAL.search(raw) or ".." in raw.split("/"):
+        return None
+    # PurePosixPath resolves ``.`` segments without touching the filesystem.
+    resolved = PurePosixPath(raw)
+    if resolved.is_absolute() or ".." in resolved.parts:
+        return None
+    normalized = resolved.as_posix().lstrip("./")
+    if not normalized or normalized.startswith("../"):
+        return None
+    return normalized
+
+
 def validate_repo_path(path: str) -> ValidationCheck:
     if not path or not str(path).strip():
         return _check("path_present", CheckStatus.FAILED, "empty path", safety_critical=True)
     raw = str(path).strip().replace("\\", "/")
-    if raw.startswith("/") or raw.startswith("~") or "://" in raw:
+    if _CONTROL_OR_NUL.search(raw):
+        return _check(
+            "path_safe",
+            CheckStatus.FAILED,
+            "control/NUL characters rejected",
+            safety_critical=True,
+        )
+    if raw.startswith("//") or raw.startswith("\\\\"):
+        return _check(
+            "path_safe", CheckStatus.FAILED, "UNC path rejected", safety_critical=True
+        )
+    if raw.startswith("/") or raw.startswith("~") or "://" in raw or re.match(r"^[a-zA-Z]:", raw):
         return _check(
             "path_safe", CheckStatus.FAILED, "absolute/URL path rejected", safety_critical=True
         )
@@ -84,7 +175,25 @@ def validate_repo_path(path: str) -> ValidationCheck:
         return _check(
             "path_traversal", CheckStatus.FAILED, "path traversal rejected", safety_critical=True
         )
-    lower = raw.lower()
+    normalized = _normalize_repo_relative(raw)
+    if normalized is None:
+        return _check(
+            "path_safe",
+            CheckStatus.FAILED,
+            "path failed repository-boundary normalization",
+            safety_critical=True,
+        )
+    lower = normalized.lower()
+    basename = PurePosixPath(normalized).name.lower()
+    if basename in _FORBIDDEN_BASENAMES or any(
+        lower.startswith(prefix) for prefix in _FORBIDDEN_PATH_PREFIXES
+    ):
+        return _check(
+            "path_policy",
+            CheckStatus.FAILED,
+            f"forbidden path rejected: {normalized}",
+            safety_critical=True,
+        )
     if not lower.endswith(_ALLOWED_SUFFIXES):
         return _check(
             "path_suffix",
@@ -92,7 +201,33 @@ def validate_repo_path(path: str) -> ValidationCheck:
             f"unsupported suffix (allowed: {_ALLOWED_SUFFIXES})",
             safety_critical=True,
         )
-    return _check("path_safe", CheckStatus.PASSED, raw)
+    return _check("path_safe", CheckStatus.PASSED, normalized)
+
+
+def validate_no_secrets(patch_text: str) -> ValidationCheck:
+    """Reject patches that appear to insert credentials or private key material."""
+    text = patch_text or ""
+    if _BINARY_NUL.search(text):
+        return _check(
+            "no_binary",
+            CheckStatus.FAILED,
+            "NUL byte / binary content rejected",
+            safety_critical=True,
+        )
+    # Prefer added lines so we do not block quotes of existing redacted material in context.
+    added = "\n".join(
+        line[1:] for line in text.splitlines() if line.startswith("+") and not line.startswith("+++")
+    )
+    haystack = added if added.strip() else text
+    for label, pattern in _SECRET_PATTERNS:
+        if pattern.search(haystack):
+            return _check(
+                "no_secrets",
+                CheckStatus.FAILED,
+                f"potential secret material detected ({label})",
+                safety_critical=True,
+            )
+    return _check("no_secrets", CheckStatus.PASSED)
 
 
 def validate_patch_size(patch_text: str) -> ValidationCheck:
@@ -273,6 +408,7 @@ def validate_patch_candidate(
     result.checks.append(validate_not_synthetic(is_synthetic))
     result.checks.append(validate_repo_path(file_path))
     result.checks.append(validate_patch_size(patch_text))
+    result.checks.append(validate_no_secrets(patch_text))
     if require_evidence:
         result.checks.append(
             validate_evidence_grounding(

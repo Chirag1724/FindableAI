@@ -32,10 +32,20 @@ class RemediationRunOut(BaseModel):
     head_sha: str | None = None
     pr_number: int | None = None
     pr_url: str | None = None
-    lifecycle_state: str
+    lifecycle_state: str = Field(
+        description=(
+            "Durable remediation FSM state. "
+            "'verified' means a heuristic post-PR check reported fixed — "
+            "not a full website re-scan. Always consult verification_runs.fully_verified."
+        ),
+    )
     changed_files: list[Any] = Field(default_factory=list)
     validation_results: list[Any] = Field(default_factory=list)
     error: str | None = None
+    state_revision: int | None = Field(
+        default=None,
+        description="Optimistic concurrency token for CAS lifecycle transitions",
+    )
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
