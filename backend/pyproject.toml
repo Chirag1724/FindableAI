@@ -28,3 +28,11 @@ warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
 exclude = ["venv", "\\.venv"]
+
+# pytest-asyncio 0.24+/1.x defaults to strict mode: async fixtures must use
+# ``@pytest_asyncio.fixture`` (not bare ``@pytest.fixture``). Keep that mode
+# explicit so unit and PG integration tests share one supported configuration.
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+asyncio_default_test_loop_scope = "function"

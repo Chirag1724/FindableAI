@@ -19,6 +19,11 @@ import { getScan } from "@/lib/api";
 import { useScanStream } from "@/hooks/useScanStream";
 import { useScanData } from "@/hooks/useScanData";
 import { scanStatusMeta, formatRelativeTime } from "@/lib/format";
+import {
+  deriveUiScanStatus,
+  durationFromTimestamps,
+  mergeScanProgress,
+} from "@/lib/pipelineStatus";
 import dynamic from "next/dynamic";
 import { ScanProgress } from "@/components/ScanProgress";
 import { SummaryStats } from "@/components/SummaryStats";
@@ -29,6 +34,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { gsap, EASING, prefersReducedMotion } from "@/lib/motion";
 import { LiveScanConsole } from "@/components/LiveScanConsole";
 import { LighthouseTab } from "@/components/LighthouseTab";
+import type { AuditSummary } from "@/types/scan";
 
 const ScoreGauge = dynamic(
   () => import("@/components/ScoreGauge").then((mod) => mod.ScoreGauge),
@@ -124,15 +130,33 @@ export default function ScanDashboardPage() {
   // Effective displayed scan: prefer rich data from useScanData if available
   const displayScan: ScanResponse | null = scan.data ?? initialScan;
 
-  // Effective status: if scan reaches a terminal status (e.g. completed), prioritize it over in-flight stream events
-  const currentStatus: ScanStatus =
+  // Merge SSE + polled snapshot early so status/bar stay in sync when either lags.
+  const mergedLiveEvent = mergeScanProgress(displayScan, latestEvent);
+
+  // Effective status: prefer terminal scan status; otherwise use merged live
+  // progress (stage-aware) so durable SSE still advances stepper/cards.
+  const rawStatus: ScanStatus =
     (initialScan && TERMINAL_STATUSES.includes(initialScan.status))
       ? initialScan.status
       : (displayScan && TERMINAL_STATUSES.includes(displayScan.status))
       ? displayScan.status
-      : (isRunning && latestEvent?.status)
-      ? latestEvent.status
-      : (displayScan?.status ?? "pending");
+      : (mergedLiveEvent?.status ?? displayScan?.status ?? "pending");
+
+  const currentStatus: ScanStatus = TERMINAL_STATUSES.includes(rawStatus)
+    ? rawStatus
+    : deriveUiScanStatus({
+        status: rawStatus,
+        progressStage:
+          mergedLiveEvent?.current_step ?? displayScan?.progress_stage ?? null,
+        progressMessage:
+          mergedLiveEvent?.message ?? displayScan?.progress_message ?? null,
+        progressPercent:
+          mergedLiveEvent?.progress_percent ??
+          displayScan?.progress_percent ??
+          null,
+        jobStatus: displayScan?.job_status ?? null,
+        currentStep: mergedLiveEvent?.current_step ?? null,
+      });
 
   // Title update
   useEffect(() => {
@@ -181,16 +205,36 @@ export default function ScanDashboardPage() {
     const interval = setInterval(async () => {
       try {
         const fresh = await getScan(scanId);
-        if (TERMINAL_STATUSES.includes(fresh.status) || fresh.status !== initialScan?.status) {
-          setInitialScan(fresh);
-        }
+        setInitialScan((prev) => {
+          if (!prev) return fresh;
+          const prevSeq = prev.progress_seq ?? -1;
+          const nextSeq = fresh.progress_seq ?? -1;
+          // Never let a stale lower-seq snapshot rewind progress.
+          if (nextSeq >= 0 && prevSeq >= 0 && nextSeq < prevSeq) {
+            return prev;
+          }
+          if (
+            TERMINAL_STATUSES.includes(fresh.status) ||
+            fresh.status !== prev.status ||
+            nextSeq > prevSeq ||
+            (fresh.llm_calls_made ?? 0) > (prev.llm_calls_made ?? 0) ||
+            (fresh.progress_percent ?? 0) !== (prev.progress_percent ?? 0) ||
+            fresh.progress_message !== prev.progress_message ||
+            fresh.progress_stage !== prev.progress_stage ||
+            fresh.job_status !== prev.job_status ||
+            (fresh.batches_completed ?? 0) !== (prev.batches_completed ?? 0)
+          ) {
+            return fresh;
+          }
+          return prev;
+        });
       } catch {
         // Safe ignore transient poll error
       }
     }, 2500);
 
     return () => clearInterval(interval);
-  }, [scanId, isRunning, initialScan?.status]);
+  }, [scanId, isRunning]);
 
   // Check if data is fully ready to show completed dashboard
   const isFailed = currentStatus === "failed";
@@ -241,6 +285,11 @@ export default function ScanDashboardPage() {
     resultSource === "synthetic_fallback";
   // Eligible + zero real patches: informational CTA copy (button stays disabled).
   const showNoFixesRequired = remediationEligible && !patches.loading && patchCount === 0;
+  const queuedNoWorker =
+    displayScan?.job_status === "queued" &&
+    displayScan?.worker_heartbeat_recent === false &&
+    !TERMINAL_STATUSES.includes(currentStatus);
+  const isPartialOutcome = scanOutcome === "partial" || resultSource === "partial_real";
 
   // Not found state
   if (notFound) {
@@ -335,6 +384,7 @@ export default function ScanDashboardPage() {
             latestEvent={null}
             events={[]}
             targetUrl="Initializing audit session..."
+            startedAt={null}
           />
         </main>
       </div>
@@ -349,9 +399,9 @@ export default function ScanDashboardPage() {
           progress_percent: 98,
           current_step: "Synthesizing",
           message: "Assembling audit findings, intent evaluations, and patch remediations...",
-          timestamp: latestEvent?.timestamp ?? new Date().toISOString(),
+          timestamp: mergedLiveEvent?.timestamp ?? new Date().toISOString(),
         }
-      : latestEvent;
+      : mergedLiveEvent;
 
   return (
     <div className="min-h-screen bg-background pb-24 relative overflow-x-hidden">
@@ -411,6 +461,30 @@ export default function ScanDashboardPage() {
       </header>
 
       <main className="relative z-10 mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6 sm:space-y-8">
+        {queuedNoWorker && (
+          <div
+            className="rounded-lg border border-amber-500/30 bg-amber-950/40 px-4 py-3 text-sm text-amber-100"
+            role="status"
+            data-testid="queued-no-worker"
+          >
+            Scan is queued but no worker heartbeat was detected. Start the worker
+            with <code className="font-mono text-xs">python -m app.worker</code> or{" "}
+            <code className="font-mono text-xs">python scripts/run_local.py</code>.
+          </div>
+        )}
+        {isPartialOutcome && TERMINAL_STATUSES.includes(currentStatus) && (
+          <div
+            className="rounded-lg border border-amber-500/30 bg-amber-950/40 px-4 py-3 text-sm text-amber-100"
+            role="status"
+            data-testid="partial-outcome"
+          >
+            Partial results: some intent batches did not complete
+            {displayScan?.failed_intent_ids?.length
+              ? ` (${displayScan.failed_intent_ids.length} unresolved)`
+              : ""}
+            . Score and remediation reflect only persisted evaluations.
+          </div>
+        )}
         {/* Page Breadcrumb & Scan Target Meta Banner */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
           {/* Left: Breadcrumbs + Target URL */}
@@ -484,6 +558,75 @@ export default function ScanDashboardPage() {
           </div>
         </div>
 
+        {/* Durable observability strip — prefer live SSE units when ahead of poll */}
+        {(() => {
+          const liveUnits =
+            latestEvent?.progress_current ?? displayScan.progress_current ?? null;
+          const liveTotal =
+            latestEvent?.progress_total ?? displayScan.progress_total ?? null;
+          const showStrip =
+            displayScan.llm_calls_made != null ||
+            liveUnits != null ||
+            displayScan.llm_usd_estimated != null ||
+            displayScan.batches_total != null ||
+            (displayScan.failed_intent_ids && displayScan.failed_intent_ids.length > 0) ||
+            displayScan.job_status != null;
+          if (!showStrip) return null;
+          return (
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-mono text-text-muted border-b border-white/[0.06] pb-3 -mt-2">
+            {liveUnits != null && (
+              <span>
+                units {liveUnits}
+                {liveTotal != null ? `/${liveTotal}` : ""}
+              </span>
+            )}
+            {displayScan.batches_total != null && (
+              <span>
+                batches {displayScan.batches_completed ?? 0}/{displayScan.batches_total}
+                {displayScan.batches_failed
+                  ? ` (${displayScan.batches_failed} failed)`
+                  : ""}
+              </span>
+            )}
+            {displayScan.llm_calls_made != null && (
+              <span>LLM attempts {displayScan.llm_calls_made}</span>
+            )}
+            {displayScan.failed_intent_ids && displayScan.failed_intent_ids.length > 0 && (
+              <span className="text-amber-400" title={displayScan.failed_intent_ids.join(", ")}>
+                partial: {displayScan.failed_intent_ids.length} intents unresolved
+                {displayScan.failure_reason ? ` (${displayScan.failure_reason})` : ""}
+              </span>
+            )}
+            {(displayScan.provider_successes != null ||
+              displayScan.provider_failures != null) && (
+              <span>
+                provider ok/fail {displayScan.provider_successes ?? 0}/
+                {displayScan.provider_failures ?? 0}
+              </span>
+            )}
+            {displayScan.llm_usd_estimated != null && (
+              <span title="Estimated from LLM_ESTIMATED_USD_PER_CALL — not a provider invoice">
+                est. USD {Number(displayScan.llm_usd_estimated).toFixed(4)}
+                {displayScan.cost_basis ? ` (${displayScan.cost_basis})` : " (estimated)"}
+              </span>
+            )}
+            {displayScan.job_status && (
+              <span>
+                job {displayScan.job_status}
+                {displayScan.job_attempt_count != null
+                  ? ` · attempt ${displayScan.job_attempt_count}/${displayScan.job_max_attempts ?? "?"}`
+                  : ""}
+              </span>
+            )}
+            {displayScan.primary_llm_model && (
+              <span className="truncate max-w-[220px]" title={displayScan.primary_llm_model}>
+                model {displayScan.primary_llm_model}
+              </span>
+            )}
+          </div>
+          );
+        })()}
+
         {/* Failed state */}
         {isFailed && (
           <ErrorState
@@ -524,6 +667,7 @@ export default function ScanDashboardPage() {
                   : eventLog
               }
               targetUrl={displayScan.target_url}
+              startedAt={displayScan.created_at}
             />
           </div>
         )}
@@ -583,9 +727,26 @@ export default function ScanDashboardPage() {
                 aria-labelledby="tab-overview"
                 className="space-y-8 sm:space-y-10 animate-fade-in"
               >
-                {/* Summary stats */}
+                {/* Summary stats — duration falls back to created/completed wall clock */}
                 {displayScan.summary && (
-                  <SummaryStats summary={displayScan.summary} />
+                  <SummaryStats
+                    summary={
+                      (() => {
+                        const base = displayScan.summary as AuditSummary;
+                        const reported = Number(base.execution_time_seconds) || 0;
+                        if (reported > 0) return base;
+                        const computed = durationFromTimestamps(
+                          displayScan.created_at,
+                          displayScan.completed_at
+                        );
+                        if (computed <= 0) return base;
+                        return {
+                          ...base,
+                          execution_time_seconds: Math.round(computed * 10) / 10,
+                        };
+                      })()
+                    }
+                  />
                 )}
 
                 {/* Findability Analytics Matrix (2x2) — only authoritative real scores */}

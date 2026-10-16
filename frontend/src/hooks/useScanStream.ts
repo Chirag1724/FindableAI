@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { ScanStatusEvent, ScanStatus } from "@/types/scan";
 import { getScan } from "@/lib/api";
+import { deriveUiScanStatus } from "@/lib/pipelineStatus";
 
 export type StreamConnectionState =
   | "idle"
@@ -45,10 +46,18 @@ export function useScanStream(
   const abortRef = useRef<AbortController | null>(null);
   const isMountedRef = useRef(true);
   const activeRef = useRef(active);
+  const lastSeqRef = useRef<number>(-1);
   activeRef.current = active;
 
   const pushEvent = useCallback((event: ScanStatusEvent) => {
     if (!isMountedRef.current) return;
+    // Ignore stale snapshots (lower seq) so refresh/poll cannot rewind progress.
+    if (typeof event.seq === "number" && event.seq >= 0) {
+      if (event.seq < lastSeqRef.current) {
+        return;
+      }
+      lastSeqRef.current = event.seq;
+    }
     setLatestEvent(event);
     if (event.status !== "failed") {
       setLastGoodStatus(event.status);
@@ -97,14 +106,33 @@ export function useScanStream(
         try {
           const scan = await getScan(id, ac.signal);
           if (!isMountedRef.current) return;
-          // Synthesize a ScanStatusEvent from the poll result
+          // Prefer durable progress fields from PostgreSQL — never fabricate mid-run %.
+          const durablePercent =
+            typeof scan.progress_percent === "number"
+              ? scan.progress_percent
+              : TERMINAL.includes(scan.status)
+                ? 100
+                : 0;
+          const uiStatus = deriveUiScanStatus({
+            status: scan.status,
+            progressStage: scan.progress_stage,
+            progressMessage: scan.progress_message,
+            progressPercent: durablePercent,
+            jobStatus: scan.job_status,
+          });
           const synth: ScanStatusEvent = {
             scan_id: scan.scan_id,
-            status: scan.status,
-            progress_percent: TERMINAL.includes(scan.status) ? 100 : 50,
-            current_step: scan.status,
-            message: `Polled status: ${scan.status}`,
+            status: uiStatus,
+            progress_percent: durablePercent,
+            current_step: scan.progress_stage || scan.status,
+            message:
+              scan.progress_message ||
+              scan.error ||
+              `Polled status: ${scan.status}`,
             timestamp: new Date().toISOString(),
+            seq: scan.progress_seq ?? null,
+            progress_current: scan.progress_current ?? null,
+            progress_total: scan.progress_total ?? null,
           };
           pushEvent(synth);
           if (TERMINAL.includes(scan.status)) {
@@ -142,7 +170,14 @@ export function useScanStream(
 
     setConnectionState("connecting");
 
-    const es = new EventSource(`/api/v1/scans/${scanId}/stream`);
+    // Preserve last seq across effect re-runs for the same scan so replay can
+    // resume; reset when scanId changes (handled by effect dependency).
+    const priorSeq = lastSeqRef.current >= 0 ? lastSeqRef.current : null;
+    const streamUrl =
+      priorSeq != null
+        ? `/api/v1/scans/${scanId}/stream?last_event_id=${priorSeq}`
+        : `/api/v1/scans/${scanId}/stream`;
+    const es = new EventSource(streamUrl);
     esRef.current = es;
 
     es.onopen = () => {

@@ -23,6 +23,7 @@ class HealthCheckResponse(BaseModel):
     database: str | None = "unknown"
     queue: str | None = "unknown"
     worker: str | None = "unknown"
+    auth: str | None = "unknown"
     environment: str = "development"
     metrics: dict | None = None
 
@@ -47,11 +48,27 @@ async def health_check():
 @router.get("/ready", response_model=HealthCheckResponse)
 async def readiness_check():
     """Readiness: API + database + durable queue observability (no secrets)."""
+    from app.core.auth import is_production_environment, production_api_key_configured
+
     db_status = "connected"
     queue_status = "unknown"
     worker_status = "unknown"
     overall_status = "healthy"
     snap = metrics.snapshot()
+
+    if is_production_environment() and not production_api_key_configured():
+        return HealthCheckResponse(
+            status="not_ready",
+            service=settings.PROJECT_NAME,
+            version=settings.VERSION,
+            database="not_checked",
+            queue="not_checked",
+            worker="not_checked",
+            auth="misconfigured",
+            environment=settings.ENVIRONMENT,
+            metrics=snap,
+        )
+    auth_status = "configured" if production_api_key_configured() else "open_non_production"
 
     try:
         async with engine.connect() as conn:
@@ -67,6 +84,7 @@ async def readiness_check():
             database=db_status,
             queue="unavailable",
             worker="unknown",
+            auth=auth_status,
             environment=settings.ENVIRONMENT,
             metrics=snap,
         )
@@ -81,6 +99,7 @@ async def readiness_check():
             database=db_status,
             queue=queue_status,
             worker=worker_status,
+            auth=auth_status,
             environment=settings.ENVIRONMENT,
             metrics=snap,
         )
@@ -99,9 +118,11 @@ async def readiness_check():
                 .select_from(ScanJob)
                 .where(ScanJob.status.in_([JobStatus.CLAIMED.value, JobStatus.RUNNING.value]))
             )
-            # Recent worker heartbeat within 2x lease window indicates workers alive.
+            # Recent worker heartbeat within the heartbeat timeout indicates workers alive.
+            # (Workers heartbeat every ~5s while running a job; a 2x-lease window would
+            # hide a dead worker for 20 minutes.)
             cutoff = datetime.now(UTC) - timedelta(
-                seconds=max(60, int(settings.SCAN_JOB_LEASE_SECONDS) * 2)
+                seconds=max(30, int(settings.SCAN_JOB_HEARTBEAT_TIMEOUT_SECONDS))
             )
             recent_hb = await session.scalar(
                 select(func.count())
@@ -136,6 +157,7 @@ async def readiness_check():
         database=db_status,
         queue=queue_status,
         worker=worker_status,
+        auth=auth_status,
         environment=settings.ENVIRONMENT,
         metrics=snap,
     )

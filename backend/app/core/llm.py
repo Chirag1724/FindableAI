@@ -1,74 +1,81 @@
-"""Shared async LLM client with Instructor structured outputs and call budget."""
+"""Shared async LLM client with Instructor structured outputs and call budget.
+
+Recovery policy lives in ``app.core.llm_errors`` (one classifier, bounded per-class
+retries). Every outbound provider request reserves one BudgetGuard unit first, so
+retries, splits and failovers are all counted exactly once against the scan budget.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import random
-import re
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, TypeVar
+from urllib.parse import urlparse
 
 from pydantic import BaseModel
 
 from app.core.budget import BudgetExhausted, BudgetGuard, LLMBudgetExceededError
 from app.core.config import settings
-from app.core.provider_throttle import PROVIDER_THROTTLES
+from app.core.llm_credentials import credential_for_provider
+from app.core.llm_errors import (
+    Action,
+    ClassifiedError,
+    ErrorClass,
+    LLMAuthError,
+    LLMProviderError,
+    classify_provider_error,
+)
+from app.core.provider_throttle import PROVIDER_THROTTLES, estimate_request_tokens
 
 logger = logging.getLogger(__name__)
 
-_RETRY_AFTER_RE = re.compile(r"try again in (?:(\d+)m)?([\d\.]+)s", re.IGNORECASE)
-_HTTP_RETRY_AFTER_RE = re.compile(r"(?i)retry-after['\"\s:=]+(\d+)")
-
 # Process-wide concurrency gate for structured completion calls.
+# Recreated when the running event loop changes (pytest-asyncio per-test loops).
 _global_llm_sema: asyncio.Semaphore | None = None
+_global_llm_sema_loop: asyncio.AbstractEventLoop | None = None
+
+# Longest provider-advised wait we honor before treating a 429 as exhausted.
+RATE_LIMIT_MAX_WAIT_SECONDS = 65.0
+BACKOFF_CAP_SECONDS = 60.0
+
+# How long a provider stays tripped (skipped in the chain) per error class.
+_TRIP_SECONDS: dict[ErrorClass, float] = {
+    ErrorClass.AUTH: 900.0,
+    ErrorClass.NOT_FOUND: 900.0,
+    ErrorClass.CREDIT: 3600.0,
+    ErrorClass.DAILY_QUOTA: 6 * 3600.0,
+    ErrorClass.RATE_LIMIT: 60.0,
+    ErrorClass.TIMEOUT: 120.0,
+    ErrorClass.SERVER: 120.0,
+    ErrorClass.CONTEXT_LENGTH: 0.0,
+    ErrorClass.INVALID_OUTPUT: 0.0,
+    ErrorClass.UNKNOWN: 120.0,
+}
 
 
 def _get_global_llm_semaphore() -> asyncio.Semaphore:
-    global _global_llm_sema
-    if _global_llm_sema is None:
+    global _global_llm_sema, _global_llm_sema_loop
+    loop = asyncio.get_running_loop()
+    if _global_llm_sema is None or _global_llm_sema_loop is not loop:
         _global_llm_sema = asyncio.Semaphore(max(1, int(settings.LLM_GLOBAL_CONCURRENCY)))
+        _global_llm_sema_loop = loop
     return _global_llm_sema
 
 
-def _is_permanent_provider_error(sanitized: str) -> bool:
-    lower = sanitized.lower()
-    markers = (
-        "invalid api key",
-        "incorrect api key",
-        "authentication",
-        "unauthorized",
-        "forbidden",
-        "invalid_api_key",
-        "permission_denied",
-        "model_not_found",
-        "does not exist",
-        "invalid request",
-        "unsupported",
-    )
-    if any(m in lower for m in markers):
-        # Rate-limit 403s from some providers still look "forbidden"; keep retryable.
-        if "rate limit" in lower or "429" in lower:
-            return False
-        return True
-    if "401" in lower:
-        return True
-    return False
-
-
-def _backoff_with_jitter(base: float, *, cap: float = 30.0) -> float:
-    jitter = random.uniform(0.0, min(1.0, base * 0.25))
-    return min(cap, base + jitter)
-
-
-def _parse_retry_after(text: str) -> float | None:
-    match = _RETRY_AFTER_RE.search(text)
-    if not match:
-        return None
-    mins = float(match.group(1)) if match.group(1) else 0.0
-    secs = float(match.group(2)) if match.group(2) else 0.0
-    return mins * 60.0 + secs
+def _backoff_seconds(base: float, retries_so_far: int, retry_after: float | None) -> float:
+    """Exponential backoff with jitter; honors a provider-advised Retry-After."""
+    if retry_after is not None and retry_after > 0:
+        delay = retry_after + 0.5
+    else:
+        delay = max(0.5, base) * (2**retries_so_far)
+    delay += random.uniform(0.0, min(2.0, delay * 0.25))
+    return min(BACKOFF_CAP_SECONDS, delay)
 
 
 T = TypeVar("T", bound=BaseModel)
@@ -79,8 +86,10 @@ _REDACTED = "***REDACTED***"
 __all__ = [
     "BudgetExhausted",
     "BudgetGuard",
+    "LLMAuthError",
     "LLMBudgetExceededError",
     "LLMClient",
+    "LLMProviderError",
 ]
 
 
@@ -99,6 +108,21 @@ class ProviderEndpoint:
     api_key: str
     base_url: str | None
     mode: Any
+
+    @property
+    def host(self) -> str:
+        if not self.base_url:
+            return "api.openai.com"
+        return urlparse(self.base_url).netloc or self.base_url
+
+
+_PROVIDER_BASE_URLS: dict[str, str | None] = {
+    "groq": "https://api.groq.com/openai/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "openai": None,
+    "openrouter": "https://openrouter.ai/api/v1",
+    "nvidia": "https://integrate.api.nvidia.com/v1",
+}
 
 
 def _parse_model_spec(spec: str) -> tuple[str, str]:
@@ -153,24 +177,23 @@ class LLMClient:
     """
     Single reusable async client for structured LLM calls.
 
-    Engines must use this class instead of constructing Groq/LiteLLM clients
-    directly. The provider transport is LiteLLM + Instructor so models remain
-    replaceable via ``DEFAULT_LLM_MODEL`` (e.g. ``groq/…``, ``openai/…``).
+    Engines must use this class instead of constructing provider clients directly.
+    Models remain replaceable via ``DEFAULT_LLM_MODEL`` (e.g. ``groq/…``, ``openai/…``).
 
     Call accounting is delegated to a scan-scoped ``BudgetGuard``. Multiple
     ``LLMClient`` instances may share one guard so the hard cap is global
     per scan, not per client instance.
     """
 
+    # Circuit breaker: provider -> skipped until expiry (monotonic seconds).
     _global_tripped_providers: ClassVar[set[str]] = set()
-    _global_daily_exhausted_providers: ClassVar[set[str]] = set()
-    _openrouter_max_tokens_override: ClassVar[int | None] = None
+    _global_trip_expiry: ClassVar[dict[str, float]] = {}
 
     @classmethod
     def reset_tripped_providers(cls) -> None:
-        """Reset the process-level circuit breaker and daily exhaustion tracker."""
+        """Reset the process-level circuit breaker."""
         cls._global_tripped_providers.clear()
-        cls._global_daily_exhausted_providers.clear()
+        cls._global_trip_expiry.clear()
 
     def __init__(
         self,
@@ -208,6 +231,7 @@ class LLMClient:
         self._provider_clients: dict[str, Any] = {}
         self._tripped_providers: set[str] = self._global_tripped_providers
 
+    # ------------------------------------------------------------------ props
     @property
     def budget_guard(self) -> BudgetGuard:
         return self._budget
@@ -237,10 +261,10 @@ class LLMClient:
         snap = self._budget.snapshot()
         return {
             "model": self._model,
-            "calls_made": snap["used"],
-            "max_calls": snap["limit"],
-            "remaining_calls": snap["remaining"],
-            "budget_cap_usd": self._budget_cap_usd,
+            "calls_made": int(snap["used"] or 0),
+            "max_calls": int(snap["limit"] or 0),
+            "remaining_calls": int(snap["remaining"] or 0),
+            "budget_cap_usd": float(self._budget_cap_usd),
         }
 
     def __repr__(self) -> str:
@@ -251,20 +275,40 @@ class LLMClient:
 
     def _secrets(self) -> tuple[str, ...]:
         secrets = [self._api_key]
-        if settings.NVIDIA_API_KEY:
-            secrets.append(settings.NVIDIA_API_KEY)
-        if settings.OPENROUTER_API_KEY:
-            secrets.append(settings.OPENROUTER_API_KEY)
-        if settings.OPENAI_API_KEY:
-            secrets.append(settings.OPENAI_API_KEY)
-        if settings.ANTHROPIC_API_KEY:
-            secrets.append(settings.ANTHROPIC_API_KEY)
-        if settings.GEMINI_API_KEY:
-            secrets.append(settings.GEMINI_API_KEY)
-        if settings.GITHUB_TOKEN:
-            secrets.append(settings.GITHUB_TOKEN)
+        for value in (
+            settings.NVIDIA_API_KEY,
+            settings.OPENROUTER_API_KEY,
+            settings.OPENAI_API_KEY,
+            settings.ANTHROPIC_API_KEY,
+            settings.GEMINI_API_KEY,
+            settings.GROQ_API_KEY,
+            settings.GITHUB_TOKEN,
+        ):
+            if value:
+                secrets.append(value)
         return tuple(s for s in secrets if s)
 
+    # --------------------------------------------------------- circuit breaker
+    def _is_tripped(self, provider: str) -> bool:
+        if provider not in self._tripped_providers:
+            return False
+        expiry = self._global_trip_expiry.get(provider)
+        if expiry is not None and time.monotonic() >= expiry:
+            self._tripped_providers.discard(provider)
+            self._global_trip_expiry.pop(provider, None)
+            return False
+        return True
+
+    def _trip(self, provider: str, error_class: ErrorClass, retry_after: float | None) -> None:
+        seconds = _TRIP_SECONDS.get(error_class, 120.0)
+        if error_class is ErrorClass.RATE_LIMIT and retry_after:
+            seconds = max(seconds, float(retry_after))
+        if seconds <= 0:
+            return
+        self._tripped_providers.add(provider)
+        self._global_trip_expiry[provider] = time.monotonic() + seconds
+
+    # ---------------------------------------------------------- provider chain
     def _create_endpoint_for_provider(
         self,
         provider_name: str,
@@ -272,140 +316,39 @@ class LLMClient:
     ) -> ProviderEndpoint | None:
         import instructor
 
-        if provider_name == "openrouter":
-            openrouter_key = (
-                self._api_key
-                if (self._api_key and self._api_key.startswith("sk-or-"))
-                else settings.OPENROUTER_API_KEY
-            )
-            if not openrouter_key and self._api_key and self._api_key.startswith("sk-or"):
-                openrouter_key = self._api_key
-            if not openrouter_key:
-                return None
+        if provider_name not in _PROVIDER_BASE_URLS:
+            return None
+        key = credential_for_provider(provider_name, self._api_key)
+        if not key:
+            return None
 
-            model = preferred_model or settings.OPENROUTER_MODEL
-            return ProviderEndpoint(
-                name="openrouter",
-                model=model,
-                api_key=openrouter_key,
-                base_url="https://openrouter.ai/api/v1",
-                mode=instructor.Mode.JSON,
-            )
-
-        if provider_name == "groq":
-            groq_key = (
-                self._api_key
-                if (self._api_key and self._api_key.startswith("gsk_"))
-                else settings.GROQ_API_KEY
-            )
-            if (
-                not groq_key
-                and self._api_key
-                and not any(self._api_key.startswith(p) for p in ("AIza", "AQ.", "sk-"))
-            ):
-                groq_key = self._api_key
-            if not groq_key:
-                return None
-
-            model = preferred_model or settings.GROQ_MODEL
-            return ProviderEndpoint(
-                name="groq",
-                model=model,
-                api_key=groq_key,
-                base_url="https://api.groq.com/openai/v1",
-                mode=instructor.Mode.JSON,
-            )
-
-        if provider_name == "gemini":
-            gemini_key = (
-                self._api_key
-                if (
-                    self._api_key
-                    and (self._api_key.startswith("AIza") or self._api_key.startswith("AQ."))
-                )
-                else settings.GEMINI_API_KEY
-            )
-            if (
-                not gemini_key
-                and self._api_key
-                and not any(self._api_key.startswith(p) for p in ("gsk_", "sk-"))
-            ):
-                gemini_key = self._api_key
-            if not gemini_key:
-                return None
-
-            model = preferred_model or settings.GEMINI_MODEL
-            return ProviderEndpoint(
-                name="gemini",
-                model=model,
-                api_key=gemini_key,
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-                mode=instructor.Mode.JSON,
-            )
-
-        if provider_name == "openai":
-            openai_key = (
-                self._api_key
-                if (
-                    self._api_key
-                    and self._api_key.startswith("sk-")
-                    and not self._api_key.startswith("gsk_")
-                    and not self._api_key.startswith("sk-or")
-                )
-                else settings.OPENAI_API_KEY
-            )
-            if (
-                not openai_key
-                and self._api_key
-                and not any(self._api_key.startswith(p) for p in ("gsk_", "AIza", "AQ.", "sk-or"))
-            ):
-                openai_key = self._api_key
-            if not openai_key:
-                return None
-
-            model = preferred_model or settings.OPENAI_MODEL
-            return ProviderEndpoint(
-                name="openai",
-                model=model,
-                api_key=openai_key,
-                base_url=None,
-                mode=instructor.Mode.TOOLS,
-            )
-
-        if provider_name == "nvidia":
-            nvidia_key = (
-                self._api_key
-                if (self._api_key and self._api_key.startswith("nvapi-"))
-                else settings.NVIDIA_API_KEY
-            )
-            if not nvidia_key and self._api_key and self._api_key.startswith("nvapi-"):
-                nvidia_key = self._api_key
-            if not nvidia_key:
-                return None
-
-            model = (
-                preferred_model or settings.NVIDIA_MODEL or "nvidia/nemotron-3.5-lightning-30b-a3b"
-            )
-            return ProviderEndpoint(
-                name="nvidia",
-                model=model,
-                api_key=nvidia_key,
-                base_url="https://integrate.api.nvidia.com/v1",
-                mode=instructor.Mode.JSON,
-            )
-
-        return None
+        default_models = {
+            "groq": settings.GROQ_MODEL,
+            "gemini": settings.GEMINI_MODEL,
+            "openai": settings.OPENAI_MODEL,
+            "openrouter": settings.OPENROUTER_MODEL,
+            "nvidia": settings.NVIDIA_MODEL or "nvidia/nemotron-3.5-lightning-30b-a3b",
+        }
+        model = preferred_model or default_models[provider_name]
+        mode = instructor.Mode.TOOLS if provider_name == "openai" else instructor.Mode.JSON
+        return ProviderEndpoint(
+            name=provider_name,
+            model=model,
+            api_key=key,
+            base_url=_PROVIDER_BASE_URLS[provider_name],
+            mode=mode,
+        )
 
     def _get_provider_chain(self, requested_model: str | None = None) -> list[ProviderEndpoint]:
-        # 1. Determine primary model & provider (defaults to settings.DEFAULT_LLM_MODEL)
+        # 1. Primary model & provider (defaults to settings.DEFAULT_LLM_MODEL)
         primary_spec = requested_model or self._model or settings.DEFAULT_LLM_MODEL
         p_provider, p_model = _parse_model_spec(primary_spec)
 
-        # 2. Determine fallback model & provider (defaults to settings.FALLBACK_LLM_MODEL)
+        # 2. Fallback model & provider (defaults to settings.FALLBACK_LLM_MODEL)
         fallback_spec = settings.FALLBACK_LLM_MODEL
         f_provider, f_model = _parse_model_spec(fallback_spec) if fallback_spec else ("", "")
 
-        # 3. Dynamic provider priority ordering: primary -> fallback -> remaining providers
+        # 3. Priority: primary -> fallback -> remaining configured providers
         providers_order: list[str] = []
         if p_provider:
             providers_order.append(p_provider)
@@ -415,7 +358,7 @@ class LLMClient:
             if p not in providers_order:
                 providers_order.append(p)
 
-        # 4. Instantiate endpoints with explicit or configured default models
+        # 4. Endpoints — each with ONLY its own credential (or skipped)
         endpoints: list[ProviderEndpoint] = []
         for p in providers_order:
             preferred = None
@@ -423,27 +366,20 @@ class LLMClient:
                 preferred = p_model
             elif p == f_provider and f_model:
                 preferred = f_model
-
             ep = self._create_endpoint_for_provider(p, preferred_model=preferred)
             if ep is not None:
                 endpoints.append(ep)
 
-        # 5. Filter out providers known to have daily quotas exhausted across the process
-        available = [
-            ep for ep in endpoints if ep.name not in self._global_daily_exhausted_providers
-        ]
-        endpoints_to_use = available if available else endpoints
-
-        # 6. Order healthy providers first, followed by tripped providers (circuit breaker)
-        healthy = [ep for ep in endpoints_to_use if ep.name not in self._tripped_providers]
-        tripped = [ep for ep in endpoints_to_use if ep.name in self._tripped_providers]
+        # 5. Healthy providers first, tripped ones last (never dropped entirely)
+        healthy = [ep for ep in endpoints if not self._is_tripped(ep.name)]
+        tripped = [ep for ep in endpoints if self._is_tripped(ep.name)]
         chain = healthy + tripped
 
         if not chain:
             raise RuntimeError(
-                "Either OPENROUTER_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY is required."
+                "Either OPENROUTER_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY is required "
+                "(a key with another provider's prefix is rejected for that provider)."
             )
-
         return chain
 
     def _get_provider_client(self, endpoint: ProviderEndpoint) -> Any:
@@ -474,9 +410,61 @@ class LLMClient:
             )
         return self._provider_clients[endpoint.name]
 
+    # -------------------------------------------------------------- accounting
     async def _reserve_call_slot(self) -> int:
         """Reserve one provider-attempt unit via the shared BudgetGuard."""
         return await self._budget.reserve()
+
+    async def _record_provider_success(
+        self, *, tokens_in: int | None = None, tokens_out: int | None = None
+    ) -> None:
+        try:
+            await self._budget.observability.record_provider_success(
+                tokens_in=tokens_in, tokens_out=tokens_out
+            )
+        except Exception:
+            logger.debug("provider_success_counter_failed", exc_info=True)
+
+    async def _record_provider_failure(self) -> None:
+        try:
+            await self._budget.observability.record_provider_failure()
+        except Exception:
+            logger.debug("provider_failure_counter_failed", exc_info=True)
+
+    async def _record_retry(self) -> None:
+        try:
+            await self._budget.observability.record_retry()
+        except Exception:
+            logger.debug("retry_counter_failed", exc_info=True)
+
+    async def _record_failover(self) -> None:
+        try:
+            await self._budget.observability.record_failover()
+            await self._budget.observability.mark_fallback_used()
+        except Exception:
+            logger.debug("failover_counter_failed", exc_info=True)
+
+    async def _record_duplicate_joined(self) -> None:
+        try:
+            await self._budget.observability.record_duplicate_joined()
+        except Exception:
+            logger.debug("duplicate_joined_counter_failed", exc_info=True)
+
+    async def _record_cache_hit(self) -> None:
+        try:
+            await self._budget.observability.record_cache_hit()
+        except Exception:
+            logger.debug("cache_hit_counter_failed", exc_info=True)
+
+    # -------------------------------------------------------------- public API
+    @staticmethod
+    def _inflight_key(model: str, response_model: type[BaseModel], messages: Any) -> str:
+        raw = json.dumps(
+            {"m": model, "r": response_model.__name__, "msgs": messages},
+            sort_keys=True,
+            default=str,
+        )
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     async def create(
         self,
@@ -490,318 +478,365 @@ class LLMClient:
         """
         Execute a structured completion and validate into ``response_model``.
 
-        Supports automatic multi-provider fallback (Groq -> Gemini -> OpenAI)
-        with shared scan-scoped budget guard accounting.
+        Multi-provider failover uses each provider's own credential. Identical
+        in-flight requests on the same scan budget are coalesced into one call.
         """
         if not isinstance(response_model, type) or not issubclass(response_model, BaseModel):
             raise TypeError("response_model must be a Pydantic BaseModel subclass")
-
         if max_retries < 0:
             raise ValueError("max_retries must be >= 0")
 
         selected_model = model or self._model
-        # Cap provider attempts; ignore caller max_retries inflation beyond config.
+        await self._budget.observability.set_primary_model(selected_model)
+
+        key = self._inflight_key(selected_model, response_model, messages)
+        # Completed identical request: return cached result without reserving budget.
+        cached = self._budget.response_cache.get(key)
+        if cached is not None:
+            logger.info(
+                "llm_cache_hit model=%s response_model=%s",
+                selected_model,
+                response_model.__name__,
+            )
+            await self._record_cache_hit()
+            return cached  # type: ignore[no-any-return]
+
+        inflight: dict[str, asyncio.Future[Any]] = self._budget.inflight
+        async with self._budget._inflight_lock:
+            existing = inflight.get(key)
+            if existing is not None and not existing.done():
+                waiter = True
+                fut = existing
+            else:
+                waiter = False
+                fut = asyncio.get_running_loop().create_future()
+                inflight[key] = fut
+
+        if waiter:
+            logger.info(
+                "llm_duplicate_request_joined model=%s response_model=%s",
+                selected_model,
+                response_model.__name__,
+            )
+            await self._record_duplicate_joined()
+            return await asyncio.shield(fut)
+
+        try:
+            result = await self._create_uncoalesced(
+                response_model,
+                messages,
+                selected_model=selected_model,
+                max_retries=max_retries,
+                **kwargs,
+            )
+        except asyncio.CancelledError:
+            if not fut.done():
+                fut.cancel()
+            raise
+        except BaseException as exc:
+            if not fut.done():
+                fut.set_exception(exc)
+                fut.exception()  # mark retrieved; waiters (if any) re-raise it
+            raise
+        else:
+            from app.core.budget import _store_process_response_cache
+
+            _store_process_response_cache(key, result)
+            if not fut.done():
+                fut.set_result(result)
+            return result
+        finally:
+            if inflight.get(key) is fut:
+                inflight.pop(key, None)
+
+    async def _create_uncoalesced(
+        self,
+        response_model: type[T],
+        messages: list[dict[str, str]],
+        *,
+        selected_model: str,
+        max_retries: int,
+        **kwargs: Any,
+    ) -> T:
         configured_cap = max(1, int(settings.LLM_PROVIDER_MAX_ATTEMPTS))
-        attempts = min(max_retries + 1, configured_cap)
-        last_failure: Exception | None = None
+        attempts_cap = min(max_retries + 1, configured_cap)
         sem = _get_global_llm_semaphore()
 
         if self._instructor_client is not None:
-            for attempt_index in range(attempts):
-                call_number = await self._reserve_call_slot()
-                logger.info(
-                    "LLM structured call start call=%s/%s attempt=%s/%s model=%s response_model=%s",
-                    call_number,
-                    self.max_calls,
-                    attempt_index + 1,
-                    attempts,
-                    selected_model,
-                    response_model.__name__,
-                )
-                create_kwargs: dict[str, Any] = {
-                    "messages": messages,
-                    "response_model": response_model,
-                    "max_retries": 0,
-                    "max_tokens": kwargs.get("max_tokens", 8192),
-                    "model": selected_model,
-                    **kwargs,
-                }
-                create_kwargs["max_retries"] = 0
-                if self._api_key:
-                    create_kwargs["api_key"] = self._api_key
-
-                try:
-                    async with sem:
-                        result = await asyncio.wait_for(
-                            self._instructor_client.chat.completions.create(**create_kwargs),
-                            timeout=float(settings.LLM_REQUEST_TIMEOUT_SECONDS),
-                        )
-                except LLMBudgetExceededError:
-                    raise
-                except Exception as exc:
-                    sanitized = _sanitize_text(str(exc), self._secrets())
-                    logger.error(
-                        "LLM structured call failed call=%s/%s attempt=%s/%s model=%s error=%s",
-                        call_number,
-                        self.max_calls,
-                        attempt_index + 1,
-                        attempts,
-                        selected_model,
-                        sanitized,
-                    )
-                    last_failure = RuntimeError(f"LLM structured call failed: {sanitized}")
-                    last_failure.__cause__ = exc
-                    if _is_permanent_provider_error(sanitized):
-                        raise last_failure from exc
-                    if attempt_index + 1 >= attempts:
-                        raise last_failure from exc
-                    await asyncio.sleep(_backoff_with_jitter(1.0 * (attempt_index + 1)))
-                    continue
-
-                if not isinstance(result, response_model):
-                    raise TypeError(
-                        f"Expected {response_model.__name__}, got {type(result).__name__}"
-                    )
-                return result
+            return await self._create_with_injected_client(
+                response_model, messages, selected_model, attempts_cap, sem, **kwargs
+            )
 
         endpoints = self._get_provider_chain(selected_model)
+        last_error: LLMProviderError | None = None
+
         for ep_idx, endpoint in enumerate(endpoints):
-            # Dynamic circuit-breaker check: if this provider was tripped by an earlier/concurrent call,
-            # skip it immediately to avoid wasted attempts or duplicate 429 errors.
-            if endpoint.name in self._tripped_providers and ep_idx + 1 < len(endpoints):
+            remaining_eps = endpoints[ep_idx + 1 :]
+            if self._is_tripped(endpoint.name) and remaining_eps:
                 continue
-
+            has_fallback = any(not self._is_tripped(e.name) for e in remaining_eps)
             client = self._get_provider_client(endpoint)
-            provider_attempts = min(max(attempts, 2), configured_cap)
-            has_fallback = ep_idx + 1 < len(endpoints)
+            max_tokens = int(kwargs.get("max_tokens", 4096))
+            extra = {k: v for k, v in kwargs.items() if k != "max_tokens"}
+            class_retries: dict[ErrorClass, int] = {}
+            throttle = PROVIDER_THROTTLES.get(endpoint.name)
 
-            # Safe completion ceiling calculated per provider without corrupting kwargs for failover providers
-            requested_max_tokens = kwargs.get("max_tokens", 4096)
-            if endpoint.name == "openrouter":
-                safe_limit = getattr(LLMClient, "_openrouter_max_tokens_override", 1000) or 1000
-                provider_max_tokens = min(requested_max_tokens, safe_limit)
-            elif endpoint.name == "groq":
-                provider_max_tokens = requested_max_tokens
-            else:
-                provider_max_tokens = requested_max_tokens
-
-            for attempt_index in range(provider_attempts):
+            attempt = 0
+            while attempt < attempts_cap:
+                attempt += 1
+                # Budget first: every outbound attempt counts exactly once.
                 call_number = await self._reserve_call_slot()
+                est_tokens = estimate_request_tokens(messages, max_tokens)
+                if throttle is not None:
+                    await throttle.acquire(est_tokens)
                 logger.info(
-                    "LLM structured call start call=%s/%s provider=%s model=%s response_model=%s max_tokens=%d",
+                    "llm_request_start call=%s/%s provider=%s model=%s host=%s attempt=%s/%s "
+                    "response_model=%s max_tokens=%s est_tokens=%s",
                     call_number,
                     self.max_calls,
                     endpoint.name,
                     endpoint.model,
+                    endpoint.host,
+                    attempt,
+                    attempts_cap,
                     response_model.__name__,
-                    provider_max_tokens,
+                    max_tokens,
+                    est_tokens,
                 )
-
-                create_kwargs = {
-                    "model": endpoint.model,
-                    "messages": messages,
-                    "response_model": response_model,
-                    "max_retries": 0,
-                    "max_tokens": provider_max_tokens,
-                    **{k: v for k, v in kwargs.items() if k != "max_tokens"},
-                }
-                create_kwargs["max_retries"] = 0
-
+                started = time.perf_counter()
                 try:
-                    throttle = PROVIDER_THROTTLES.get(endpoint.name)
-                    if throttle is not None:
-                        await throttle.acquire()
                     async with sem:
-                        result = await asyncio.wait_for(
-                            client.chat.completions.create(**create_kwargs),
+                        result, usage = await asyncio.wait_for(
+                            self._invoke(
+                                client, endpoint, response_model, messages, max_tokens, extra
+                            ),
                             timeout=float(settings.LLM_REQUEST_TIMEOUT_SECONDS),
                         )
                 except LLMBudgetExceededError:
                     raise
+                except asyncio.CancelledError:
+                    raise
                 except Exception as exc:
+                    latency_ms = round((time.perf_counter() - started) * 1000, 1)
+                    await self._record_provider_failure()
                     sanitized = _sanitize_text(str(exc), self._secrets())
+                    ce = classify_provider_error(exc, sanitized)
                     logger.error(
-                        "LLM call failed call=%s/%s provider=%s model=%s error=%s",
+                        "llm_request_failed call=%s/%s provider=%s model=%s class=%s status=%s "
+                        "attempt=%s/%s latency_ms=%s error=%s",
                         call_number,
                         self.max_calls,
                         endpoint.name,
                         endpoint.model,
-                        sanitized,
+                        ce.error_class.value,
+                        ce.status_code,
+                        attempt,
+                        attempts_cap,
+                        latency_ms,
+                        sanitized[:300],
                     )
-                    last_failure = RuntimeError(
-                        f"LLM structured call failed ({endpoint.name}): {sanitized}"
-                    )
-                    last_failure.__cause__ = exc
+                    last_error = self._typed_error(endpoint, ce, sanitized, attempt)
+                    last_error.__cause__ = exc
 
-                    if _is_permanent_provider_error(sanitized):
-                        if has_fallback:
-                            self._tripped_providers.add(endpoint.name)
-                            logger.warning(
-                                "Provider '%s' permanent error (%s); failing over",
-                                endpoint.name,
-                                sanitized,
-                            )
-                            break
-                        raise last_failure from exc
-
-                    is_credit_limit = (
-                        "can only afford" in sanitized.lower()
-                        or "requires more credits" in sanitized.lower()
-                        or "lower max_tokens" in sanitized.lower()
-                        or "fewer max_tokens" in sanitized.lower()
-                        or "in_flight" in sanitized.lower()
-                        or "in-flight" in sanitized.lower()
-                        or "402" in sanitized
-                    )
-                    if is_credit_limit:
-                        match = re.search(r"can only afford (\d+)", sanitized, re.IGNORECASE)
-                        if match:
-                            affordable = int(match.group(1))
-                            if affordable < 200:
-                                self._global_daily_exhausted_providers.add(endpoint.name)
-                                self._tripped_providers.add(endpoint.name)
-                                if has_fallback:
-                                    next_ep = endpoints[ep_idx + 1]
-                                    logger.warning(
-                                        "Provider '%s' has insufficient token balance (%d); failing over to '%s'",
-                                        endpoint.name,
-                                        affordable,
-                                        next_ep.name,
-                                    )
-                                    break
-                            LLMClient._openrouter_max_tokens_override = max(200, affordable - 30)
-                            provider_max_tokens = LLMClient._openrouter_max_tokens_override
-                        else:
-                            provider_max_tokens = max(250, provider_max_tokens // 2)
-
-                        if attempt_index + 1 < provider_attempts:
-                            sleep_delay = (
-                                3.0
-                                if (
-                                    "in-flight" in sanitized.lower()
-                                    or "in_flight" in sanitized.lower()
-                                )
-                                else 0.5
-                            )
-                            logger.warning(
-                                "LLM credit/in-flight ceiling hit on provider=%s; lowering max_tokens to %d and waiting %.1fs before retrying",
-                                endpoint.name,
-                                provider_max_tokens,
-                                sleep_delay,
-                            )
-                            await asyncio.sleep(sleep_delay)
-                            continue
-
-                    is_token_truncation = "max_tokens length limit" in sanitized.lower()
-                    if is_token_truncation and attempt_index + 1 < provider_attempts:
-                        provider_max_tokens = min(4096, provider_max_tokens + 1024)
+                    policy = ce.policy
+                    used = class_retries.get(ce.error_class, 0)
+                    can_retry = used < policy.max_retries and attempt < attempts_cap
+                    if (
+                        ce.error_class is ErrorClass.RATE_LIMIT
+                        and ce.retry_after is not None
+                        and ce.retry_after > RATE_LIMIT_MAX_WAIT_SECONDS
+                    ):
+                        can_retry = False
+                    if can_retry:
+                        class_retries[ce.error_class] = used + 1
+                        delay = _backoff_seconds(policy.base_backoff, used, ce.retry_after)
+                        await self._record_retry()
                         logger.warning(
-                            "LLM output truncated on provider=%s; increasing max_tokens to %d and retrying",
+                            "llm_retry provider=%s model=%s class=%s retry=%s/%s wait=%.1fs",
                             endpoint.name,
-                            provider_max_tokens,
+                            endpoint.model,
+                            ce.error_class.value,
+                            used + 1,
+                            policy.max_retries,
+                            delay,
                         )
+                        await asyncio.sleep(delay)
                         continue
 
-                    is_rate_limit = "rate limit" in sanitized.lower() or "429" in sanitized
-                    is_daily_quota = (
-                        "resource_exhausted" in sanitized.lower()
-                        or "generaterequestsperday" in sanitized.lower()
-                        or "tokens per day" in sanitized.lower()
-                        or "requests per day" in sanitized.lower()
-                        or "daily limit" in sanitized.lower()
-                        or "quota exceeded" in sanitized.lower()
-                        or "tpd" in sanitized.lower()
-                        or "rpd" in sanitized.lower()
-                    )
-                    has_fallback = ep_idx + 1 < len(endpoints)
-
-                    if is_daily_quota:
-                        self._global_daily_exhausted_providers.add(endpoint.name)
-                        self._tripped_providers.add(endpoint.name)
-                        if has_fallback:
-                            next_ep = endpoints[ep_idx + 1]
-                            logger.warning(
-                                "Provider '%s' exhausted daily quota; tripping circuit breaker and failing over to '%s'",
-                                endpoint.name,
-                                next_ep.name,
-                            )
-                            break
-
-                    retry_delay = _parse_retry_after(sanitized)
-                    http_ra = _HTTP_RETRY_AFTER_RE.search(sanitized)
-                    if http_ra and retry_delay is None:
-                        retry_delay = float(http_ra.group(1))
-                    if retry_delay and retry_delay > 30.0 and has_fallback:
-                        self._tripped_providers.add(endpoint.name)
-                        next_ep = endpoints[ep_idx + 1]
+                    action = policy.on_exhausted
+                    if action is Action.FAILOVER and has_fallback:
+                        self._trip(endpoint.name, ce.error_class, ce.retry_after)
+                        await self._record_failover()
+                        next_ep = next(e for e in remaining_eps if not self._is_tripped(e.name))
                         logger.warning(
-                            "Provider '%s' rate limited with long delay (%.1fs); failing over to '%s'",
+                            "llm_failover from=%s to=%s class=%s (own credentials each)",
                             endpoint.name,
-                            retry_delay,
                             next_ep.name,
+                            ce.error_class.value,
                         )
                         break
+                    if action in (Action.FAILOVER, Action.STOP) and _TRIP_SECONDS.get(
+                        ce.error_class, 0
+                    ):
+                        # No fallback: remember the outage so sibling requests skip quickly.
+                        self._trip(endpoint.name, ce.error_class, ce.retry_after)
+                    raise last_error from exc
 
-                    if is_rate_limit and attempt_index + 1 < provider_attempts:
-                        backoff = _backoff_with_jitter(
-                            min(
-                                15.0,
-                                (retry_delay + 0.5) if retry_delay else (attempt_index + 1) * 3.0,
-                            )
-                        )
-                        logger.warning(
-                            "LLM rate limited call=%s provider=%s; waiting %.1fs for token bucket reset",
-                            call_number,
-                            endpoint.name,
-                            backoff,
-                        )
-                        await asyncio.sleep(backoff)
-                        continue
-
-                    if attempt_index + 1 < provider_attempts and not is_daily_quota:
-                        backoff = _backoff_with_jitter(1.0 * (attempt_index + 1))
-                        logger.warning(
-                            "LLM call attempt %d failed on provider=%s (%s); retrying in %.1fs",
-                            attempt_index + 1,
-                            endpoint.name,
-                            sanitized,
-                            backoff,
-                        )
-                        await asyncio.sleep(backoff)
-                        continue
-
-                    if has_fallback:
-                        self._tripped_providers.add(endpoint.name)
-                        next_ep = endpoints[ep_idx + 1]
-                        logger.warning(
-                            "Provider '%s' failed (%s) after %d attempts; tripped circuit breaker and failing over to provider '%s' (model=%s) for remaining claims",
-                            endpoint.name,
-                            sanitized,
-                            attempt_index + 1,
-                            next_ep.name,
-                            next_ep.model,
-                        )
-                        break
-
-                    if attempt_index + 1 >= provider_attempts:
-                        raise last_failure from exc
-                    continue
-
+                # ---- success
+                latency_ms = round((time.perf_counter() - started) * 1000, 1)
                 if not isinstance(result, response_model):
+                    await self._record_provider_failure()
                     raise TypeError(
                         f"Expected {response_model.__name__}, got {type(result).__name__}"
                     )
-
+                tokens_in, tokens_out = usage if usage else (None, None)
+                if ep_idx > 0:
+                    await self._budget.observability.mark_fallback_used()
+                await self._record_provider_success(tokens_in=tokens_in, tokens_out=tokens_out)
+                if throttle is not None and tokens_in is not None and tokens_out is not None:
+                    throttle.record_actual(int(tokens_in) + int(tokens_out))
                 logger.info(
-                    "LLM structured call ok call=%s/%s provider=%s model=%s response_model=%s",
+                    "llm_request_ok call=%s/%s provider=%s model=%s host=%s response_model=%s "
+                    "latency_ms=%s tokens_in=%s tokens_out=%s",
                     call_number,
                     self.max_calls,
                     endpoint.name,
                     endpoint.model,
+                    endpoint.host,
                     response_model.__name__,
+                    latency_ms,
+                    tokens_in,
+                    tokens_out,
                 )
                 return result
 
-        if last_failure is not None:
-            raise last_failure
+        if last_error is not None:
+            raise last_error
         raise RuntimeError("LLM structured call failed: no provider succeeded")
+
+    @staticmethod
+    def _typed_error(
+        endpoint: ProviderEndpoint, ce: ClassifiedError, sanitized: str, attempts: int
+    ) -> LLMProviderError:
+        message = f"LLM structured call failed ({endpoint.name}/{endpoint.model}, {ce.error_class.value}): {sanitized}"
+        if ce.error_class is ErrorClass.AUTH:
+            return LLMAuthError(
+                message,
+                provider=endpoint.name,
+                model=endpoint.model,
+                error_class=ce.error_class,
+                attempts=attempts,
+            )
+        return LLMProviderError(
+            message,
+            provider=endpoint.name,
+            model=endpoint.model,
+            error_class=ce.error_class,
+            attempts=attempts,
+        )
+
+    async def _invoke(
+        self,
+        client: Any,
+        endpoint: ProviderEndpoint,
+        response_model: type[T],
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        extra: dict[str, Any],
+    ) -> tuple[Any, tuple[int, int] | None]:
+        create_kwargs: dict[str, Any] = {
+            "model": endpoint.model,
+            "messages": messages,
+            "response_model": response_model,
+            "max_retries": 0,  # instructor's own retry loop disabled; ours is bounded
+            "max_tokens": max_tokens,
+            **extra,
+        }
+        create_kwargs["max_retries"] = 0
+        with_completion = getattr(client.chat.completions, "create_with_completion", None)
+        if with_completion is not None:
+            result, completion = await with_completion(**create_kwargs)
+            usage = getattr(completion, "usage", None)
+            if usage is not None:
+                p = getattr(usage, "prompt_tokens", None)
+                c = getattr(usage, "completion_tokens", None)
+                if isinstance(p, int) and isinstance(c, int):
+                    return result, (p, c)
+            return result, None
+        result = await client.chat.completions.create(**create_kwargs)
+        return result, None
+
+    async def _create_with_injected_client(
+        self,
+        response_model: type[T],
+        messages: list[dict[str, str]],
+        selected_model: str,
+        attempts_cap: int,
+        sem: asyncio.Semaphore,
+        **kwargs: Any,
+    ) -> T:
+        """Test/injection path: one logical provider, bounded retries, no failover."""
+        for attempt_index in range(attempts_cap):
+            call_number = await self._reserve_call_slot()
+            logger.info(
+                "llm_request_start call=%s/%s provider=injected model=%s attempt=%s/%s response_model=%s",
+                call_number,
+                self.max_calls,
+                selected_model,
+                attempt_index + 1,
+                attempts_cap,
+                response_model.__name__,
+            )
+            create_kwargs: dict[str, Any] = {
+                "messages": messages,
+                "response_model": response_model,
+                "max_retries": 0,
+                "max_tokens": kwargs.get("max_tokens", 8192),
+                "model": selected_model,
+                **kwargs,
+            }
+            create_kwargs["max_retries"] = 0
+            if self._api_key:
+                create_kwargs["api_key"] = self._api_key
+            assert self._instructor_client is not None
+            try:
+                async with sem:
+                    result = await asyncio.wait_for(
+                        self._instructor_client.chat.completions.create(**create_kwargs),
+                        timeout=float(settings.LLM_REQUEST_TIMEOUT_SECONDS),
+                    )
+            except LLMBudgetExceededError:
+                raise
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                await self._record_provider_failure()
+                sanitized = _sanitize_text(str(exc), self._secrets())
+                ce = classify_provider_error(exc, sanitized)
+                logger.error(
+                    "llm_request_failed call=%s/%s provider=injected model=%s class=%s attempt=%s/%s error=%s",
+                    call_number,
+                    self.max_calls,
+                    selected_model,
+                    ce.error_class.value,
+                    attempt_index + 1,
+                    attempts_cap,
+                    sanitized[:300],
+                )
+                endpoint = ProviderEndpoint(
+                    name="injected", model=selected_model, api_key="", base_url=None, mode=None
+                )
+                typed = self._typed_error(endpoint, ce, sanitized, attempt_index + 1)
+                typed.__cause__ = exc
+                if ce.permanent or attempt_index + 1 >= attempts_cap:
+                    raise typed from exc
+                await self._record_retry()
+                await asyncio.sleep(_backoff_seconds(0.5, attempt_index, None) * 0.1)
+                continue
+
+            if not isinstance(result, response_model):
+                await self._record_provider_failure()
+                raise TypeError(f"Expected {response_model.__name__}, got {type(result).__name__}")
+            await self._record_provider_success()
+            return result
+        raise RuntimeError("LLM structured call failed: no attempts available")

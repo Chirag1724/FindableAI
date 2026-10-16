@@ -9,6 +9,7 @@ import type { PatchProposal } from "@/types/scan";
 vi.mock("@/lib/api", () => ({
   applyPatches: vi.fn(),
   getPatches: vi.fn().mockResolvedValue([]),
+  verifyRemediation: vi.fn(),
 }));
 
 import * as api from "@/lib/api";
@@ -60,6 +61,7 @@ const onClose = vi.fn();
 beforeEach(() => {
   onClose.mockClear();
   vi.mocked(api.applyPatches).mockReset();
+  vi.mocked(api.verifyRemediation).mockReset();
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -139,6 +141,31 @@ describe("PatchModal - Create PR flow - success", () => {
       expect(screen.getByTestId("pr-result")).toBeInTheDocument()
     );
     expect(screen.getByText(/PR #42/)).toBeInTheDocument();
+    expect(screen.getByTestId("verify-remediation-btn")).toBeInTheDocument();
+  });
+
+  it("runs post-PR verification and does not claim full verification", async () => {
+    vi.mocked(api.applyPatches).mockResolvedValue(PR_RESULT);
+    vi.mocked(api.verifyRemediation).mockResolvedValue({
+      id: "vr_1",
+      scan_id: "scan_test",
+      remediation_run_id: "run_1",
+      issue_outcome: "fixed",
+      operational_status: "ok",
+      detail: "heuristic post-PR check",
+      fully_verified: false,
+      verification_method: "heuristic_post_pr",
+      evaluated_revision: "abc123",
+    });
+    renderModal();
+    await userEvent.click(screen.getByTestId("create-pr-button"));
+    await waitFor(() => expect(screen.getByTestId("verify-remediation-btn")).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("verify-remediation-btn"));
+    await waitFor(() => expect(screen.getByTestId("verify-result")).toBeInTheDocument());
+    expect(api.verifyRemediation).toHaveBeenCalled();
+    expect(screen.getByTestId("verify-outcome")).toHaveTextContent(/not fully verified/i);
+    expect(screen.getByTestId("verify-method")).toHaveTextContent(/heuristic_post_pr/);
+    expect(screen.getByTestId("verify-revision")).toHaveTextContent(/abc123/);
   });
 });
 
@@ -328,4 +355,4 @@ describe("PatchModal - Framework-Native tabs and Dual Perspective", () => {
     expect(screen.getByText("public/llms.txt")).toBeInTheDocument();
     expect(screen.getByText("# FindableAI")).toBeInTheDocument();
   });
-});
+});

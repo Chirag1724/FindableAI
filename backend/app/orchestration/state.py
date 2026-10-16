@@ -82,6 +82,7 @@ class ScanContext:
 
     intents: IntentBatch | None = None
     evaluations: list[IntentEvaluation] = field(default_factory=list)
+    failed_intent_ids: list[str] = field(default_factory=list)
     contradictions: list[Contradiction] = field(default_factory=list)
     schema_report: SchemaOrgReport | None = None
     score: ScoreBreakdown | None = None

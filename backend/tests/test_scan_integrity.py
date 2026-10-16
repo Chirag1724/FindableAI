@@ -339,3 +339,26 @@ def test_error_message_redacts_bearer_like_content():
     )
     assert d.error_message is not None
     assert "gsk_secret" not in d.error_message
+
+
+def test_failed_intent_ids_make_outcome_partial_not_success():
+    d = decide_scan_integrity(
+        IntegrityInput(
+            dag_evaluation_count=30,
+            dag_success=True,
+            dag_error=None,
+            dag_error_reason=None,
+            llm_calls_made=8,
+            used_synthetic_intents=False,
+            used_synthetic_contradictions=False,
+            final_evaluation_count=30,
+            score_source=ScoreSource.DETERMINISTIC_SCORER,
+            patches_source=PatchesSource.ASSEMBLER,
+            is_production=False,
+            failed_intent_ids=("dev_01", "dev_02"),
+        )
+    )
+    assert d.outcome is ScanOutcome.PARTIAL
+    assert d.result_source is ResultSource.PARTIAL_REAL
+    assert d.remediation_eligible is False
+    assert any("dev_01" in w for w in d.warnings)

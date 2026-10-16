@@ -30,6 +30,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
 from app.core.llm import BudgetExhausted, LLMClient
 from app.schemas.intelligence import Contradiction, ContradictionSeverity
 
@@ -871,14 +872,25 @@ class ContradictionDetector:
         facts = extract_facts(chunks)
         deterministic = find_deterministic_conflicts(facts)
         semantic_pairs = find_semantic_candidate_pairs(facts)
+        cap = max(0, int(settings.MAX_SEMANTIC_CONTRADICTION_CALLS))
+        if cap == 0:
+            semantic_pairs = []
+        elif len(semantic_pairs) > cap:
+            logger.info(
+                "semantic_pairs_capped from=%s to=%s",
+                len(semantic_pairs),
+                cap,
+            )
+            semantic_pairs = semantic_pairs[:cap]
 
         logger.info(
             "Contradiction detection start chunks=%s facts=%s deterministic_candidates=%s "
-            "semantic_candidates=%s",
+            "semantic_candidates=%s cap=%s",
             len(chunk_map),
             len(facts),
             len(deterministic),
             len(semantic_pairs),
+            cap,
         )
 
         semantic_results: list[Contradiction] = []

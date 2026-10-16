@@ -78,7 +78,12 @@ def test_initial_state():
     assert guard.used == 0
     assert guard.remaining == 35
     assert guard.limit == 35
-    assert guard.snapshot() == {"limit": 35, "used": 0, "remaining": 35}
+    snap = guard.snapshot()
+    assert snap["limit"] == 35
+    assert snap["used"] == 0
+    assert snap["remaining"] == 35
+    assert "usd_used" in snap
+    assert "enforce_usd" in snap
 
 
 @pytest.mark.asyncio
@@ -111,8 +116,10 @@ async def test_36th_reservation_rejected_before_provider():
     handler = AsyncMock(side_effect=provider)
     client = _client(handler, budget=guard)
 
-    for _ in range(35):
-        await client.create(_Tiny, messages=[{"role": "user", "content": "x"}], max_retries=0)
+    for i in range(35):
+        await client.create(
+            _Tiny, messages=[{"role": "user", "content": f"x{i}"}], max_retries=0
+        )
 
     assert guard.used == 35
     assert handler.await_count == 35
@@ -169,17 +176,19 @@ async def test_concurrent_40_attempts_limit_35():
 
     client = _client(AsyncMock(side_effect=provider), budget=guard)
 
-    async def one() -> str:
+    async def one(i: int) -> str:
         nonlocal budget_fail
         try:
-            await client.create(_Tiny, messages=[{"role": "user", "content": "x"}], max_retries=0)
+            # Distinct payloads: identical in-flight requests are intentionally
+            # coalesced by LLMClient (see test_identical_inflight_requests_are_coalesced).
+            await client.create(_Tiny, messages=[{"role": "user", "content": f"x{i}"}], max_retries=0)
             return "ok"
         except LLMBudgetExceededError:
             async with lock:
                 budget_fail += 1
             return "budget"
 
-    results = await asyncio.gather(*[one() for _ in range(40)])
+    results = await asyncio.gather(*[one(i) for i in range(40)])
     assert results.count("ok") == 35
     assert results.count("budget") == 5
     assert provider_ok == 35
@@ -189,16 +198,42 @@ async def test_concurrent_40_attempts_limit_35():
 
 
 @pytest.mark.asyncio
+async def test_identical_inflight_requests_are_coalesced():
+    """Duplicate-request guard: identical concurrent requests cost one budget unit."""
+    guard = BudgetGuard(limit=35)
+    provider_calls = 0
+
+    async def provider(**kwargs: Any) -> _Tiny:
+        nonlocal provider_calls
+        provider_calls += 1
+        await asyncio.sleep(0.01)
+        return _Tiny(answer="ok")
+
+    client = _client(AsyncMock(side_effect=provider), budget=guard)
+    results = await asyncio.gather(
+        *[
+            client.create(_Tiny, messages=[{"role": "user", "content": "same"}], max_retries=0)
+            for _ in range(8)
+        ]
+    )
+    assert all(r.answer == "ok" for r in results)
+    assert provider_calls == 1
+    assert guard.used == 1
+    assert guard.observability.duplicate_requests_joined == 7
+    assert client._budget.inflight == {}  # cleaned up after completion
+
+
+@pytest.mark.asyncio
 async def test_shared_budget_across_clients():
     guard = BudgetGuard(limit=35)
     handler = AsyncMock(return_value=_Tiny(answer="ok"))
     a = _client(handler, budget=guard)
     b = _client(handler, budget=guard)
 
-    for _ in range(20):
-        await a.create(_Tiny, messages=[{"role": "user", "content": "a"}], max_retries=0)
-    for _ in range(15):
-        await b.create(_Tiny, messages=[{"role": "user", "content": "b"}], max_retries=0)
+    for i in range(20):
+        await a.create(_Tiny, messages=[{"role": "user", "content": f"a{i}"}], max_retries=0)
+    for i in range(15):
+        await b.create(_Tiny, messages=[{"role": "user", "content": f"b{i}"}], max_retries=0)
 
     assert guard.used == 35
     with pytest.raises(LLMBudgetExceededError):
@@ -316,13 +351,19 @@ async def test_per_scan_isolation():
     client_a = _client(handler, budget=a)
     client_b = _client(handler, budget=b)
 
-    for _ in range(35):
-        await client_a.create(_Tiny, messages=[{"role": "user", "content": "a"}], max_retries=0)
+    for i in range(35):
+        await client_a.create(
+            _Tiny, messages=[{"role": "user", "content": f"a{i}"}], max_retries=0
+        )
     with pytest.raises(LLMBudgetExceededError):
-        await client_a.create(_Tiny, messages=[{"role": "user", "content": "a"}], max_retries=0)
+        await client_a.create(
+            _Tiny, messages=[{"role": "user", "content": "a-overflow"}], max_retries=0
+        )
 
-    for _ in range(35):
-        await client_b.create(_Tiny, messages=[{"role": "user", "content": "b"}], max_retries=0)
+    for i in range(35):
+        await client_b.create(
+            _Tiny, messages=[{"role": "user", "content": f"b{i}"}], max_retries=0
+        )
     assert b.used == 35
     assert a.used == 35
 

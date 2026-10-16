@@ -18,11 +18,32 @@ logger = logging.getLogger("findable.access")
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
+WORKER_START_COMMAND = "cd backend && python -m app.worker"
+
+
+def warn_if_no_job_executor() -> None:
+    """Startup guard: durable queue enabled but this API process will not execute jobs.
+
+    Scans would sit in ``scan_jobs.status='queued'`` forever unless a worker runs.
+    ``GET /api/v1/ready`` reports ``worker: stale_or_absent`` in that state.
+    """
+    if settings.DURABLE_SCAN_JOBS and not settings.SCAN_JOB_INLINE_FALLBACK:
+        logging.getLogger("findable.startup").warning(
+            "DURABLE_SCAN_JOBS=true and SCAN_JOB_INLINE_FALLBACK=false: this API process "
+            "only enqueues scans. Start a worker or scans stay 'queued': %s "
+            "(or run `python scripts/run_local.py` to start API + worker together).",
+            WORKER_START_COMMAND,
+        )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Connect to DB / Redis / Browser pool
+    # Startup: fail closed on production auth misconfiguration; never silently open.
+    from app.core.auth import assert_production_security_config
+
     print(f"Starting {settings.PROJECT_NAME} API v{settings.VERSION} [{settings.ENVIRONMENT}]")
+    assert_production_security_config()
+    warn_if_no_job_executor()
     try:
         yield
     except (asyncio.CancelledError, GeneratorExit):

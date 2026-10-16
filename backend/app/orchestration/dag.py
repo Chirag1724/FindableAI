@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.budget import BudgetGuard, LLMBudgetExceededError, default_scan_budget
+from app.core.config import settings
 from app.core.llm import LLMClient
 from app.engines.contradiction import ContradictionDetector, EvidenceChunk, extract_facts
 from app.engines.entailment_engine import DEFAULT_TOP_K, EntailmentEngine, Retriever
@@ -146,9 +147,17 @@ def _observe_chunks_retriever(chunks: Sequence[OrchestrationChunk]) -> Retriever
                 scored.append((norm_score, chunk))
 
         if scored:
-            scored.sort(key=lambda item: item[0], reverse=True)
+            # Deterministic tie-break: score desc, then stable chunk id, then dom_path.
+            scored.sort(
+                key=lambda item: (
+                    -item[0],
+                    str(getattr(item[1], "id", "")),
+                    str(getattr(item[1], "dom_path", "") or ""),
+                )
+            )
             return [item[1] for item in scored[:limit]]
 
+        # Empty keyword overlap: preserve input order (stable), do not reshuffle.
         return snapshot[:limit]
 
     return _retrieve
@@ -239,8 +248,10 @@ class FindableAIDAG:
         retriever: Retriever | None = None,
         markdown_generator: Callable[[PRReportData], str] | None = None,
         progress_callback: Callable[[int, int, Any], Awaitable[None]] | None = None,
+        persist_batch_callback: Callable[[list[Any]], Awaitable[None]] | None = None,
     ) -> None:
         self._progress_callback = progress_callback
+        self._persist_batch_callback = persist_batch_callback
         # One scan-scoped BudgetGuard shared by every LLM consumer in this DAG.
         if llm_client is not None and budget_guard is not None:
             if llm_client.budget_guard is not budget_guard:
@@ -435,8 +446,8 @@ class FindableAIDAG:
         self._entailment = EntailmentEngine(
             llm_client=self._fast_llm,
             retriever=retriever,
-            batch_size=3,
-            concurrency=1,
+            batch_size=max(1, int(settings.EVAL_BATCH_SIZE)),
+            concurrency=max(1, min(3, int(settings.EVAL_BATCH_CONCURRENCY))),
         )
         return self._entailment
 
@@ -453,20 +464,48 @@ class FindableAIDAG:
             }
             if self._progress_callback is not None:
                 eval_kwargs["progress_callback"] = self._progress_callback
+            if self._persist_batch_callback is not None:
+                eval_kwargs["on_batch_complete"] = self._persist_batch_callback
             evaluations = await entailment.evaluate_intents(**eval_kwargs)
+            ctx.evaluations = list(evaluations)
+            ctx.failed_intent_ids = list(getattr(entailment, "last_failed_intent_ids", []) or [])
         except LLMBudgetExceededError as exc:
-            raise StageExecutionError(
-                f"ACT budget exhausted: {exc}",
-                stage="act",
-                reason="budget_exhausted",
-            ) from exc
+            if ctx.evaluations:
+                ctx.failed_intent_ids = list(
+                    getattr(entailment, "last_failed_intent_ids", []) or []
+                )
+                logger.warning(
+                    "ACT budget exhausted with partial evaluations scan_id=%s kept=%s",
+                    ctx.scan_id,
+                    len(ctx.evaluations),
+                )
+            else:
+                raise StageExecutionError(
+                    f"ACT budget exhausted: {exc}",
+                    stage="act",
+                    reason="budget_exhausted",
+                ) from exc
         except Exception as exc:
-            raise StageExecutionError(
-                f"ACT entailment failed: {exc}",
-                stage="act",
-                reason="entailment_failed",
-            ) from exc
-        ctx.evaluations = list(evaluations)
+            if ctx.evaluations:
+                logger.warning(
+                    "ACT entailment error with partial evaluations scan_id=%s kept=%s err=%s",
+                    ctx.scan_id,
+                    len(ctx.evaluations),
+                    type(exc).__name__,
+                )
+            else:
+                raise StageExecutionError(
+                    f"ACT entailment failed: {exc}",
+                    stage="act",
+                    reason="entailment_failed",
+                ) from exc
+        if ctx.failed_intent_ids:
+            logger.warning(
+                "ACT partial scan_id=%s failed_intents=%s evaluations=%s",
+                ctx.scan_id,
+                ctx.failed_intent_ids,
+                len(ctx.evaluations),
+            )
         ctx.completed_stages.append("act")
         logger.info(
             "ACT complete scan_id=%s evaluations=%s llm_calls=%s",
@@ -788,6 +827,7 @@ class FindableAIDAG:
             pr_result=ctx.pr_result,
             error=error,
             error_reason=error_reason,
+            failed_intent_ids=list(ctx.failed_intent_ids),
         )
 
 

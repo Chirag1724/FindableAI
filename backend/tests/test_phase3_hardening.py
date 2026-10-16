@@ -66,11 +66,16 @@ async def test_upsert_skips_remutation_when_pr_persist_failed_has_url(monkeypatc
     """Crash after GitHub accept but before clean PR_OPEN must not open a second PR."""
     from app.orchestration import remediation_lifecycle as rl
 
+    scan_id = uuid.uuid4()
     existing = MagicMock()
+    existing.id = uuid.uuid4()
+    existing.scan_id = scan_id
+    existing.repo_full_name = "acme/site"
     existing.lifecycle_state = STATE_PR_PERSIST_FAILED
     existing.pr_number = 42
     existing.pr_url = "https://github.com/acme/site/pull/42"
     existing.error = "persist failed"
+    existing.state_revision = 1
 
     monkeypatch.setattr(rl, "get_run_by_idempotency", AsyncMock(return_value=existing))
 
@@ -84,10 +89,16 @@ async def test_upsert_skips_remutation_when_pr_persist_failed_has_url(monkeypatc
         async def flush(self):
             return None
 
+        async def execute(self, *_a, **_k):
+            class _R:
+                rowcount = 1
+
+            return _R()
+
     session = _FakeSession()
     out = await upsert_remediation_run(
         session,
-        scan_id=uuid.uuid4(),
+        scan_id=scan_id,
         idempotency_key="scan:repo:main",
         repo_full_name="acme/site",
         base_branch="main",
@@ -118,6 +129,8 @@ async def test_worker_marks_failed_prior_scan_without_success(monkeypatch):
         correlation_id="c1",
         payload={"url": "https://example.com", "max_pages": 1},
         llm_calls_checkpoint=5,
+        llm_usd_checkpoint=0.0,
+        checkpoint_json=None,
         idempotency_key="k",
     )
 

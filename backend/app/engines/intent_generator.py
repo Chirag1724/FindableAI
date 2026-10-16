@@ -421,6 +421,7 @@ class IntentGenerator:
         )
 
         calls_before = self._llm.calls_made
+        cache_before = int(getattr(self._llm._budget.observability, "cache_hits", 0) or 0)
         try:
             # If an instructor client is directly injected (e.g. unit tests with mock handlers),
             # execute single-call IntentBatch for 100% test fixture compatibility.
@@ -486,9 +487,13 @@ class IntentGenerator:
 
         calls_after = self._llm.calls_made
         llm_calls = calls_after - calls_before
-        if llm_calls < 1:
+        cache_after = int(getattr(self._llm._budget.observability, "cache_hits", 0) or 0)
+        cache_hits = cache_after - cache_before
+        # Cache hits skip budget reservation but still prove the LLM path ran.
+        if llm_calls < 1 and cache_hits < 1:
             raise IntentGenerationError(
-                f"Expected at least 1 LLM call, observed {llm_calls}",
+                f"Expected at least 1 LLM call or cache hit, observed calls={llm_calls} "
+                f"cache_hits={cache_hits}",
                 reason="unexpected_llm_call_count",
             )
 

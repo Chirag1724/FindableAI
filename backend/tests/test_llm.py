@@ -172,6 +172,28 @@ async def test_api_key_never_exposed_in_errors_or_repr():
 
 
 @pytest.mark.asyncio
+async def test_401_auth_error_is_not_retried():
+    """401/403 is permanent: one attempt, typed LLMAuthError, no retry amplification."""
+    from app.core.llm_errors import ErrorClass, LLMAuthError
+
+    class _AuthErr(RuntimeError):
+        status_code = 401
+
+    handler = AsyncMock(side_effect=_AuthErr("Error code: 401 - Invalid API Key"))
+    client = _client_with_mock(handler)
+    with pytest.raises(LLMAuthError) as exc_info:
+        await client.create(
+            _TinyResponse,
+            messages=[{"role": "user", "content": "auth-check"}],
+            max_retries=2,
+        )
+    assert exc_info.value.error_class is ErrorClass.AUTH
+    assert handler.await_count == 1
+    assert client.calls_made == 1
+    assert "test-secret-key-do-not-leak" not in str(exc_info.value)
+
+
+@pytest.mark.asyncio
 async def test_budget_reservation_is_async_safe():
     """Concurrent callers must not exceed max_calls."""
     import asyncio

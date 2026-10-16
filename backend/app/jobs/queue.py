@@ -45,6 +45,8 @@ class ClaimedJob:
     correlation_id: str
     payload: dict[str, Any]
     llm_calls_checkpoint: int
+    llm_usd_checkpoint: float
+    checkpoint_json: dict[str, Any] | None
     idempotency_key: str
 
 
@@ -151,11 +153,72 @@ async def enqueue_scan_job(
         # healthy worker. If the heartbeat is stale or the job sat in queue past the
         # heartbeat timeout, treat it as dead, mark the old row failed, and allow a
         # fresh scan to be created and executed.
+        # Terminal failed/dead_letter/cancelled: release the auto idempotency key so
+        # a retry of the same URL can enqueue (matches "fresh scan can run" recovery).
         now = _utcnow()
         heartbeat_timeout = timedelta(
             seconds=int(getattr(settings, "SCAN_JOB_HEARTBEAT_TIMEOUT_SECONDS", 300))
         )
         is_term = is_terminal(existing.status)
+
+        if is_term and existing.status in (
+            JobStatus.FAILED.value,
+            JobStatus.DEAD_LETTER.value,
+            JobStatus.CANCELLED.value,
+        ):
+            metrics.incr("scan_jobs_terminal_superseded")
+            logger.info(
+                "scan_job_terminal_superseded job_id=%s old_scan_id=%s new_scan_id=%s "
+                "status=%s correlation_id=%s",
+                existing.id,
+                existing.scan_id,
+                scan_uuid,
+                existing.status,
+                existing.correlation_id,
+            )
+            existing.idempotency_key = (
+                f"{existing.idempotency_key}:done:{existing.id.hex}"
+            )
+            existing.updated_at = now
+
+            cid = correlation_id or new_correlation_id()
+            db_scan = ScanModel(
+                id=scan_uuid,
+                url=url,
+                repo_url=repo_url,
+                status="in_progress",
+            )
+            job = ScanJob(
+                id=uuid.uuid4(),
+                scan_id=scan_uuid,
+                job_type="scan_pipeline",
+                status=JobStatus.QUEUED.value,
+                idempotency_key=idempotency_key,
+                request_fingerprint=fingerprint,
+                correlation_id=cid,
+                payload={
+                    "url": url,
+                    "max_pages": max_pages,
+                    "personas": personas or ["cto", "developer", "procurement"],
+                    "repo_url": repo_url,
+                },
+                attempt_count=0,
+                max_attempts=int(settings.SCAN_JOB_MAX_ATTEMPTS),
+                fencing_token=0,
+                available_at=now,
+            )
+            session.add(db_scan)
+            session.add(job)
+            await session.flush()
+            metrics.incr("scan_jobs_enqueued")
+            logger.info(
+                "scan_job_enqueued job_id=%s scan_id=%s correlation_id=%s status=%s",
+                job.id,
+                scan_uuid,
+                cid,
+                job.status,
+            )
+            return EnqueueResult(job=job, scan=db_scan, created=True, conflict=False)
 
         is_zombie = False
         if not is_term and existing.finished_at is None:
@@ -285,6 +348,8 @@ async def enqueue_scan_job(
         available_at=_utcnow(),
         next_run_at=_utcnow(),
         llm_calls_checkpoint=0,
+        llm_usd_checkpoint=0.0,
+        checkpoint_json=None,
     )
     try:
         # Savepoint so a uniqueness race does not poison the outer transaction.
@@ -426,6 +491,10 @@ async def claim_next_job(
         correlation_id=job.correlation_id,
         payload=dict(job.payload or {}),
         llm_calls_checkpoint=int(job.llm_calls_checkpoint or 0),
+        llm_usd_checkpoint=float(getattr(job, "llm_usd_checkpoint", 0.0) or 0.0),
+        checkpoint_json=(
+            {**job.checkpoint_json} if isinstance(job.checkpoint_json, dict) else None
+        ),
         idempotency_key=job.idempotency_key,
     )
 
@@ -622,19 +691,41 @@ async def update_llm_checkpoint(
     fencing_token: int,
     worker_id: str,
     llm_calls: int,
-) -> None:
-    await session.execute(
+    llm_usd: float | None = None,
+) -> bool:
+    """Fenced durable budget checkpoint. Returns False if fence mismatch.
+
+    ``llm_calls_checkpoint`` is monotonic (GREATEST / max) so a late heartbeat
+    cannot rewind a higher in-memory reservation.
+    """
+    calls = int(llm_calls)
+    bind = session.get_bind()
+    dialect = bind.dialect.name if bind is not None else "postgresql"
+    calls_col = func.coalesce(ScanJob.llm_calls_checkpoint, 0)
+    calls_expr = (
+        func.max(calls_col, calls) if dialect == "sqlite" else func.greatest(calls_col, calls)
+    )
+    values: dict[str, Any] = {
+        "llm_calls_checkpoint": calls_expr,
+        "updated_at": _utcnow(),
+    }
+    if llm_usd is not None:
+        usd = float(llm_usd)
+        usd_col = func.coalesce(ScanJob.llm_usd_checkpoint, 0.0)
+        usd_expr = (
+            func.max(usd_col, usd) if dialect == "sqlite" else func.greatest(usd_col, usd)
+        )
+        values["llm_usd_checkpoint"] = usd_expr
+    result = await session.execute(
         update(ScanJob)
         .where(
             ScanJob.id == job_id,
             ScanJob.fencing_token == fencing_token,
             ScanJob.claimed_by == worker_id,
         )
-        .values(
-            llm_calls_checkpoint=llm_calls,
-            updated_at=_utcnow(),
-        )
+        .values(**values)
     )
+    return _dml_rowcount(result) > 0
 
 
 async def queue_depth(session: AsyncSession) -> dict[str, int]:

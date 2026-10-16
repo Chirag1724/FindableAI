@@ -21,7 +21,9 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol, cast, runtime_checkable
 
+from app.core.config import settings
 from app.core.llm import BudgetExhausted, LLMClient
+from app.core.llm_errors import ErrorClass, LLMProviderError
 from app.schemas.intelligence import (
     EntailmentStatus,
     EvidenceReference,
@@ -33,7 +35,9 @@ from app.schemas.intelligence import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_TOP_K = 5
-DEFAULT_BATCH_SIZE = 3
+# Success-path default: 30 intents → 3 persona batches of 10. Overridable via
+# EVAL_BATCH_SIZE / EntailmentEngine(batch_size=...).
+DEFAULT_BATCH_SIZE = 10
 
 NLI_SYSTEM_PROMPT = """You are an evidence-grounded classifier.
 
@@ -179,6 +183,16 @@ def format_evidence_for_prompt(evidence: Sequence[RetrievedEvidence]) -> str:
     return "\n\n".join(blocks)
 
 
+def format_evidence_compact(evidence: Sequence[RetrievedEvidence], *, max_chars: int = 180) -> str:
+    """Batch prompt: chunk id + truncated content only (URL/DOM rebuilt at validate)."""
+    blocks: list[str] = []
+    for item in evidence:
+        raw_text = (item.content or "").strip()
+        truncated = raw_text[:max_chars] if len(raw_text) > max_chars else raw_text
+        blocks.append(f"[{item.chunk_id}] {truncated}")
+    return "\n".join(blocks)
+
+
 def build_nli_user_prompt(*, intent: IntentQuery, evidence: Sequence[RetrievedEvidence]) -> str:
     return (
         f"INTENT ID: {intent.intent_id}\n"
@@ -190,22 +204,17 @@ def build_nli_user_prompt(*, intent: IntentQuery, evidence: Sequence[RetrievedEv
 def build_batch_nli_user_prompt(
     items: Sequence[tuple[IntentQuery, Sequence[RetrievedEvidence]]],
 ) -> str:
-    sections: list[str] = []
-    for idx, (intent, evidence) in enumerate(items, start=1):
-        ev_text = (
-            format_evidence_for_prompt(evidence) if evidence else "(No evidence chunks retrieved)"
-        )
-        category_val = (
-            intent.category.value if hasattr(intent.category, "value") else intent.category
-        )
-        sections.append(
-            f"=== ITEM {idx} ===\n"
-            f"INTENT ID: {intent.intent_id}\n"
-            f"CATEGORY: {category_val}\n"
-            f"PERSONA: {intent.persona}\n"
-            f"INTENT QUERY:\n{intent.query}\n\n"
-            f"EVIDENCE CHUNKS:\n{ev_text}"
-        )
+    """Compact batch prompt so 10 intents fit under Groq free-tier 8K TPM."""
+    persona = None
+    if items:
+        persona = items[0][0].persona
+    header_parts = ["Return one evaluation per INTENT ID. Cite only that item's chunk ids."]
+    if persona:
+        header_parts.append(f"PERSONA: {persona}")
+    sections: list[str] = [" ".join(header_parts)]
+    for intent, evidence in items:
+        ev_text = format_evidence_compact(evidence) if evidence else "(no evidence)"
+        sections.append(f"INTENT ID: {intent.intent_id}\nQ: {intent.query}\nEVIDENCE:\n{ev_text}")
     return "\n\n".join(sections)
 
 
@@ -329,18 +338,28 @@ class EntailmentEngine:
         llm_client: LLMClient | None = None,
         retriever: Retriever | None = None,
         top_k: int = DEFAULT_TOP_K,
-        batch_size: int = DEFAULT_BATCH_SIZE,
-        concurrency: int = 1,
+        batch_size: int | None = None,
+        concurrency: int | None = None,
     ) -> None:
         if top_k < 1:
             raise ValueError("top_k must be >= 1")
-        if batch_size < 1:
+        resolved_batch = int(settings.EVAL_BATCH_SIZE) if batch_size is None else int(batch_size)
+        if resolved_batch < 1:
             raise ValueError("batch_size must be >= 1")
+        resolved_conc = (
+            int(settings.EVAL_BATCH_CONCURRENCY) if concurrency is None else int(concurrency)
+        )
+        if resolved_conc < 1:
+            raise ValueError("concurrency must be >= 1")
         self._llm = llm_client or LLMClient()
         self._retriever: Retriever = retriever or default_hybrid_retriever
         self._top_k = top_k
-        self._batch_size = batch_size
-        self._concurrency = max(1, concurrency)
+        self._batch_size = resolved_batch
+        self._concurrency = max(1, min(3, resolved_conc))
+        self._batch_retries = max(0, int(settings.EVAL_BATCH_RETRIES))
+        self._split_min = max(1, int(settings.EVAL_SPLIT_MIN_BATCH))
+        self._max_recovery = max(1, int(settings.EVAL_MAX_RECOVERY_REQUESTS_PER_BATCH))
+        self.last_failed_intent_ids: list[str] = []
 
     @property
     def llm_client(self) -> LLMClient:
@@ -485,13 +504,202 @@ class EntailmentEngine:
         )
         return validated
 
+    @staticmethod
+    def _honest_unresolved(intent: IntentQuery, reason: str) -> IntentEvaluation:
+        """Truthful UNKNOWN after recovery is exhausted — never a fabricated success."""
+        return IntentEvaluation(
+            intent_id=intent.intent_id,
+            query=intent.query,
+            category=intent.category,
+            persona=intent.persona,
+            status=EntailmentStatus.UNKNOWN,
+            reasoning=f"Evaluation unresolved after bounded recovery: {reason}",
+            evidence=[],
+            confidence=0.0,
+        )
+
+    @staticmethod
+    def _split_immediately(exc: BaseException | None) -> bool:
+        if isinstance(exc, LLMProviderError):
+            return exc.error_class in (ErrorClass.CONTEXT_LENGTH, ErrorClass.INVALID_OUTPUT)
+        return False
+
+    async def _try_batch_llm(
+        self,
+        items: list[tuple[int, IntentQuery, Sequence[RetrievedEvidence]]],
+        scan_id: uuid.UUID,
+    ) -> tuple[
+        dict[int, IntentEvaluation],
+        list[tuple[int, IntentQuery, Sequence[RetrievedEvidence]]],
+        BaseException | None,
+    ]:
+        """One structured batch request. Keep only items whose intent_id validates."""
+        user_prompt = build_batch_nli_user_prompt([(it, ev) for _, it, ev in items])
+        n = len(items)
+        try:
+            raw_batch = await self._llm.create(
+                IntentEvaluationBatch,
+                messages=[
+                    {"role": "system", "content": BATCH_NLI_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_retries=0,
+                max_tokens=min(2048, 160 * n + 200),
+            )
+        except BudgetExhausted:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "batch_nli_failed scan_id=%s size=%s error_type=%s",
+                scan_id,
+                n,
+                type(exc).__name__,
+            )
+            return {}, list(items), exc
+
+        eval_map: dict[str, IntentEvaluation] = {
+            e.intent_id: e for e in (raw_batch.evaluations or []) if e.intent_id
+        }
+        validated: dict[int, IntentEvaluation] = {}
+        unresolved: list[tuple[int, IntentQuery, Sequence[RetrievedEvidence]]] = []
+        for orig_idx, intent, evidence in items:
+            candidate = eval_map.get(intent.intent_id)
+            if candidate is None:
+                unresolved.append((orig_idx, intent, evidence))
+                continue
+            try:
+                validated[orig_idx] = validate_intent_evaluation(
+                    candidate, intent=intent, retrieved=evidence
+                )
+            except EntailmentError as v_err:
+                logger.warning(
+                    "batch_item_invalid intent_id=%s reason=%s; will re-request",
+                    intent.intent_id,
+                    v_err.reason,
+                )
+                unresolved.append((orig_idx, intent, evidence))
+        return validated, unresolved, None
+
+    async def _try_single_llm(
+        self,
+        orig_idx: int,
+        intent: IntentQuery,
+        evidence: Sequence[RetrievedEvidence],
+    ) -> tuple[int, IntentEvaluation] | None:
+        try:
+            raw = await self._llm.create(
+                IntentEvaluation,
+                messages=[
+                    {"role": "system", "content": NLI_SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": build_nli_user_prompt(intent=intent, evidence=evidence),
+                    },
+                ],
+                max_retries=0,
+                max_tokens=900,
+            )
+            return orig_idx, validate_intent_evaluation(raw, intent=intent, retrieved=evidence)
+        except BudgetExhausted:
+            raise
+        except Exception as err:
+            logger.warning(
+                "per_intent_nli_failed intent_id=%s error_type=%s",
+                intent.intent_id,
+                type(err).__name__,
+            )
+            return None
+
+    async def _resolve_with_recovery(
+        self,
+        items: list[tuple[int, IntentQuery, Sequence[RetrievedEvidence]]],
+        scan_id: uuid.UUID,
+        *,
+        spend: list[int],
+        cap: int,
+        allow_retry: bool,
+        charge: bool,
+    ) -> dict[int, IntentEvaluation]:
+        """Retry once → split into halves → per-intent. Keep every validated row.
+
+        ``spend`` is a 1-int list shared with recursive splits so the recovery
+        cap applies to the original batch as a whole. The success-path first
+        call uses ``charge=False``; every retry/split/per-intent call charges.
+        """
+        if not items:
+            return {}
+        if charge:
+            if spend[0] >= cap:
+                return {idx: self._honest_unresolved(it, "recovery_cap") for idx, it, _ in items}
+            spend[0] += 1
+
+        validated, unresolved, err = await self._try_batch_llm(items, scan_id)
+        if not unresolved:
+            return validated
+
+        if allow_retry and self._batch_retries > 0 and not self._split_immediately(err):
+            if spend[0] < cap:
+                spend[0] += 1
+                obs = getattr(getattr(self._llm, "budget_guard", None), "observability", None)
+                if obs is not None:
+                    try:
+                        await obs.batch_retrying()
+                    except Exception:
+                        logger.debug("batch_retrying_counter_failed", exc_info=True)
+                more, unresolved, err = await self._try_batch_llm(unresolved, scan_id)
+                validated.update(more)
+                if not unresolved:
+                    return validated
+
+        if len(unresolved) > self._split_min and spend[0] < cap:
+            mid = max(1, len(unresolved) // 2)
+            left, right = unresolved[:mid], unresolved[mid:]
+            logger.info(
+                "batch_split scan_id=%s left=%s right=%s recovery_used=%s/%s",
+                scan_id,
+                len(left),
+                len(right),
+                spend[0],
+                cap,
+            )
+            if left:
+                validated.update(
+                    await self._resolve_with_recovery(
+                        left, scan_id, spend=spend, cap=cap, allow_retry=False, charge=True
+                    )
+                )
+            if right:
+                validated.update(
+                    await self._resolve_with_recovery(
+                        right, scan_id, spend=spend, cap=cap, allow_retry=False, charge=True
+                    )
+                )
+            unresolved = [t for t in unresolved if t[0] not in validated]
+            if not unresolved:
+                return validated
+
+        for orig_idx, intent, evidence in list(unresolved):
+            if spend[0] >= cap:
+                break
+            spend[0] += 1
+            got = await self._try_single_llm(orig_idx, intent, evidence)
+            if got is not None:
+                validated[got[0]] = got[1]
+
+        for orig_idx, intent, _evidence in unresolved:
+            if orig_idx not in validated:
+                validated[orig_idx] = self._honest_unresolved(
+                    intent, err.__class__.__name__ if err else "missing_or_invalid_id"
+                )
+        return validated
+
     async def evaluate_intent_batch(
         self,
         *,
         batch: Sequence[tuple[IntentQuery, Sequence[RetrievedEvidence]]],
         scan_id: uuid.UUID,
     ) -> list[IntentEvaluation]:
-        """Evaluate a batch of (IntentQuery, RetrievedEvidence) pairs using 1 structured LLM call."""
+        """Evaluate a persona-sized batch. Success path: exactly one provider request."""
         if not batch:
             return []
 
@@ -513,108 +721,20 @@ class EntailmentEngine:
             else:
                 items_for_llm.append((idx, intent, evidence))
 
-        if not items_for_llm:
-            return [cast(IntentEvaluation, r) for r in results]
-
-        user_prompt = build_batch_nli_user_prompt([(item[1], item[2]) for item in items_for_llm])
-        raw_batch: IntentEvaluationBatch | None = None
-        try:
-            raw_batch = await self._llm.create(
-                IntentEvaluationBatch,
-                messages=[
-                    {"role": "system", "content": BATCH_NLI_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-                max_retries=2,
-                max_tokens=min(4096, max(1500, 450 * len(items_for_llm))),
-            )
-        except BudgetExhausted:
-            raise
-        except Exception as exc:
-            logger.warning(
-                "Batch NLI LLM call failed for scan_id=%s batch_size=%d (%s); falling back to individual calls",
+        if items_for_llm:
+            resolved = await self._resolve_with_recovery(
+                items_for_llm,
                 scan_id,
-                len(items_for_llm),
-                exc,
+                spend=[0],
+                cap=self._max_recovery,
+                allow_retry=True,
+                charge=False,
             )
-
-        if raw_batch and raw_batch.evaluations:
-            eval_map: dict[str, IntentEvaluation] = {
-                e.intent_id: e for e in raw_batch.evaluations if e.intent_id
-            }
-            for list_idx, (orig_idx, intent, evidence) in enumerate(items_for_llm):
-                candidate = eval_map.get(intent.intent_id)
-                if not candidate and list_idx < len(raw_batch.evaluations):
-                    candidate = raw_batch.evaluations[list_idx]
-                if candidate:
-                    try:
-                        validated = validate_intent_evaluation(
-                            candidate,
-                            intent=intent,
-                            retrieved=evidence,
-                        )
-                        results[orig_idx] = validated
-                    except EntailmentError as v_err:
-                        logger.warning(
-                            "Batch item validation failed for intent %s (%s); setting UNKNOWN",
-                            intent.intent_id,
-                            v_err,
-                        )
-                        results[orig_idx] = IntentEvaluation(
-                            intent_id=intent.intent_id,
-                            query=intent.query,
-                            category=intent.category,
-                            persona=intent.persona,
-                            status=EntailmentStatus.UNKNOWN,
-                            reasoning=f"Batch validation: {v_err}",
-                            evidence=[],
-                            confidence=0.85,
-                        )
-
-        # For any items that were not resolved by the batch call (e.g. LLM omitted or failed):
-        unresolved = [
-            items_for_llm[i]
-            for i in range(len(items_for_llm))
-            if results[items_for_llm[i][0]] is None
-        ]
-        if unresolved:
-            logger.info("Resolving %d items individually via fallback", len(unresolved))
-            sem = asyncio.Semaphore(3)
-
-            async def _resolve_single(
-                orig_idx: int, it: IntentQuery, ev: Sequence[RetrievedEvidence]
-            ) -> None:
-                async with sem:
-                    try:
-                        user_prompt = build_nli_user_prompt(intent=it, evidence=ev)
-                        raw = await self._llm.create(
-                            IntentEvaluation,
-                            messages=[
-                                {"role": "system", "content": NLI_SYSTEM_PROMPT},
-                                {"role": "user", "content": user_prompt},
-                            ],
-                            max_retries=2,
-                            max_tokens=1500,
-                        )
-                        results[orig_idx] = validate_intent_evaluation(raw, intent=it, retrieved=ev)
-                    except BudgetExhausted:
-                        raise
-                    except Exception as err:
-                        logger.warning("Fallback evaluation failed for %s: %s", it.intent_id, err)
-                        results[orig_idx] = IntentEvaluation(
-                            intent_id=it.intent_id,
-                            query=it.query,
-                            category=it.category,
-                            persona=it.persona,
-                            status=EntailmentStatus.UNKNOWN,
-                            reasoning=f"Evaluation temporarily unavailable: {err}",
-                            evidence=[],
-                            confidence=0.85,
-                        )
-
-            await asyncio.gather(
-                *[_resolve_single(orig_idx, it, ev) for orig_idx, it, ev in unresolved]
-            )
+            for orig_idx, evaluation in resolved.items():
+                results[orig_idx] = evaluation
+            for orig_idx, intent, _evidence in items_for_llm:
+                if results[orig_idx] is None:
+                    results[orig_idx] = self._honest_unresolved(intent, "unresolved")
 
         return [cast(IntentEvaluation, r) for r in results]
 
@@ -624,31 +744,71 @@ class EntailmentEngine:
         intents: Sequence[IntentQuery],
         scan_id: uuid.UUID,
         progress_callback: Callable[[int, int, IntentEvaluation], Awaitable[None]] | None = None,
+        on_batch_complete: Callable[[list[IntentEvaluation]], Awaitable[None]] | None = None,
     ) -> list[IntentEvaluation]:
         """
-        Evaluate intents in parallel batches (e.g. 3 batches of 10 for 30 intents).
+        Evaluate intents grouped by persona, then chunked by batch_size
+        (default 10 → 3 requests for 30 intents across 3 personas).
+        Results are returned in the original intent order.
         """
         if not intents:
+            self.last_failed_intent_ids = []
             return []
 
+        self.last_failed_intent_ids = []
         total_count = len(intents)
         completed_count = 0
         progress_lock = asyncio.Lock()
 
-        # Step 1: Concurrently retrieve evidence for all intents (Contract-1 hybrid_search)
         retrieval_tasks = [self._retrieve(query=it.query, scan_id=scan_id) for it in intents]
         retrieved_list = await asyncio.gather(*retrieval_tasks)
         paired = list(zip(intents, retrieved_list, strict=True))
 
-        # Step 2: Split into batches (default 3 items per batch)
+        groups: dict[str, list[tuple[IntentQuery, Sequence[RetrievedEvidence]]]] = {}
+        group_order: list[str] = []
+        for intent, evidence in paired:
+            key = (intent.persona or "").strip().lower() or "_unassigned"
+            if key not in groups:
+                groups[key] = []
+                group_order.append(key)
+            groups[key].append((intent, evidence))
+
         batch_size = self._batch_size
-        chunks = [paired[i : i + batch_size] for i in range(0, len(paired), batch_size)]
+        chunks: list[list[tuple[IntentQuery, Sequence[RetrievedEvidence]]]] = []
+        for key in group_order:
+            group = groups[key]
+            for i in range(0, len(group), batch_size):
+                chunks.append(group[i : i + batch_size])
+        obs = getattr(getattr(self._llm, "budget_guard", None), "observability", None)
+        if obs is not None:
+            try:
+                await obs.init_batches(len(chunks))
+            except Exception:
+                pass
 
         async def _process_batch(
             chunk: Sequence[tuple[IntentQuery, Sequence[RetrievedEvidence]]],
         ) -> list[IntentEvaluation]:
             nonlocal completed_count
-            evaluations = await self.evaluate_intent_batch(batch=chunk, scan_id=scan_id)
+            if obs is not None:
+                try:
+                    await obs.batch_started()
+                except Exception:
+                    pass
+            try:
+                evaluations = await self.evaluate_intent_batch(batch=chunk, scan_id=scan_id)
+            except Exception:
+                if obs is not None:
+                    try:
+                        await obs.batch_failed()
+                    except Exception:
+                        pass
+                raise
+            if obs is not None:
+                try:
+                    await obs.batch_completed()
+                except Exception:
+                    pass
             if progress_callback is not None:
                 for item in evaluations:
                     async with progress_lock:
@@ -660,6 +820,9 @@ class EntailmentEngine:
                         pass
             return evaluations
 
+        # Settle every batch: a sibling failure must not drop already-finished work.
+        # CancelledError is propagated (task shutdown), not converted into UNKNOWN.
+        raw_results: list[list[IntentEvaluation] | BaseException] = []
         if self._concurrency > 1:
             sem = asyncio.Semaphore(self._concurrency)
 
@@ -669,15 +832,68 @@ class EntailmentEngine:
                 async with sem:
                     return await _process_batch(c)
 
-            batch_results = await asyncio.gather(*[_bounded_batch(c) for c in chunks])
+            gathered = await asyncio.gather(
+                *[_bounded_batch(c) for c in chunks],
+                return_exceptions=True,
+            )
+            raw_results = list(gathered)
         else:
-            batch_results = []
             for c in chunks:
-                batch_results.append(await _process_batch(c))
+                try:
+                    raw_results.append(await _process_batch(c))
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    raw_results.append(exc)
+
         flattened: list[IntentEvaluation] = []
-        for br in batch_results:
+        failed_ids: list[str] = []
+        budget_exc: BudgetExhausted | None = None
+        saw_success = False
+        for chunk, br in zip(chunks, raw_results, strict=True):
+            if isinstance(br, asyncio.CancelledError):
+                raise br
+            if isinstance(br, BaseException):
+                if isinstance(br, BudgetExhausted):
+                    budget_exc = br
+                reason = f"batch_failed:{type(br).__name__}"
+                for intent, _ev in chunk:
+                    failed_ids.append(intent.intent_id)
+                    flattened.append(self._honest_unresolved(intent, reason))
+                continue
+            # A batch that produced only recovery placeholders did not persist any work.
+            if br and all(
+                e.status is EntailmentStatus.UNKNOWN
+                and float(e.confidence) == 0.0
+                and "unresolved after bounded recovery" in (e.reasoning or "").lower()
+                for e in br
+            ):
+                failed_ids.extend(e.intent_id for e in br)
+                flattened.extend(br)
+                continue
             flattened.extend(br)
-        return flattened
+            saw_success = True
+            if on_batch_complete is not None:
+                try:
+                    await on_batch_complete(list(br))
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception(
+                        "on_batch_complete_failed scan_id=%s size=%s", scan_id, len(br)
+                    )
+
+        self.last_failed_intent_ids = failed_ids
+        if budget_exc is not None and not saw_success:
+            raise budget_exc
+        by_id = {e.intent_id: e for e in flattened}
+        ordered: list[IntentEvaluation] = []
+        for intent in intents:
+            ev = by_id.get(intent.intent_id)
+            ordered.append(
+                ev if ev is not None else self._honest_unresolved(intent, "missing_batch_result")
+            )
+        return ordered
 
 
 async def evaluate_intent(

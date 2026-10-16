@@ -64,8 +64,35 @@ class Settings(BaseSettings):
     MAX_SCAN_PAGES: int = 15
     SCAN_TIMEOUT_SECONDS: int = 60
     LLM_BUDGET_CAP_USD: float = 0.01
+    # Estimated USD charged per reserved provider call (not a provider invoice).
+    # Used with LLM_BUDGET_CAP_USD when LLM_ENFORCE_USD_BUDGET is true.
+    LLM_ESTIMATED_USD_PER_CALL: float = 0.0001
+    # When true, BudgetGuard also hard-stops on estimated USD >= LLM_BUDGET_CAP_USD.
+    LLM_ENFORCE_USD_BUDGET: bool = True
     # Hard global LLM provider-call cap per scan (P2-4.2). Not per-engine.
+    # Normal path: 3 intent-generation + 3 evaluation batches + <=6 contradiction
+    # judgments = 6-12 requests; the cap leaves bounded room for retries/splits.
     MAX_LLM_CALLS_PER_SCAN: int = 100
+
+    # Evaluation (ACT) batching: 30 intents -> 3 batches of 10, one persona per batch.
+    # Each batch is one provider request on the success path.
+    EVAL_BATCH_SIZE: int = 10
+    # Concurrent evaluation batches. Keep low on free tiers (Groq: 8K TPM per model).
+    EVAL_BATCH_CONCURRENCY: int = 1
+    # Bounded recovery for a failed batch: retry once, then split into halves
+    # (min size EVAL_SPLIT_MIN_BATCH), then per-intent only as the last resort.
+    EVAL_BATCH_RETRIES: int = 1
+    EVAL_SPLIT_MIN_BATCH: int = 5
+    # Hard cap on provider requests the ACT stage may spend recovering one batch
+    # (retry + splits + per-intent), independent of the scan-wide budget.
+    EVAL_MAX_RECOVERY_REQUESTS_PER_BATCH: int = 6
+    # VERIFY stage: max semantic contradiction pairs sent to the LLM per scan.
+    MAX_SEMANTIC_CONTRADICTION_CALLS: int = 6
+
+    # Groq free-tier pacing (estimated tokens = prompt/4 + max_tokens, like Groq's
+    # "Requested"). 0 disables token pacing. Rate-limit 429s remain the backstop.
+    GROQ_RPM_LIMIT: int = 28
+    GROQ_TPM_LIMIT: int = 8000
 
     # Durable scan job queue (PostgreSQL-backed; no separate broker)
     DURABLE_SCAN_JOBS: bool = True
@@ -132,6 +159,31 @@ class Settings(BaseSettings):
     def _max_llm_calls_non_negative(cls, value: int) -> int:
         if value is None or value < 0:
             raise ValueError("MAX_LLM_CALLS_PER_SCAN must be an int >= 0")
+        return value
+
+    @field_validator(
+        "EVAL_BATCH_SIZE",
+        "EVAL_SPLIT_MIN_BATCH",
+        "EVAL_MAX_RECOVERY_REQUESTS_PER_BATCH",
+    )
+    @classmethod
+    def _eval_positive(cls, value: int) -> int:
+        if value is None or value < 1:
+            raise ValueError("evaluation batching settings must be ints >= 1")
+        return value
+
+    @field_validator("EVAL_BATCH_CONCURRENCY")
+    @classmethod
+    def _eval_concurrency(cls, value: int) -> int:
+        if value is None or value < 1:
+            raise ValueError("EVAL_BATCH_CONCURRENCY must be an int >= 1")
+        return min(3, int(value))
+
+    @field_validator("EVAL_BATCH_RETRIES", "MAX_SEMANTIC_CONTRADICTION_CALLS")
+    @classmethod
+    def _eval_non_negative(cls, value: int) -> int:
+        if value is None or value < 0:
+            raise ValueError("value must be an int >= 0")
         return value
 
 

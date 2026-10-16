@@ -20,6 +20,10 @@ export interface ScanStatusEvent {
   current_step: string;
   message: string;
   timestamp: string;
+  /** Monotonic durable event sequence when persisted by the worker */
+  seq?: number | null;
+  progress_current?: number | null;
+  progress_total?: number | null;
 }
 
 export interface SubScoreMetric {
@@ -133,8 +137,40 @@ export interface ScanResponse {
   remediation_eligible?: boolean;
   intelligence_warnings?: string[];
   llm_calls_made?: number;
+  /** Estimated USD from BudgetGuard — not a provider invoice */
+  llm_usd_estimated?: number | null;
+  llm_usd_provider_reported?: number | null;
+  cost_basis?: "estimated" | "provider_reported" | "unknown" | string | null;
+  provider_successes?: number | null;
+  provider_failures?: number | null;
+  primary_llm_model?: string | null;
+  fallback_provider_used?: boolean | null;
+  batches_total?: number | null;
+  batches_completed?: number | null;
+  batches_failed?: number | null;
+  llm_tokens_in?: number | null;
+  llm_tokens_out?: number | null;
+  job_status?: string | null;
+  job_attempt_count?: number | null;
+  job_max_attempts?: number | null;
+  /** False + job_status=queued => waiting with no active worker */
+  worker_heartbeat_recent?: boolean | null;
   repo_url?: string;
   github_repo_url?: string;
+  /** Durable progress snapshot from PostgreSQL (authoritative across API/worker) */
+  progress_percent?: number | null;
+  progress_stage?: string | null;
+  progress_message?: string | null;
+  progress_current?: number | null;
+  progress_total?: number | null;
+  progress_seq?: number | null;
+  failed_intent_ids?: string[];
+  failure_reason?: string | null;
+  provider_retries?: number | null;
+  provider_failovers?: number | null;
+  duplicate_requests_joined?: number | null;
+  cache_hits?: number | null;
+  evaluations_valid?: number | null;
 }
 
 // Intelligence layer types (mirrors backend schemas/intelligence.py)
@@ -238,6 +274,11 @@ export interface VerificationRun {
   detail?: string | null;
   fresh_evidence?: unknown[];
   created_at?: string | null;
+  /** Always heuristic_post_pr today — never a full website re-scan. */
+  verification_method?: string | null;
+  /** True only for a complete fresh re-scan; heuristic checks leave this false. */
+  fully_verified?: boolean | null;
+  is_full_rescan?: boolean | null;
 }
 
 export interface ApiError {

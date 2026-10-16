@@ -21,6 +21,8 @@ interface LiveScanConsoleProps {
   latestEvent: ScanStatusEvent | null;
   events: { message: string; timestamp: string; current_step: string }[];
   targetUrl: string;
+  /** ISO start time — elapsed clock is wall-clock from scan start, not mount. */
+  startedAt?: string | null;
 }
 
 const PIPELINE_STAGES = [
@@ -75,21 +77,39 @@ const PIPELINE_STAGES = [
   },
 ];
 
+function computeElapsedSeconds(startedAt?: string | null): number {
+  if (!startedAt) return 0;
+  const start = Date.parse(startedAt);
+  if (Number.isNaN(start)) return 0;
+  return Math.max(0, Math.floor((Date.now() - start) / 1000));
+}
+
+function formatElapsed(totalSeconds: number): string {
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}m ${s.toString().padStart(2, "0")}s`;
+}
+
 export function LiveScanConsole({
   currentStatus,
   latestEvent,
   events,
   targetUrl,
+  startedAt = null,
 }: LiveScanConsoleProps) {
   const terminalEndRef = useRef<HTMLDivElement>(null);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(() =>
+    computeElapsedSeconds(startedAt)
+  );
 
   useEffect(() => {
+    setElapsedSeconds(computeElapsedSeconds(startedAt));
     const timer = setInterval(() => {
-      setElapsedSeconds((prev) => prev + 1);
+      setElapsedSeconds(computeElapsedSeconds(startedAt));
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [startedAt]);
 
   useEffect(() => {
     terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -195,7 +215,7 @@ export function LiveScanConsole({
           </div>
 
           <div className="flex items-center gap-3 text-[10px] text-text-muted">
-            <span>Elapsed: {elapsedSeconds}s</span>
+            <span>Elapsed: {formatElapsed(elapsedSeconds)}</span>
             <span className="text-white/[0.2]">&bull;</span>
             <span>Target: {targetUrl}</span>
           </div>

@@ -76,6 +76,84 @@ def apply_integrity_to_scan_row(
         db_scan.error = error
 
 
+def apply_observability_to_scan_row(
+    db_scan: Any,
+    *,
+    llm_usd_estimated: float | None = None,
+    provider_successes: int | None = None,
+    provider_failures: int | None = None,
+    primary_llm_model: str | None = None,
+    fallback_provider_used: bool | None = None,
+    batches_total: int | None = None,
+    batches_completed: int | None = None,
+    batches_failed: int | None = None,
+    llm_tokens_in: int | None = None,
+    llm_tokens_out: int | None = None,
+    provider_retries: int | None = None,
+    provider_failovers: int | None = None,
+    duplicate_requests_joined: int | None = None,
+    cache_hits: int | None = None,
+    evaluations_valid: int | None = None,
+) -> None:
+    """Write non-secret provider/batch/cost observability onto a Scan row."""
+    if llm_usd_estimated is not None:
+        db_scan.llm_usd_estimated = float(llm_usd_estimated)
+    if provider_successes is not None:
+        db_scan.provider_successes = int(provider_successes)
+    if provider_failures is not None:
+        db_scan.provider_failures = int(provider_failures)
+    if primary_llm_model is not None:
+        db_scan.primary_llm_model = str(primary_llm_model)[:128]
+    if fallback_provider_used is not None:
+        db_scan.fallback_provider_used = bool(fallback_provider_used)
+    if batches_total is not None:
+        db_scan.batches_total = int(batches_total)
+    if batches_completed is not None:
+        db_scan.batches_completed = int(batches_completed)
+    if batches_failed is not None:
+        db_scan.batches_failed = int(batches_failed)
+    if llm_tokens_in is not None:
+        db_scan.llm_tokens_in = int(llm_tokens_in)
+    if llm_tokens_out is not None:
+        db_scan.llm_tokens_out = int(llm_tokens_out)
+    if provider_retries is not None:
+        db_scan.provider_retries = int(provider_retries)
+    if provider_failovers is not None:
+        db_scan.provider_failovers = int(provider_failovers)
+    if duplicate_requests_joined is not None:
+        db_scan.duplicate_requests_joined = int(duplicate_requests_joined)
+    if cache_hits is not None:
+        db_scan.cache_hits = int(cache_hits)
+    if evaluations_valid is not None:
+        db_scan.evaluations_valid = int(evaluations_valid)
+
+
+def observability_from_budget(budget_guard: Any) -> dict[str, Any]:
+    """Safe dict for ScanResponse / row persistence from a BudgetGuard."""
+    if budget_guard is None:
+        return {}
+    snap = budget_guard.snapshot() if hasattr(budget_guard, "snapshot") else {}
+    return {
+        "llm_usd_estimated": float(snap.get("usd_used") or 0.0),
+        "llm_usd_provider_reported": None,
+        "cost_basis": "estimated",
+        "provider_successes": int(snap.get("provider_successes") or 0),
+        "provider_failures": int(snap.get("provider_failures") or 0),
+        "primary_llm_model": snap.get("primary_model"),
+        "fallback_provider_used": bool(snap.get("fallback_provider_used") or False),
+        "batches_total": snap.get("batches_total"),
+        "batches_completed": int(snap.get("batches_completed") or 0),
+        "batches_failed": int(snap.get("batches_failed") or 0),
+        "llm_tokens_in": snap.get("tokens_in"),
+        "llm_tokens_out": snap.get("tokens_out"),
+        "provider_retries": int(snap.get("provider_retries") or 0),
+        "provider_failovers": int(snap.get("provider_failovers") or 0),
+        "duplicate_requests_joined": int(snap.get("duplicate_requests_joined") or 0),
+        "cache_hits": int(snap.get("cache_hits") or 0),
+        "evaluations_valid": int(snap.get("evaluations_valid") or 0),
+    }
+
+
 def _has_persisted_integrity(db_scan: Any) -> bool:
     version = getattr(db_scan, "integrity_version", None)
     if version is not None and int(version) >= 1:

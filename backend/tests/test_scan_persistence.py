@@ -267,12 +267,17 @@ def test_legacy_row_survives_fresh_session_as_unknown():
 async def test_get_scan_cold_hydration_uses_persisted_integrity(monkeypatch):
     """GET /scans/{id} DB path must surface integrity, not invent real_llm."""
     from datetime import UTC, datetime
+    from types import SimpleNamespace
+    from uuid import uuid4
 
     from app.api.v1 import scans as scans_mod
     from app.models.database import Scan as ScanModel
+    from app.schemas.intelligence import EvidenceReference
 
     scan_uuid = uuid.uuid4()
     scan_id = f"scan_{scan_uuid.hex}"
+    intent_id = uuid4()
+    chunk_id = uuid4()
 
     # Clear memory cache so hydration hits DB path
     scans_mod.SCANS_DB.pop(scan_id, None)
@@ -292,6 +297,16 @@ async def test_get_scan_cold_hydration_uses_persisted_integrity(monkeypatch):
     )
     apply_integrity_to_scan_row(db_scan, **_real_llm_kwargs())
 
+    intent_row = SimpleNamespace(
+        id=intent_id,
+        query="Hours?",
+        category="availability",
+        persona="cto",
+        status="SUPPORTED",
+        reasoning="Supported by durable evidence.",
+        confidence=0.9,
+    )
+
     class _Result:
         def __init__(self, items):
             self._items = items
@@ -308,7 +323,10 @@ async def test_get_scan_cold_hydration_uses_persisted_integrity(monkeypatch):
                 return db_scan
             return None
 
-        async def execute(self, _stmt):
+        async def execute(self, stmt):
+            text = str(stmt)
+            if "intents" in text.lower() or "Intent" in text:
+                return _Result([intent_row])
             return _Result([])
 
         async def __aenter__(self):
@@ -321,12 +339,26 @@ async def test_get_scan_cold_hydration_uses_persisted_integrity(monkeypatch):
         def __call__(self):
             return _Session()
 
+    async def _hydrate_ok(_session, _rows):
+        return {
+            intent_id: [
+                EvidenceReference(
+                    chunk_id=str(chunk_id),
+                    dom_path="main > p",
+                    rank=1,
+                    excerpt="Open 9-5",
+                )
+            ]
+        }
+
     monkeypatch.setattr(scans_mod, "AsyncSessionLocal", _SessionFactory())
+    monkeypatch.setattr(scans_mod, "hydrate_evidence_for_intents", _hydrate_ok)
 
     resp = await scans_mod.get_scan(scan_id)
     assert resp.execution_mode == "real_llm"
     assert resp.result_source == "real_pipeline"
     assert resp.outcome == "success"
+    # Eligibility retained only when durable evidence-backed findings hydrate.
     assert resp.remediation_eligible is True
     assert resp.intelligence_warnings == ["all stages completed"]
     assert resp.llm_calls_made == 31
@@ -336,6 +368,8 @@ async def test_get_scan_cold_hydration_uses_persisted_integrity(monkeypatch):
     assert resp.summary.pages_crawled == 3
     assert resp.summary.dom_chunks_extracted == 42
     assert resp.data_source == "live_pipeline"
+    assert len(resp.intents) == 1
+    assert resp.intents[0].evidence
 
     scans_mod.SCANS_DB.pop(scan_id, None)
 
