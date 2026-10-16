@@ -128,9 +128,7 @@ class BudgetGuard:
         self._limit = resolved
         self._used = initial_used
         self._usd_used = float(initial_usd)
-        self._usd_cap = float(
-            settings.LLM_BUDGET_CAP_USD if usd_cap is None else usd_cap
-        )
+        self._usd_cap = float(settings.LLM_BUDGET_CAP_USD if usd_cap is None else usd_cap)
         self._usd_per_call = float(
             settings.LLM_ESTIMATED_USD_PER_CALL if usd_per_call is None else usd_per_call
         )
@@ -144,6 +142,8 @@ class BudgetGuard:
         # (same model/schema/messages) share one future instead of two calls.
         self.inflight: dict[str, asyncio.Future[Any]] = {}
         self._inflight_lock = asyncio.Lock()
+        # Completed identical requests reuse the prior result and skip budget.
+        self.response_cache: dict[str, Any] = {}
 
     def restore_used(self, used: int) -> None:
         """Raise the used counter to at least ``used`` (never decreases)."""

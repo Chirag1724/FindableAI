@@ -446,6 +446,12 @@ class LLMClient:
         except Exception:
             logger.debug("duplicate_joined_counter_failed", exc_info=True)
 
+    async def _record_cache_hit(self) -> None:
+        try:
+            await self._budget.observability.record_cache_hit()
+        except Exception:
+            logger.debug("cache_hit_counter_failed", exc_info=True)
+
     # -------------------------------------------------------------- public API
     @staticmethod
     def _inflight_key(model: str, response_model: type[BaseModel], messages: Any) -> str:
@@ -480,6 +486,17 @@ class LLMClient:
         await self._budget.observability.set_primary_model(selected_model)
 
         key = self._inflight_key(selected_model, response_model, messages)
+        # Completed identical request: return cached result without reserving budget.
+        cached = self._budget.response_cache.get(key)
+        if cached is not None:
+            logger.info(
+                "llm_cache_hit model=%s response_model=%s",
+                selected_model,
+                response_model.__name__,
+            )
+            await self._record_cache_hit()
+            return cached
+
         inflight: dict[str, asyncio.Future[Any]] = self._budget.inflight
         async with self._budget._inflight_lock:
             existing = inflight.get(key)
@@ -518,6 +535,7 @@ class LLMClient:
                 fut.exception()  # mark retrieved; waiters (if any) re-raise it
             raise
         else:
+            self._budget.response_cache[key] = result
             if not fut.done():
                 fut.set_result(result)
             return result

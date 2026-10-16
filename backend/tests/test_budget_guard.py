@@ -116,8 +116,10 @@ async def test_36th_reservation_rejected_before_provider():
     handler = AsyncMock(side_effect=provider)
     client = _client(handler, budget=guard)
 
-    for _ in range(35):
-        await client.create(_Tiny, messages=[{"role": "user", "content": "x"}], max_retries=0)
+    for i in range(35):
+        await client.create(
+            _Tiny, messages=[{"role": "user", "content": f"x{i}"}], max_retries=0
+        )
 
     assert guard.used == 35
     assert handler.await_count == 35
@@ -228,10 +230,10 @@ async def test_shared_budget_across_clients():
     a = _client(handler, budget=guard)
     b = _client(handler, budget=guard)
 
-    for _ in range(20):
-        await a.create(_Tiny, messages=[{"role": "user", "content": "a"}], max_retries=0)
-    for _ in range(15):
-        await b.create(_Tiny, messages=[{"role": "user", "content": "b"}], max_retries=0)
+    for i in range(20):
+        await a.create(_Tiny, messages=[{"role": "user", "content": f"a{i}"}], max_retries=0)
+    for i in range(15):
+        await b.create(_Tiny, messages=[{"role": "user", "content": f"b{i}"}], max_retries=0)
 
     assert guard.used == 35
     with pytest.raises(LLMBudgetExceededError):
@@ -349,13 +351,19 @@ async def test_per_scan_isolation():
     client_a = _client(handler, budget=a)
     client_b = _client(handler, budget=b)
 
-    for _ in range(35):
-        await client_a.create(_Tiny, messages=[{"role": "user", "content": "a"}], max_retries=0)
+    for i in range(35):
+        await client_a.create(
+            _Tiny, messages=[{"role": "user", "content": f"a{i}"}], max_retries=0
+        )
     with pytest.raises(LLMBudgetExceededError):
-        await client_a.create(_Tiny, messages=[{"role": "user", "content": "a"}], max_retries=0)
+        await client_a.create(
+            _Tiny, messages=[{"role": "user", "content": "a-overflow"}], max_retries=0
+        )
 
-    for _ in range(35):
-        await client_b.create(_Tiny, messages=[{"role": "user", "content": "b"}], max_retries=0)
+    for i in range(35):
+        await client_b.create(
+            _Tiny, messages=[{"role": "user", "content": f"b{i}"}], max_retries=0
+        )
     assert b.used == 35
     assert a.used == 35
 
