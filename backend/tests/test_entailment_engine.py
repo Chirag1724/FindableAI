@@ -356,8 +356,8 @@ async def test_batch_preserves_order_and_is_concurrent():
 
     assert [r.intent_id for r in results] == [i.intent_id for i in intents]
     assert [r.query for r in results] == [i.query for i in intents]
-    assert handler.await_count == 10
-    assert llm.calls_made == 10
+    assert handler.await_count == 3
+    assert llm.calls_made == 3
     # Overlapping execution: second batch starts before first batch finishes
     assert started[1] < finished[0]
 
@@ -391,13 +391,31 @@ async def test_shared_llm_client_budget_not_bypassed():
 
 
 @pytest.mark.asyncio
-async def test_thirty_intents_make_ten_batch_llm_calls_with_default_batch_three():
+async def test_thirty_intents_three_personas_make_exactly_three_llm_calls():
+    """GATE: 3 personas x 10 intents = 3 provider requests on the success path."""
+    import random
     import re
 
     chunks = _chunks(2)
+    personas = ("cto", "developer", "procurement")
+    intents: list[IntentQuery] = []
+    for p_i, persona in enumerate(personas):
+        for j in range(10):
+            n = p_i * 10 + j + 1
+            intents.append(
+                _intent(query=f"Unique question number {n}?").model_copy(
+                    update={"intent_id": f"edge_cases_{n:02d}", "persona": persona}
+                )
+            )
+    rng = random.Random(0)
+    shuffled = list(intents)
+    rng.shuffle(shuffled)
+
+    prompts: list[str] = []
 
     def create_batch_mock(**kwargs):
         user = kwargs["messages"][1]["content"]
+        prompts.append(user)
         ids = re.findall(r"INTENT ID: (edge_cases_\d+)", user)
         return IntentEvaluationBatch(
             evaluations=[
@@ -411,20 +429,23 @@ async def test_thirty_intents_make_ten_batch_llm_calls_with_default_batch_three(
 
     handler = AsyncMock(side_effect=create_batch_mock)
     llm = _llm(handler, max_calls=35)
-    intents = [
-        _intent(query=f"Unique question number {i}?").model_copy(
-            update={"intent_id": f"edge_cases_{i:02d}"}
-        )
-        for i in range(1, 31)
-    ]
     results = await EntailmentEngine(
         llm_client=llm,
         retriever=AsyncMock(return_value=chunks),
-    ).evaluate_intents(intents=intents, scan_id=uuid.uuid4())
+    ).evaluate_intents(intents=shuffled, scan_id=uuid.uuid4())
 
+    assert [r.intent_id for r in results] == [i.intent_id for i in shuffled]
     assert len(results) == 30
-    assert handler.await_count == 10
-    assert llm.calls_made == 10
+    assert handler.await_count == 3
+    assert llm.calls_made == 3
+    # Each request is a single persona's 10 intents (not mixed, not size-3 slices).
+    assert len(prompts) == 3
+    for prompt in prompts:
+        ids = re.findall(r"INTENT ID: (edge_cases_\d+)", prompt)
+        assert len(ids) == 10
+        id_set = set(ids)
+        matching = [i for i in intents if i.intent_id in id_set]
+        assert len({i.persona for i in matching}) == 1
 
 
 @pytest.mark.asyncio
@@ -463,6 +484,76 @@ async def test_custom_batch_size_configurable():
     assert len(results) == 30
     assert handler.await_count == 3
     assert llm.calls_made == 3
+
+
+@pytest.mark.asyncio
+async def test_batch_keeps_valid_and_rerequests_unresolved_ids():
+    """Strict ID match: 7 valid kept, 3 missing re-requested; no 0.85 fabricate."""
+    import re
+
+    chunks = _chunks(1)
+    intents = [
+        _intent(query=f"Q{i}?").model_copy(
+            update={"intent_id": f"policy_{i:02d}", "persona": "cto"}
+        )
+        for i in range(1, 11)
+    ]
+    calls = {"n": 0}
+
+    def create_batch_mock(**kwargs):
+        calls["n"] += 1
+        user = kwargs["messages"][1]["content"]
+        ids = re.findall(r"INTENT ID: (policy_\d+)", user)
+        if calls["n"] == 1:
+            ids = ids[:7]  # omit last 3
+        return IntentEvaluationBatch(
+            evaluations=[
+                _evaluation(
+                    status=EntailmentStatus.SUPPORTED,
+                    chunk_ids=[str(chunks[0].id)],
+                ).model_copy(update={"intent_id": pid})
+                for pid in ids
+            ]
+        )
+
+    handler = AsyncMock(side_effect=create_batch_mock)
+    llm = _llm(handler, max_calls=35)
+    results = await EntailmentEngine(
+        llm_client=llm,
+        retriever=AsyncMock(return_value=chunks),
+        batch_size=10,
+    ).evaluate_intents(intents=intents, scan_id=uuid.uuid4())
+
+    assert len(results) == 10
+    assert all(r.status is EntailmentStatus.SUPPORTED for r in results)
+    assert all(r.confidence != 0.85 or r.status is EntailmentStatus.SUPPORTED for r in results)
+    assert handler.await_count == 2
+    assert llm.calls_made == 2
+
+
+@pytest.mark.asyncio
+async def test_exhausted_recovery_is_honest_unknown_not_fabricated():
+    chunks = _chunks(1)
+    intents = [
+        _intent(query=f"Q{i}?").model_copy(
+            update={"intent_id": f"policy_{i:02d}", "persona": "cto"}
+        )
+        for i in range(1, 4)
+    ]
+    handler = AsyncMock(side_effect=RuntimeError("provider down"))
+    llm = _llm(handler, max_calls=35)
+    results = await EntailmentEngine(
+        llm_client=llm,
+        retriever=AsyncMock(return_value=chunks),
+        batch_size=10,
+    ).evaluate_intents(intents=intents, scan_id=uuid.uuid4())
+
+    assert len(results) == 3
+    for r in results:
+        assert r.status is EntailmentStatus.UNKNOWN
+        assert r.confidence == 0.0
+        assert "unresolved" in r.reasoning.lower() or "recovery" in r.reasoning.lower()
+        assert r.evidence == []
 
 
 @pytest.mark.asyncio

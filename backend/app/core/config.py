@@ -163,7 +163,6 @@ class Settings(BaseSettings):
 
     @field_validator(
         "EVAL_BATCH_SIZE",
-        "EVAL_BATCH_CONCURRENCY",
         "EVAL_SPLIT_MIN_BATCH",
         "EVAL_MAX_RECOVERY_REQUESTS_PER_BATCH",
     )
@@ -172,6 +171,13 @@ class Settings(BaseSettings):
         if value is None or value < 1:
             raise ValueError("evaluation batching settings must be ints >= 1")
         return value
+
+    @field_validator("EVAL_BATCH_CONCURRENCY")
+    @classmethod
+    def _eval_concurrency(cls, value: int) -> int:
+        if value is None or value < 1:
+            raise ValueError("EVAL_BATCH_CONCURRENCY must be an int >= 1")
+        return min(3, int(value))
 
     @field_validator("EVAL_BATCH_RETRIES", "MAX_SEMANTIC_CONTRADICTION_CALLS")
     @classmethod

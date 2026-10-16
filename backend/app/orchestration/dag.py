@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.budget import BudgetGuard, LLMBudgetExceededError, default_scan_budget
+from app.core.config import settings
 from app.core.llm import LLMClient
 from app.engines.contradiction import ContradictionDetector, EvidenceChunk, extract_facts
 from app.engines.entailment_engine import DEFAULT_TOP_K, EntailmentEngine, Retriever
@@ -443,8 +444,8 @@ class FindableAIDAG:
         self._entailment = EntailmentEngine(
             llm_client=self._fast_llm,
             retriever=retriever,
-            batch_size=3,
-            concurrency=1,
+            batch_size=max(1, int(settings.EVAL_BATCH_SIZE)),
+            concurrency=max(1, min(3, int(settings.EVAL_BATCH_CONCURRENCY))),
         )
         return self._entailment
 
