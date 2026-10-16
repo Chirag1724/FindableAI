@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { ScanStatusEvent, ScanStatus } from "@/types/scan";
 import { getScan } from "@/lib/api";
+import { deriveUiScanStatus } from "@/lib/pipelineStatus";
 
 export type StreamConnectionState =
   | "idle"
@@ -112,9 +113,16 @@ export function useScanStream(
               : TERMINAL.includes(scan.status)
                 ? 100
                 : 0;
+          const uiStatus = deriveUiScanStatus({
+            status: scan.status,
+            progressStage: scan.progress_stage,
+            progressMessage: scan.progress_message,
+            progressPercent: durablePercent,
+            jobStatus: scan.job_status,
+          });
           const synth: ScanStatusEvent = {
             scan_id: scan.scan_id,
-            status: scan.status,
+            status: uiStatus,
             progress_percent: durablePercent,
             current_step: scan.progress_stage || scan.status,
             message:

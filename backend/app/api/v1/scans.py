@@ -296,14 +296,44 @@ def generate_mock_patches(url: str = "https://example.com", html: str = "") -> l
     ]
 
 
-def _db_status_to_scan_status(status_raw: str | None) -> ScanStatus:
+def _stage_to_scan_status(stage: str | None) -> ScanStatus | None:
+    """Best-effort map of progress stage labels onto ScanStatus for live UI."""
+    if not stage:
+        return None
+    s = stage.strip().lower()
+    if any(tok in s for tok in ("audit complete", "scan finished")):
+        return ScanStatus.COMPLETED
+    if "patch" in s:
+        return ScanStatus.GENERATING_PATCHES
+    if "f-score" in s or "fscore" in s or "reflect" in s:
+        return ScanStatus.COMPUTING_FSCORE
+    if "nli" in s or "entailment" in s or "contradiction" in s:
+        return ScanStatus.NLI_EVALUATION
+    if "retrieval" in s or "evidence" in s or "hybrid" in s:
+        return ScanStatus.HYBRID_RETRIEVAL
+    if "intent" in s or "persona" in s or "synthetic intent" in s:
+        return ScanStatus.SYNTHESIZING_INTENTS
+    if "dom" in s or "chunk" in s or "structural extraction" in s:
+        return ScanStatus.EXTRACTING_DOM
+    if "crawl" in s or "playwright" in s or "observe" in s:
+        return ScanStatus.CRAWLING
+    return None
+
+
+def _db_status_to_scan_status(
+    status_raw: str | None, *, stage: str | None = None
+) -> ScanStatus:
     """Map durable DB status strings onto the API ScanStatus enum."""
-    if status_raw in [e.value for e in ScanStatus]:
+    if status_raw and status_raw in [e.value for e in ScanStatus]:
         return ScanStatus(status_raw)
     if status_raw == "completed":
         return ScanStatus.COMPLETED
     if status_raw == "failed":
         return ScanStatus.FAILED
+    # Coarse in_progress/pending rows: recover fine-grained UI status from stage.
+    staged = _stage_to_scan_status(stage)
+    if staged is not None:
+        return staged
     return ScanStatus.PENDING
 
 
@@ -335,19 +365,20 @@ async def _emit_event(
         try:
             from app.jobs.progress import best_effort_persist_progress
 
-            # Map ScanStatus enum to DB status string for in-progress rows.
-            db_status = None
+            # Coarse status on scans row; fine-grained ScanStatus on progress
+            # events so cross-process SSE can drive the UI stepper/cards.
             if status_val == ScanStatus.COMPLETED:
                 db_status = "completed"
             elif status_val == ScanStatus.FAILED:
                 db_status = "failed"
-            elif status_val in (ScanStatus.PENDING,):
+            elif status_val == ScanStatus.PENDING:
                 db_status = "pending"
             else:
                 db_status = "in_progress"
             seq = await best_effort_persist_progress(
                 scan_id=resolved_uuid,
                 status=db_status,
+                event_status=status_val.value,
                 stage=step_name,
                 message=message,
                 percent=percent,
@@ -1824,12 +1855,22 @@ async def get_scan(scan_id: str) -> ScanResponse:
                     ]
                     summary = None
                     if db_scan.status in ("completed", "failed"):
+                        exec_secs = 0.0
+                        completed_at = getattr(db_scan, "completed_at", None)
+                        created_at = getattr(db_scan, "created_at", None)
+                        if completed_at is not None and created_at is not None:
+                            try:
+                                exec_secs = max(
+                                    0.0, (completed_at - created_at).total_seconds()
+                                )
+                            except Exception:
+                                exec_secs = 0.0
                         summary = AuditSummary(
                             pages_crawled=pages_crawled,
                             dom_chunks_extracted=dom_chunks,
                             intents_generated=len(converted_intents),
                             contradictions_detected=len(converted_cons),
-                            execution_time_seconds=0.0,
+                            execution_time_seconds=round(exec_secs, 1),
                             max_pages_requested=pages_crawled or 1,
                             crawled_pages=crawled_fallback,
                             dag_evaluations_count=integrity.dag_evaluations_count,
@@ -2066,7 +2107,10 @@ async def stream_scan_progress(
                     if not rows and snap and cursor == 0:
                         # Snapshot fallback when event history is empty/unavailable.
                         status_raw = str(snap.get("status") or "in_progress")
-                        status_enum = _db_status_to_scan_status(status_raw)
+                        stage_raw = str(snap.get("progress_stage") or "") or None
+                        status_enum = _db_status_to_scan_status(
+                            status_raw, stage=stage_raw
+                        )
                         synth = ScanStatusEvent(
                             scan_id=scan_id,
                             status=status_enum,
@@ -2084,7 +2128,7 @@ async def stream_scan_progress(
                         if status_enum in (ScanStatus.COMPLETED, ScanStatus.FAILED):
                             return
                     for row in rows:
-                        st = _db_status_to_scan_status(row.status)
+                        st = _db_status_to_scan_status(row.status, stage=row.stage)
                         ev = ScanStatusEvent(
                             scan_id=scan_id,
                             status=st,
@@ -2130,7 +2174,7 @@ async def stream_scan_progress(
                             )
                             snap = await load_progress_snapshot(s, scan_uuid)
                         for row in rows:
-                            st = _db_status_to_scan_status(row.status)
+                            st = _db_status_to_scan_status(row.status, stage=row.stage)
                             ev = ScanStatusEvent(
                                 scan_id=scan_id,
                                 status=st,
@@ -2149,7 +2193,10 @@ async def stream_scan_progress(
                             if st in (ScanStatus.COMPLETED, ScanStatus.FAILED):
                                 return
                         if snap and (snap.get("status") in ("completed", "failed")) and not rows:
-                            st = _db_status_to_scan_status(str(snap.get("status")))
+                            st = _db_status_to_scan_status(
+                                str(snap.get("status")),
+                                stage=str(snap.get("progress_stage") or "") or None,
+                            )
                             synth = ScanStatusEvent(
                                 scan_id=scan_id,
                                 status=st,

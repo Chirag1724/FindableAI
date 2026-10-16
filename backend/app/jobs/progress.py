@@ -30,8 +30,13 @@ async def persist_scan_progress(
     total: int | None = None,
     append_event: bool = True,
     event_type: str = "progress",
+    event_status: str | None = None,
 ) -> int | None:
     """Update scan progress columns and optionally append a sequenced event.
+
+    ``status`` updates the coarse ``scans.status`` column (pending/in_progress/
+    completed/failed). ``event_status`` (fine-grained pipeline step) is stored
+    on the progress event for SSE/UI; defaults to ``status`` when omitted.
 
     Returns the new event sequence number when an event is appended, else None.
     """
@@ -65,13 +70,14 @@ async def persist_scan_progress(
         )
     )
     seq = int(next_seq or 0) + 1
+    row_status = event_status if event_status is not None else status
     session.add(
         ScanProgressEvent(
             id=uuid.uuid4(),
             scan_id=scan_id,
             seq=seq,
             event_type=event_type[:64],
-            status=status,
+            status=row_status,
             stage=(stage[:100] if stage else None),
             message=(message[:2000] if message else None),
             percent=clamped_percent,
@@ -136,6 +142,7 @@ async def best_effort_persist_progress(
     percent: int | None = None,
     current: int | None = None,
     total: int | None = None,
+    event_status: str | None = None,
 ) -> int | None:
     """Open a short-lived session; never raise to callers."""
     try:
@@ -152,6 +159,7 @@ async def best_effort_persist_progress(
                     percent=percent,
                     current=current,
                     total=total,
+                    event_status=event_status,
                 )
     except Exception as exc:
         logger.warning(
