@@ -18,7 +18,6 @@ import time
 import urllib.error
 import urllib.request
 
-
 TERMINAL = frozenset({"completed", "failed"})
 
 
