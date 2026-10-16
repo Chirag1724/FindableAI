@@ -89,6 +89,11 @@ def apply_observability_to_scan_row(
     batches_failed: int | None = None,
     llm_tokens_in: int | None = None,
     llm_tokens_out: int | None = None,
+    provider_retries: int | None = None,
+    provider_failovers: int | None = None,
+    duplicate_requests_joined: int | None = None,
+    cache_hits: int | None = None,
+    evaluations_valid: int | None = None,
 ) -> None:
     """Write non-secret provider/batch/cost observability onto a Scan row."""
     if llm_usd_estimated is not None:
@@ -111,6 +116,16 @@ def apply_observability_to_scan_row(
         db_scan.llm_tokens_in = int(llm_tokens_in)
     if llm_tokens_out is not None:
         db_scan.llm_tokens_out = int(llm_tokens_out)
+    if provider_retries is not None:
+        db_scan.provider_retries = int(provider_retries)
+    if provider_failovers is not None:
+        db_scan.provider_failovers = int(provider_failovers)
+    if duplicate_requests_joined is not None:
+        db_scan.duplicate_requests_joined = int(duplicate_requests_joined)
+    if cache_hits is not None:
+        db_scan.cache_hits = int(cache_hits)
+    if evaluations_valid is not None:
+        db_scan.evaluations_valid = int(evaluations_valid)
 
 
 def observability_from_budget(budget_guard: Any) -> dict[str, Any]:
@@ -131,6 +146,11 @@ def observability_from_budget(budget_guard: Any) -> dict[str, Any]:
         "batches_failed": int(snap.get("batches_failed") or 0),
         "llm_tokens_in": snap.get("tokens_in"),
         "llm_tokens_out": snap.get("tokens_out"),
+        "provider_retries": int(snap.get("provider_retries") or 0),
+        "provider_failovers": int(snap.get("provider_failovers") or 0),
+        "duplicate_requests_joined": int(snap.get("duplicate_requests_joined") or 0),
+        "cache_hits": int(snap.get("cache_hits") or 0),
+        "evaluations_valid": int(snap.get("evaluations_valid") or 0),
     }
 
 

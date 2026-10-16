@@ -521,6 +521,32 @@ async def test_semantic_evaluations_concurrent_and_deterministic():
     )
 
 
+@pytest.mark.asyncio
+async def test_semantic_llm_calls_are_capped(monkeypatch: pytest.MonkeyPatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "MAX_SEMANTIC_CONTRADICTION_CALLS", 1)
+    handler = AsyncMock(
+        return_value=SemanticConflictJudgment(
+            contradictory=True,
+            severity=ContradictionSeverity.SOFT_INCONSISTENCY,
+            confidence=0.55,
+            rationale="soft",
+        )
+    )
+    chunks = [
+        FakeChunk("a", "https://ex.com/a", "p", "Pets allowed."),
+        FakeChunk("b", "https://ex.com/b", "p", "No pets allowed."),
+        FakeChunk("c", "https://ex.com/c", "p", "Free parking."),
+        FakeChunk("d", "https://ex.com/d", "p", "Paid parking."),
+    ]
+    results = await ContradictionDetector(llm_client=_llm(handler)).detect_contradictions(
+        chunks=chunks
+    )
+    assert handler.await_count == 1
+    assert len(results) == 1
+
+
 def test_hours_normalization_helpers():
     assert normalize_hours_interval("Monday", "10 AM", "10 PM") == normalize_hours_interval(
         "Mon", "10:00", "22:00"

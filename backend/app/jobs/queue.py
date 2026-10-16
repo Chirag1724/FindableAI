@@ -632,13 +632,29 @@ async def update_llm_checkpoint(
     llm_calls: int,
     llm_usd: float | None = None,
 ) -> bool:
-    """Fenced durable budget checkpoint. Returns False if fence mismatch."""
+    """Fenced durable budget checkpoint. Returns False if fence mismatch.
+
+    ``llm_calls_checkpoint`` is monotonic (GREATEST / max) so a late heartbeat
+    cannot rewind a higher in-memory reservation.
+    """
+    calls = int(llm_calls)
+    bind = session.get_bind()
+    dialect = bind.dialect.name if bind is not None else "postgresql"
+    calls_col = func.coalesce(ScanJob.llm_calls_checkpoint, 0)
+    calls_expr = (
+        func.max(calls_col, calls) if dialect == "sqlite" else func.greatest(calls_col, calls)
+    )
     values: dict[str, Any] = {
-        "llm_calls_checkpoint": int(llm_calls),
+        "llm_calls_checkpoint": calls_expr,
         "updated_at": _utcnow(),
     }
     if llm_usd is not None:
-        values["llm_usd_checkpoint"] = float(llm_usd)
+        usd = float(llm_usd)
+        usd_col = func.coalesce(ScanJob.llm_usd_checkpoint, 0.0)
+        usd_expr = (
+            func.max(usd_col, usd) if dialect == "sqlite" else func.greatest(usd_col, usd)
+        )
+        values["llm_usd_checkpoint"] = usd_expr
     result = await session.execute(
         update(ScanJob)
         .where(
