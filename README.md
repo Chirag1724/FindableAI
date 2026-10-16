@@ -399,21 +399,43 @@ cp .env.example .env
 docker compose up -d postgres redis
 ```
 
-### 3. Backend Setup
+### 3. Run locally (Docker → migrations → API + worker → frontend)
+
+Scans are executed by a **separate worker process** (`python -m app.worker`), not by the
+API. With the defaults `DURABLE_SCAN_JOBS=true` / `SCAN_JOB_INLINE_FALLBACK=false`, the API
+only enqueues a durable `scan_jobs` row; if no worker is running the scan stays `queued`
+forever (the API logs a startup warning and `GET /api/v1/ready` reports
+`worker: stale_or_absent`).
 
 ```bash
+# 3a. Infrastructure (PostgreSQL + pgvector). Port comes from POSTGRES_PORT in .env
+#     (default 5432; this repo's local .env uses 55432 to avoid clashes).
+docker compose up -d postgres
+docker compose ps                      # expect findable-postgres ... (healthy)
+
+# 3b. Backend env + deps
 cd backend
 python -m venv venv
-
-# Windows
-.\venv\Scripts\activate
-# Linux/macOS
-source venv/bin/activate
-
+.\venv\Scripts\activate                # Windows
+source venv/bin/activate               # Linux/macOS
 pip install -r requirements.txt
 playwright install chromium
+
+# 3c. Migrations (never drop/recreate the volume; always upgrade on top of current head)
+alembic current                        # expect 0009_scan_observability (head) or older
 alembic upgrade head
-uvicorn app.main:app --reload --port 8000
+
+# 3d. Verify provider credentials (one minimal request per configured provider; no keys printed)
+python scripts/check_providers.py
+
+# 3e. Start API + worker together (single command; Ctrl-C stops both)
+python scripts/run_local.py
+#   equivalent to running these in two terminals:
+#   uvicorn app.main:app --host 127.0.0.1 --port 8000
+#   python -m app.worker
+
+# 3f. Readiness: database, queue and worker liveness
+curl -s http://127.0.0.1:8000/api/v1/ready
 ```
 
 ### 4. Frontend Setup
@@ -425,6 +447,20 @@ npm run dev
 ```
 
 Visit `http://localhost:3000` to access the FindableAI Scan Console.
+
+### 4b. One real read-only scan (smoke)
+
+```bash
+cd backend
+python scripts/local_smoke_scan.py --url https://example.com
+```
+
+Expected normal-path provider usage for one scan: 3 intent-generation requests
+(one per persona) + 3 evaluation requests (3 batches × 10 intents, one persona per batch)
++ 0–6 contradiction-judgment requests = **6–12 provider requests**. `MAX_LLM_CALLS_PER_SCAN`
+(default 35 in `.env`) therefore leaves room for bounded retries/splits without
+hiding amplification. Every outbound request — including retries, splits and failovers —
+counts exactly once against that budget.
 
 ### 5. Automated Testing Suite (653 Tests)
 

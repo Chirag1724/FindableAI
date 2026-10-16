@@ -118,9 +118,11 @@ async def readiness_check():
                 .select_from(ScanJob)
                 .where(ScanJob.status.in_([JobStatus.CLAIMED.value, JobStatus.RUNNING.value]))
             )
-            # Recent worker heartbeat within 2x lease window indicates workers alive.
+            # Recent worker heartbeat within the heartbeat timeout indicates workers alive.
+            # (Workers heartbeat every ~5s while running a job; a 2x-lease window would
+            # hide a dead worker for 20 minutes.)
             cutoff = datetime.now(UTC) - timedelta(
-                seconds=max(60, int(settings.SCAN_JOB_LEASE_SECONDS) * 2)
+                seconds=max(30, int(settings.SCAN_JOB_HEARTBEAT_TIMEOUT_SECONDS))
             )
             recent_hb = await session.scalar(
                 select(func.count())
