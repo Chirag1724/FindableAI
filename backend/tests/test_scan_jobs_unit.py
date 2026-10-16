@@ -293,6 +293,59 @@ async def test_idempotent_enqueue(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_dead_letter_allows_fresh_scan(session: AsyncSession):
+    """Terminal dead_letter must release the auto idempotency key for a retry."""
+    old_scan_id = uuid.uuid4()
+    fp = request_fingerprint(
+        url="https://example.com/dead-letter-retry", max_pages=1, personas=None, repo_url=None
+    )
+    key = f"auto:{fp}"
+    async with session.begin():
+        r1 = await enqueue_scan_job(
+            session,
+            scan_uuid=old_scan_id,
+            url="https://example.com/dead-letter-retry",
+            max_pages=1,
+            personas=None,
+            repo_url=None,
+            idempotency_key=key,
+            fingerprint=fp,
+        )
+    assert r1.created is True
+
+    async with session.begin():
+        job1 = await session.get(_ScanJob, r1.job.id)
+        assert job1 is not None
+        job1.status = JobStatus.DEAD_LETTER.value
+        job1.finished_at = datetime.now(UTC)
+        job1.error_code = JobErrorCode.EXECUTION_DEADLINE.value
+        job1.error_detail = "parked as dead_letter"
+
+    new_scan_id = uuid.uuid4()
+    async with session.begin():
+        r2 = await enqueue_scan_job(
+            session,
+            scan_uuid=new_scan_id,
+            url="https://example.com/dead-letter-retry",
+            max_pages=1,
+            personas=None,
+            repo_url=None,
+            idempotency_key=key,
+            fingerprint=fp,
+        )
+    assert r2.created is True
+    assert r2.job.id != r1.job.id
+    assert r2.scan.id == new_scan_id
+    assert r2.job.status == JobStatus.QUEUED.value
+
+    async with session.begin():
+        old_j = await session.get(_ScanJob, r1.job.id)
+        assert old_j is not None
+        assert old_j.status == JobStatus.DEAD_LETTER.value
+        assert ":done:" in (old_j.idempotency_key or "")
+
+
+@pytest.mark.asyncio
 async def test_zombie_stale_heartbeat_allows_fresh_scan(session: AsyncSession):
     """A running job with a stale heartbeat must NOT block a new scan of the same URL."""
     old_scan_id = uuid.uuid4()

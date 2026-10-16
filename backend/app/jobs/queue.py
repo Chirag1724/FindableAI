@@ -153,11 +153,72 @@ async def enqueue_scan_job(
         # healthy worker. If the heartbeat is stale or the job sat in queue past the
         # heartbeat timeout, treat it as dead, mark the old row failed, and allow a
         # fresh scan to be created and executed.
+        # Terminal failed/dead_letter/cancelled: release the auto idempotency key so
+        # a retry of the same URL can enqueue (matches "fresh scan can run" recovery).
         now = _utcnow()
         heartbeat_timeout = timedelta(
             seconds=int(getattr(settings, "SCAN_JOB_HEARTBEAT_TIMEOUT_SECONDS", 300))
         )
         is_term = is_terminal(existing.status)
+
+        if is_term and existing.status in (
+            JobStatus.FAILED.value,
+            JobStatus.DEAD_LETTER.value,
+            JobStatus.CANCELLED.value,
+        ):
+            metrics.incr("scan_jobs_terminal_superseded")
+            logger.info(
+                "scan_job_terminal_superseded job_id=%s old_scan_id=%s new_scan_id=%s "
+                "status=%s correlation_id=%s",
+                existing.id,
+                existing.scan_id,
+                scan_uuid,
+                existing.status,
+                existing.correlation_id,
+            )
+            existing.idempotency_key = (
+                f"{existing.idempotency_key}:done:{existing.id.hex}"
+            )
+            existing.updated_at = now
+
+            cid = correlation_id or new_correlation_id()
+            db_scan = ScanModel(
+                id=scan_uuid,
+                url=url,
+                repo_url=repo_url,
+                status="in_progress",
+            )
+            job = ScanJob(
+                id=uuid.uuid4(),
+                scan_id=scan_uuid,
+                job_type="scan_pipeline",
+                status=JobStatus.QUEUED.value,
+                idempotency_key=idempotency_key,
+                request_fingerprint=fingerprint,
+                correlation_id=cid,
+                payload={
+                    "url": url,
+                    "max_pages": max_pages,
+                    "personas": personas or ["cto", "developer", "procurement"],
+                    "repo_url": repo_url,
+                },
+                attempt_count=0,
+                max_attempts=int(settings.SCAN_JOB_MAX_ATTEMPTS),
+                fencing_token=0,
+                available_at=now,
+            )
+            session.add(db_scan)
+            session.add(job)
+            await session.flush()
+            metrics.incr("scan_jobs_enqueued")
+            logger.info(
+                "scan_job_enqueued job_id=%s scan_id=%s correlation_id=%s status=%s",
+                job.id,
+                scan_uuid,
+                cid,
+                job.status,
+            )
+            return EnqueueResult(job=job, scan=db_scan, created=True, conflict=False)
 
         is_zombie = False
         if not is_term and existing.finished_at is None:

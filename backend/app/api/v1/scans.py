@@ -1632,13 +1632,22 @@ async def get_scan(scan_id: str) -> ScanResponse:
         target_repo = record.repo_url or record.github_repo_url
         if target_repo and not any(p.framework for p in record.patches):
             record.patches = enrich_patches_with_framework(record.patches, target_repo)
-        # Cross-process: merge durable progress/budget so API process does not
-        # serve stale in-memory snapshots over newer worker state.
+        # Cross-process: when the worker finished in Postgres but this API process still
+        # holds a pending stub, fall through to durable hydration instead of returning
+        # a stale in-memory snapshot (missing intents / wrong status).
+        prefer_db = False
         if scan_uuid and record.status not in (ScanStatus.COMPLETED, ScanStatus.FAILED):
-            await _attach_job_observability(record, scan_uuid)
-        elif scan_uuid:
-            await _attach_job_observability(record, scan_uuid)
-        return record
+            try:
+                async with AsyncSessionLocal() as s:
+                    db_probe = await s.get(ScanModel, scan_uuid)
+                    if db_probe is not None and db_probe.status in ("completed", "failed"):
+                        prefer_db = True
+            except Exception:
+                prefer_db = False
+        if not prefer_db:
+            if scan_uuid:
+                await _attach_job_observability(record, scan_uuid)
+            return record
 
     # Query persistent PostgreSQL database
     if scan_uuid:
