@@ -1137,11 +1137,12 @@ async def run_scan_pipeline(
                         evaluations = sanitized_evaluations
                         dag_evaluations = sanitized_evaluations
                         evidence_durably_validated = True
-                        db_scan.failed_intent_ids = skip_keys or None
-                        if skip_keys:
-                            db_scan.failure_reason = (
-                                f"partial_act:{len(skip_keys)}_intents_unresolved"
-                            )
+                        if db_scan is not None:
+                            db_scan.failed_intent_ids = skip_keys or None
+                            if skip_keys:
+                                db_scan.failure_reason = (
+                                    f"partial_act:{len(skip_keys)}_intents_unresolved"
+                                )
 
                         # Recompute eligibility from final validated findings (not pre-sanitize).
                         refined = refine_remediation_eligible(
@@ -1535,34 +1536,36 @@ async def _attach_job_observability(scan_resp: ScanResponse, scan_uuid: uuid.UUI
         async with AsyncSessionLocal() as s:
             db_scan = await s.get(ScanModel, scan_uuid)
             if db_scan is not None:
-                if getattr(db_scan, "llm_usd_estimated", None) is not None:
-                    scan_resp.llm_usd_estimated = float(db_scan.llm_usd_estimated)
+                usd_est = db_scan.llm_usd_estimated
+                if usd_est is not None:
+                    scan_resp.llm_usd_estimated = float(usd_est)
                     scan_resp.cost_basis = "estimated"
                     scan_resp.llm_usd_provider_reported = None
-                if getattr(db_scan, "provider_successes", None) is not None:
+                if db_scan.provider_successes is not None:
                     scan_resp.provider_successes = int(db_scan.provider_successes)
-                if getattr(db_scan, "provider_failures", None) is not None:
+                if db_scan.provider_failures is not None:
                     scan_resp.provider_failures = int(db_scan.provider_failures)
-                if getattr(db_scan, "primary_llm_model", None):
+                if db_scan.primary_llm_model:
                     scan_resp.primary_llm_model = db_scan.primary_llm_model
-                if getattr(db_scan, "fallback_provider_used", None) is not None:
+                if db_scan.fallback_provider_used is not None:
                     scan_resp.fallback_provider_used = bool(db_scan.fallback_provider_used)
-                if getattr(db_scan, "batches_total", None) is not None:
+                if db_scan.batches_total is not None:
                     scan_resp.batches_total = int(db_scan.batches_total)
-                if getattr(db_scan, "batches_completed", None) is not None:
+                if db_scan.batches_completed is not None:
                     scan_resp.batches_completed = int(db_scan.batches_completed)
-                if getattr(db_scan, "batches_failed", None) is not None:
+                if db_scan.batches_failed is not None:
                     scan_resp.batches_failed = int(db_scan.batches_failed)
-                if getattr(db_scan, "llm_tokens_in", None) is not None:
+                if db_scan.llm_tokens_in is not None:
                     scan_resp.llm_tokens_in = int(db_scan.llm_tokens_in)
-                if getattr(db_scan, "llm_tokens_out", None) is not None:
+                if db_scan.llm_tokens_out is not None:
                     scan_resp.llm_tokens_out = int(db_scan.llm_tokens_out)
-                if getattr(db_scan, "llm_calls_made", None) is not None:
+                calls_made = db_scan.llm_calls_made
+                if calls_made is not None:
                     # Prefer durable calls when memory is stale/empty.
                     if scan_resp.llm_calls_made is None or int(scan_resp.llm_calls_made or 0) < int(
-                        db_scan.llm_calls_made or 0
+                        calls_made
                     ):
-                        scan_resp.llm_calls_made = int(db_scan.llm_calls_made)
+                        scan_resp.llm_calls_made = int(calls_made)
                 # Progress: prefer newer durable seq / percent for in-flight scans.
                 durable_seq = None
                 try:

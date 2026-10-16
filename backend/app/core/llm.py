@@ -257,10 +257,10 @@ class LLMClient:
         snap = self._budget.snapshot()
         return {
             "model": self._model,
-            "calls_made": snap["used"],
-            "max_calls": snap["limit"],
-            "remaining_calls": snap["remaining"],
-            "budget_cap_usd": self._budget_cap_usd,
+            "calls_made": int(snap["used"] or 0),
+            "max_calls": int(snap["limit"] or 0),
+            "remaining_calls": int(snap["remaining"] or 0),
+            "budget_cap_usd": float(self._budget_cap_usd),
         }
 
     def __repr__(self) -> str:
@@ -495,7 +495,7 @@ class LLMClient:
                 response_model.__name__,
             )
             await self._record_cache_hit()
-            return cached
+            return cached  # type: ignore[no-any-return]
 
         inflight: dict[str, asyncio.Future[Any]] = self._budget.inflight
         async with self._budget._inflight_lock:
@@ -792,6 +792,7 @@ class LLMClient:
             create_kwargs["max_retries"] = 0
             if self._api_key:
                 create_kwargs["api_key"] = self._api_key
+            assert self._instructor_client is not None
             try:
                 async with sem:
                     result = await asyncio.wait_for(
