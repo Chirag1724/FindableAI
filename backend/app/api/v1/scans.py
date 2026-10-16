@@ -1512,6 +1512,19 @@ def enrich_patches_with_framework(
     return patches
 
 
+def _worker_heartbeat_recent(last_heartbeat_at: datetime | None) -> bool:
+    """True when a worker heartbeat falls within the configured timeout window."""
+    if last_heartbeat_at is None:
+        return False
+    hb = last_heartbeat_at
+    if hb.tzinfo is None:
+        hb = hb.replace(tzinfo=UTC)
+    cutoff = datetime.now(UTC).timestamp() - max(
+        30, int(settings.SCAN_JOB_HEARTBEAT_TIMEOUT_SECONDS)
+    )
+    return hb.timestamp() >= cutoff
+
+
 async def _attach_job_observability(scan_resp: ScanResponse, scan_uuid: uuid.UUID) -> None:
     """Merge durable job + scan observability columns into a response (best-effort)."""
     try:
@@ -1589,6 +1602,9 @@ async def _attach_job_observability(scan_resp: ScanResponse, scan_uuid: uuid.UUI
                 scan_resp.job_status = job_row.status
                 scan_resp.job_attempt_count = int(job_row.attempt_count or 0)
                 scan_resp.job_max_attempts = int(job_row.max_attempts or 0)
+                scan_resp.worker_heartbeat_recent = _worker_heartbeat_recent(
+                    job_row.last_heartbeat_at
+                )
                 # Mid-run budget checkpoints are authoritative across workers.
                 if float(getattr(job_row, "llm_usd_checkpoint", 0.0) or 0.0) > float(
                     scan_resp.llm_usd_estimated or 0.0
@@ -1941,6 +1957,9 @@ async def get_scan_job_status(scan_id: str) -> ScanJobStatusResponse:
                 started_at=job_row.started_at if job_row else None,
                 finished_at=job_row.finished_at if job_row else None,
                 last_heartbeat_at=job_row.last_heartbeat_at if job_row else None,
+                worker_heartbeat_recent=(
+                    _worker_heartbeat_recent(job_row.last_heartbeat_at) if job_row else False
+                ),
                 error_code=job_row.error_code if job_row else None,
                 error_detail=public_error,
                 failure_category=job_row.failure_category if job_row else None,

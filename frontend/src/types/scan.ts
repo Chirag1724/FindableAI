@@ -153,6 +153,8 @@ export interface ScanResponse {
   job_status?: string | null;
   job_attempt_count?: number | null;
   job_max_attempts?: number | null;
+  /** False + job_status=queued => waiting with no active worker */
+  worker_heartbeat_recent?: boolean | null;
   repo_url?: string;
   github_repo_url?: string;
   /** Durable progress snapshot from PostgreSQL (authoritative across API/worker) */

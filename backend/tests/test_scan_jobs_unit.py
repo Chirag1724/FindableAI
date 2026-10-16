@@ -20,8 +20,10 @@ from app.jobs.queue import (
     compute_backoff_seconds,
     enqueue_scan_job,
     fail_or_retry_job,
+    recover_expired_leases,
     request_fingerprint,
     resolve_idempotency_key,
+    update_llm_checkpoint,
 )
 from app.jobs.states import JobStatus, assert_transition, can_transition, is_terminal
 from app.models import database as db_mod
@@ -566,3 +568,83 @@ async def test_retry_then_dead_letter(session: AsyncSession, monkeypatch):
 
     assert JobStatus.RETRY_SCHEDULED in statuses
     assert statuses[-1] in (JobStatus.DEAD_LETTER, JobStatus.FAILED)
+
+
+@pytest.mark.asyncio
+async def test_kill_mid_scan_lease_recovery_preserves_checkpoint(session: AsyncSession):
+    """GATE Phase 6: worker dies mid-scan → lease recovery → reclaim with checkpoint intact."""
+    fp = request_fingerprint(
+        url="https://example.com/kill-mid", max_pages=1, personas=None, repo_url=None
+    )
+    scan_id = uuid.uuid4()
+    async with session.begin():
+        await enqueue_scan_job(
+            session,
+            scan_uuid=scan_id,
+            url="https://example.com/kill-mid",
+            max_pages=1,
+            personas=None,
+            repo_url=None,
+            idempotency_key=f"auto:{fp}",
+            fingerprint=fp,
+        )
+
+    async with session.begin():
+        claimed = await claim_next_job(session, worker_id="worker-killed", lease_seconds=60)
+        assert claimed is not None
+        assert claimed.fencing_token >= 1
+
+    async with session.begin():
+        ok = await update_llm_checkpoint(
+            session,
+            job_id=claimed.job_id,
+            fencing_token=claimed.fencing_token,
+            worker_id="worker-killed",
+            llm_calls=16,
+            llm_usd=0.0016,
+        )
+        assert ok is True
+        job = await session.get(_ScanJob, claimed.job_id)
+        assert job is not None
+        job.status = JobStatus.RUNNING.value
+        job.llm_calls_checkpoint = 16
+        job.checkpoint_json = {"stage": "act", "batches_done": 1}
+        # Simulate hard kill: lease expires, no more heartbeats.
+        job.lease_expires_at = datetime.now(UTC) - timedelta(seconds=5)
+        job.last_heartbeat_at = datetime.now(UTC) - timedelta(minutes=2)
+
+    async with session.begin():
+        recovered = await recover_expired_leases(session)
+        assert recovered == 1
+        job = await session.get(_ScanJob, claimed.job_id)
+        assert job is not None
+        assert job.status == JobStatus.QUEUED.value
+        assert job.claimed_by is None
+        assert job.llm_calls_checkpoint == 16
+        assert (job.checkpoint_json or {}).get("stage") == "act"
+
+    async with session.begin():
+        reclaimed = await claim_next_job(session, worker_id="worker-restarted", lease_seconds=60)
+        assert reclaimed is not None
+        assert reclaimed.job_id == claimed.job_id
+        assert reclaimed.fencing_token > claimed.fencing_token
+        assert reclaimed.llm_calls_checkpoint == 16
+
+    # Stale worker cannot complete after fencing bump.
+    async with session.begin():
+        stale = await complete_job(
+            session,
+            job_id=claimed.job_id,
+            fencing_token=claimed.fencing_token,
+            worker_id="worker-killed",
+        )
+        assert stale is False
+    async with session.begin():
+        fresh = await complete_job(
+            session,
+            job_id=reclaimed.job_id,
+            fencing_token=reclaimed.fencing_token,
+            worker_id="worker-restarted",
+            llm_calls_checkpoint=18,
+        )
+        assert fresh is True

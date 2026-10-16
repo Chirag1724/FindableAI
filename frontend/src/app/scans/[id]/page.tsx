@@ -256,6 +256,11 @@ export default function ScanDashboardPage() {
     resultSource === "synthetic_fallback";
   // Eligible + zero real patches: informational CTA copy (button stays disabled).
   const showNoFixesRequired = remediationEligible && !patches.loading && patchCount === 0;
+  const queuedNoWorker =
+    displayScan?.job_status === "queued" &&
+    displayScan?.worker_heartbeat_recent === false &&
+    !TERMINAL_STATUSES.includes(currentStatus);
+  const isPartialOutcome = scanOutcome === "partial" || resultSource === "partial_real";
 
   // Not found state
   if (notFound) {
@@ -426,6 +431,30 @@ export default function ScanDashboardPage() {
       </header>
 
       <main className="relative z-10 mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6 sm:space-y-8">
+        {queuedNoWorker && (
+          <div
+            className="rounded-lg border border-amber-500/30 bg-amber-950/40 px-4 py-3 text-sm text-amber-100"
+            role="status"
+            data-testid="queued-no-worker"
+          >
+            Scan is queued but no worker heartbeat was detected. Start the worker
+            with <code className="font-mono text-xs">python -m app.worker</code> or{" "}
+            <code className="font-mono text-xs">python scripts/run_local.py</code>.
+          </div>
+        )}
+        {isPartialOutcome && TERMINAL_STATUSES.includes(currentStatus) && (
+          <div
+            className="rounded-lg border border-amber-500/30 bg-amber-950/40 px-4 py-3 text-sm text-amber-100"
+            role="status"
+            data-testid="partial-outcome"
+          >
+            Partial results: some intent batches did not complete
+            {displayScan?.failed_intent_ids?.length
+              ? ` (${displayScan.failed_intent_ids.length} unresolved)`
+              : ""}
+            . Score and remediation reflect only persisted evaluations.
+          </div>
+        )}
         {/* Page Breadcrumb & Scan Target Meta Banner */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
           {/* Left: Breadcrumbs + Target URL */}

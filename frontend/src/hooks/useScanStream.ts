@@ -160,10 +160,16 @@ export function useScanStream(
     // Guard against StrictMode double-invocation: if a stream is already open for this id, skip
     if (esRef.current) return;
 
-    lastSeqRef.current = -1;
     setConnectionState("connecting");
 
-    const es = new EventSource(`/api/v1/scans/${scanId}/stream`);
+    // Preserve last seq across effect re-runs for the same scan so replay can
+    // resume; reset when scanId changes (handled by effect dependency).
+    const priorSeq = lastSeqRef.current >= 0 ? lastSeqRef.current : null;
+    const streamUrl =
+      priorSeq != null
+        ? `/api/v1/scans/${scanId}/stream?last_event_id=${priorSeq}`
+        : `/api/v1/scans/${scanId}/stream`;
+    const es = new EventSource(streamUrl);
     esRef.current = es;
 
     es.onopen = () => {

@@ -195,6 +195,13 @@ class ScanResponse(BaseModel):
     )
     job_attempt_count: int | None = Field(default=None, description="Durable job attempt_count")
     job_max_attempts: int | None = Field(default=None, description="Durable job max_attempts")
+    worker_heartbeat_recent: bool | None = Field(
+        default=None,
+        description=(
+            "True when a worker heartbeat was seen within SCAN_JOB_HEARTBEAT_TIMEOUT_SECONDS. "
+            "False + job_status=queued means the scan is waiting with no active worker."
+        ),
+    )
     repo_url: str | None = Field(
         default=None,
         description="Optional connected GitHub repository URL for automated PR generation",
@@ -255,6 +262,10 @@ class ScanJobStatusResponse(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     last_heartbeat_at: datetime | None = None
+    worker_heartbeat_recent: bool | None = Field(
+        default=None,
+        description="True when last_heartbeat_at is within the heartbeat timeout window",
+    )
     error_code: str | None = None
     error_detail: str | None = Field(
         default=None, description="Sanitized public error detail (never raw provider payloads)"
