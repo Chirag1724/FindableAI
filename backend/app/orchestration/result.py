@@ -43,3 +43,4 @@ class OrchestrationResult(BaseModel):
     pr_result: PREngineResult | None = None
     error: str | None = None
     error_reason: str | None = None
+    failed_intent_ids: list[str] = Field(default_factory=list)

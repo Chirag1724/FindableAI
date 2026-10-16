@@ -503,7 +503,8 @@ export default function ScanDashboardPage() {
         {(displayScan.llm_calls_made != null ||
           displayScan.progress_current != null ||
           displayScan.llm_usd_estimated != null ||
-          displayScan.batches_total != null) && (
+          displayScan.batches_total != null ||
+          (displayScan.failed_intent_ids && displayScan.failed_intent_ids.length > 0)) && (
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-mono text-text-muted border-b border-white/[0.06] pb-3 -mt-2">
             {displayScan.progress_current != null && (
               <span>
@@ -521,6 +522,12 @@ export default function ScanDashboardPage() {
             )}
             {displayScan.llm_calls_made != null && (
               <span>LLM attempts {displayScan.llm_calls_made}</span>
+            )}
+            {displayScan.failed_intent_ids && displayScan.failed_intent_ids.length > 0 && (
+              <span className="text-amber-400" title={displayScan.failed_intent_ids.join(", ")}>
+                partial: {displayScan.failed_intent_ids.length} intents unresolved
+                {displayScan.failure_reason ? ` (${displayScan.failure_reason})` : ""}
+              </span>
             )}
             {(displayScan.provider_successes != null ||
               displayScan.provider_failures != null) && (

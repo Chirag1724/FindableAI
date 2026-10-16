@@ -162,6 +162,13 @@ export interface ScanResponse {
   progress_current?: number | null;
   progress_total?: number | null;
   progress_seq?: number | null;
+  failed_intent_ids?: string[];
+  failure_reason?: string | null;
+  provider_retries?: number | null;
+  provider_failovers?: number | null;
+  duplicate_requests_joined?: number | null;
+  cache_hits?: number | null;
+  evaluations_valid?: number | null;
 }
 
 // Intelligence layer types (mirrors backend schemas/intelligence.py)

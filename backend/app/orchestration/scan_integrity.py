@@ -68,6 +68,7 @@ class IntegrityInput:
     score_source: ScoreSource
     patches_source: PatchesSource
     is_production: bool
+    failed_intent_ids: tuple[str, ...] = ()
 
 
 @dataclass
@@ -111,6 +112,13 @@ def decide_scan_integrity(inp: IntegrityInput) -> IntegrityDecision:
     final_n = max(0, inp.final_evaluation_count)
 
     has_real_evals = dag_n > 0 and not inp.used_synthetic_intents
+    act_complete = inp.dag_success and not inp.failed_intent_ids
+    if inp.failed_intent_ids:
+        warnings.append(
+            "Partial ACT: failed intent_ids="
+            + ",".join(inp.failed_intent_ids[:20])
+            + ("..." if len(inp.failed_intent_ids) > 20 else "")
+        )
     mock_score = inp.score_source is ScoreSource.MOCK
     mock_patches = inp.patches_source is PatchesSource.MOCK
 
@@ -134,9 +142,9 @@ def decide_scan_integrity(inp: IntegrityInput) -> IntegrityDecision:
         warnings.append(
             "Intent evaluations were synthetically generated; not a real-LLM NLI audit."
         )
-    elif has_real_evals and inp.dag_success and not mock_score:
+    elif has_real_evals and act_complete and not mock_score:
         result_source = ResultSource.REAL_PIPELINE
-    elif has_real_evals and (not inp.dag_success or mock_score):
+    elif has_real_evals and (not act_complete or mock_score):
         result_source = ResultSource.PARTIAL_REAL
         if not inp.dag_success:
             warnings.append("DAG did not fully succeed; preserved real evaluations are partial.")
@@ -165,7 +173,7 @@ def decide_scan_integrity(inp: IntegrityInput) -> IntegrityDecision:
     remediation_eligible = (
         has_real_evals
         and calls > 0
-        and inp.dag_success
+        and act_complete
         and not inp.used_synthetic_intents
         and not mock_score
         and not mock_patches
@@ -177,7 +185,7 @@ def decide_scan_integrity(inp: IntegrityInput) -> IntegrityDecision:
     mark_failed = False
     error_message = _sanitize_public_error(inp.dag_error)
 
-    if result_source is ResultSource.REAL_PIPELINE and inp.dag_success:
+    if result_source is ResultSource.REAL_PIPELINE and act_complete:
         outcome = ScanOutcome.SUCCESS
     elif result_source is ResultSource.PARTIAL_REAL:
         outcome = ScanOutcome.PARTIAL

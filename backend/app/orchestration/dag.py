@@ -248,8 +248,10 @@ class FindableAIDAG:
         retriever: Retriever | None = None,
         markdown_generator: Callable[[PRReportData], str] | None = None,
         progress_callback: Callable[[int, int, Any], Awaitable[None]] | None = None,
+        persist_batch_callback: Callable[[list[Any]], Awaitable[None]] | None = None,
     ) -> None:
         self._progress_callback = progress_callback
+        self._persist_batch_callback = persist_batch_callback
         # One scan-scoped BudgetGuard shared by every LLM consumer in this DAG.
         if llm_client is not None and budget_guard is not None:
             if llm_client.budget_guard is not budget_guard:
@@ -462,20 +464,48 @@ class FindableAIDAG:
             }
             if self._progress_callback is not None:
                 eval_kwargs["progress_callback"] = self._progress_callback
+            if self._persist_batch_callback is not None:
+                eval_kwargs["on_batch_complete"] = self._persist_batch_callback
             evaluations = await entailment.evaluate_intents(**eval_kwargs)
+            ctx.evaluations = list(evaluations)
+            ctx.failed_intent_ids = list(getattr(entailment, "last_failed_intent_ids", []) or [])
         except LLMBudgetExceededError as exc:
-            raise StageExecutionError(
-                f"ACT budget exhausted: {exc}",
-                stage="act",
-                reason="budget_exhausted",
-            ) from exc
+            if ctx.evaluations:
+                ctx.failed_intent_ids = list(
+                    getattr(entailment, "last_failed_intent_ids", []) or []
+                )
+                logger.warning(
+                    "ACT budget exhausted with partial evaluations scan_id=%s kept=%s",
+                    ctx.scan_id,
+                    len(ctx.evaluations),
+                )
+            else:
+                raise StageExecutionError(
+                    f"ACT budget exhausted: {exc}",
+                    stage="act",
+                    reason="budget_exhausted",
+                ) from exc
         except Exception as exc:
-            raise StageExecutionError(
-                f"ACT entailment failed: {exc}",
-                stage="act",
-                reason="entailment_failed",
-            ) from exc
-        ctx.evaluations = list(evaluations)
+            if ctx.evaluations:
+                logger.warning(
+                    "ACT entailment error with partial evaluations scan_id=%s kept=%s err=%s",
+                    ctx.scan_id,
+                    len(ctx.evaluations),
+                    type(exc).__name__,
+                )
+            else:
+                raise StageExecutionError(
+                    f"ACT entailment failed: {exc}",
+                    stage="act",
+                    reason="entailment_failed",
+                ) from exc
+        if ctx.failed_intent_ids:
+            logger.warning(
+                "ACT partial scan_id=%s failed_intents=%s evaluations=%s",
+                ctx.scan_id,
+                ctx.failed_intent_ids,
+                len(ctx.evaluations),
+            )
         ctx.completed_stages.append("act")
         logger.info(
             "ACT complete scan_id=%s evaluations=%s llm_calls=%s",
@@ -797,6 +827,7 @@ class FindableAIDAG:
             pr_result=ctx.pr_result,
             error=error,
             error_reason=error_reason,
+            failed_intent_ids=list(ctx.failed_intent_ids),
         )
 
 

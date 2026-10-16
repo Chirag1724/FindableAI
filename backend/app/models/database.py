@@ -9,11 +9,13 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -98,6 +100,15 @@ class Scan(Base):
     batches_failed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     llm_tokens_in: Mapped[int | None] = mapped_column(Integer, nullable=True)
     llm_tokens_out: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    provider_retries: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    provider_failovers: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duplicate_requests_joined: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cache_hits: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    evaluations_valid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    failed_intent_ids: Mapped[list[Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     dag_evaluations_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     synthetic_intents_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pages_crawled: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -263,11 +274,22 @@ class DOMChunk(Base):
 
 class Intent(Base):
     __tablename__ = "intents"
+    __table_args__ = (
+        Index(
+            "uq_intents_scan_intent_key",
+            "scan_id",
+            "intent_key",
+            unique=True,
+            postgresql_where=text("intent_key IS NOT NULL"),
+            sqlite_where=text("intent_key IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     scan_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    intent_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     category: Mapped[str] = mapped_column(String(100), nullable=False)
     persona: Mapped[str | None] = mapped_column(String(50), nullable=True)
     query: Mapped[str] = mapped_column(Text, nullable=False)

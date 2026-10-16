@@ -52,14 +52,13 @@ from app.orchestration.evidence_persistence import (
     HYDRATE_WARN,
     NO_DURABLE_EVIDENCE_REMEDIATION_WARN,
     PERSISTENCE_FAIL_WARN,
-    apply_persisted_evidence_integrity,
     apply_response_evidence_integrity,
-    build_evidence_rows_for_intent,
     downgrade_unvalidated_evaluations,
     evidence_persistence_warning,
     hydrate_evidence_for_intents,
     load_chunk_id_map,
     refine_remediation_eligible,
+    upsert_intent_evaluations,
 )
 from app.orchestration.remediation_lifecycle import (
     STATE_BLOCKED,
@@ -793,6 +792,21 @@ async def run_scan_pipeline(
             "Evaluating claim entailment and detecting factual contradictions...",
         )
 
+        async def _persist_batch(batch_evals: list[IntentEvaluation]) -> None:
+            """Write a validated persona batch immediately (idempotent on intent_key)."""
+            try:
+                async with AsyncSessionLocal() as s:
+                    async with s.begin():
+                        chunk_map = await load_chunk_id_map(s, scan_uuid)
+                        await upsert_intent_evaluations(
+                            s,
+                            scan_id=scan_uuid,
+                            evaluations=batch_evals,
+                            chunk_map=chunk_map,
+                        )
+            except Exception:
+                logger.exception("batch_persist_failed scan_id=%s size=%s", scan_id, len(batch_evals))
+
         async def _on_nli_progress(completed: int, total: int, item: Any) -> None:
             pct = min(90, 80 + int((completed / max(total, 1)) * 10))
             query_preview = getattr(item, "query", "")[:45]
@@ -838,6 +852,7 @@ async def run_scan_pipeline(
             fast_llm_client=fast_llm,
             budget_guard=budget_guard,
             progress_callback=_on_nli_progress,
+            persist_batch_callback=_persist_batch,
         )
         obs = ObservationInput(
             scan_id=str(scan_uuid),
@@ -991,6 +1006,7 @@ async def run_scan_pipeline(
                 score_source=score_source,
                 patches_source=patches_source,
                 is_production=is_prod,
+                failed_intent_ids=tuple(orch_result.failed_intent_ids or ()),
             )
         )
 
@@ -1105,48 +1121,27 @@ async def run_scan_pipeline(
                         )
 
                     # Persist only real DAG evaluations + durable evidence (never synthetic).
+                    # Idempotent on (scan_id, intent_key); failed-batch IDs stay unresolved.
                     if not used_synthetic_intents:
                         chunk_map = await load_chunk_id_map(s, scan_uuid)
-                        cite_total = 0
-                        cite_persisted = 0
-                        sanitized_evaluations: list[IntentEvaluation] = []
-                        for eval_item in dag_evaluations:
-                            intent_row_id = uuid.uuid4()
-                            built = build_evidence_rows_for_intent(
-                                intent_id=intent_row_id,
-                                evaluation=eval_item,
-                                chunk_map=chunk_map,
-                                intent_scan_id=scan_uuid,
-                            )
-                            clean = apply_persisted_evidence_integrity(eval_item, built)
-                            sanitized_evaluations.append(clean)
-                            cite_total += built.citation_count
-                            cite_persisted += built.persisted_count
-                            status_str = (
-                                clean.status.value
-                                if hasattr(clean.status, "value")
-                                else str(clean.status)
-                            )
-                            cat_val = clean.category.value if clean.category else "general"
-                            s.add(
-                                IntentModel(
-                                    id=intent_row_id,
-                                    scan_id=scan_uuid,
-                                    category=cat_val,
-                                    persona=clean.persona,
-                                    query=clean.query,
-                                    status=status_str,
-                                    reasoning=clean.reasoning,
-                                    confidence=clean.confidence,
-                                )
-                            )
-                            for ev_row in built.rows:
-                                s.add(ev_row)
-
-                        # Prefer sanitized evidence-backed intents for in-process responses.
+                        skip_keys = list(orch_result.failed_intent_ids or [])
+                        sanitized_evaluations, _inserted = await upsert_intent_evaluations(
+                            s,
+                            scan_id=scan_uuid,
+                            evaluations=dag_evaluations,
+                            chunk_map=chunk_map,
+                            skip_keys=skip_keys,
+                        )
+                        cite_total = sum(len(e.evidence or []) for e in sanitized_evaluations)
+                        cite_persisted = cite_total
                         evaluations = sanitized_evaluations
                         dag_evaluations = sanitized_evaluations
                         evidence_durably_validated = True
+                        db_scan.failed_intent_ids = skip_keys or None
+                        if skip_keys:
+                            db_scan.failure_reason = (
+                                f"partial_act:{len(skip_keys)}_intents_unresolved"
+                            )
 
                         # Recompute eligibility from final validated findings (not pre-sanitize).
                         refined = refine_remediation_eligible(
@@ -1248,6 +1243,11 @@ async def run_scan_pipeline(
             record.intelligence_warnings = list(publish_warnings)
             record.llm_calls_made = llm_calls_made
             record.error = final_error
+            record.failed_intent_ids = list(orch_result.failed_intent_ids or [])
+            if orch_result.failed_intent_ids:
+                record.failure_reason = (
+                    f"partial_act:{len(orch_result.failed_intent_ids)}_intents_unresolved"
+                )
             obs_fields = observability_from_budget(budget_guard)
             for key, value in obs_fields.items():
                 if hasattr(record, key):
@@ -1857,6 +1857,15 @@ async def get_scan(scan_id: str) -> ScanResponse:
                         batches_failed=getattr(db_scan, "batches_failed", None),
                         llm_tokens_in=getattr(db_scan, "llm_tokens_in", None),
                         llm_tokens_out=getattr(db_scan, "llm_tokens_out", None),
+                        failed_intent_ids=list(getattr(db_scan, "failed_intent_ids", None) or []),
+                        failure_reason=getattr(db_scan, "failure_reason", None),
+                        provider_retries=getattr(db_scan, "provider_retries", None),
+                        provider_failovers=getattr(db_scan, "provider_failovers", None),
+                        duplicate_requests_joined=getattr(
+                            db_scan, "duplicate_requests_joined", None
+                        ),
+                        cache_hits=getattr(db_scan, "cache_hits", None),
+                        evaluations_valid=getattr(db_scan, "evaluations_valid", None),
                         repo_url=db_scan.repo_url,
                         github_repo_url=db_scan.repo_url,
                         progress_percent=durable_percent,

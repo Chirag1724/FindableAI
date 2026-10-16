@@ -574,6 +574,73 @@ async def test_module_level_evaluate_intent_helper():
     assert result.status is EntailmentStatus.PARTIALLY_SUPPORTED
 
 
+@pytest.mark.asyncio
+async def test_developer_batch_failure_keeps_and_persists_other_twenty():
+    """GATE: Developer persona fails; CTO + procurement (20) still persist."""
+    import re
+
+    chunks = _chunks(1)
+    personas = ("cto", "developer", "procurement")
+    intents: list[IntentQuery] = []
+    for p_i, persona in enumerate(personas):
+        for j in range(10):
+            n = p_i * 10 + j + 1
+            intents.append(
+                _intent(query=f"Q{n}?").model_copy(
+                    update={"intent_id": f"edge_cases_{n:02d}", "persona": persona}
+                )
+            )
+
+    persisted: list[str] = []
+
+    async def on_batch(evals: list[IntentEvaluation]) -> None:
+        persisted.extend(e.intent_id for e in evals)
+
+    def create_batch_mock(**kwargs):
+        user = kwargs["messages"][1]["content"]
+        ids = re.findall(r"INTENT ID: (edge_cases_\d+)", user)
+        if any(i.persona == "developer" and i.intent_id in ids for i in intents):
+            raise RuntimeError("developer persona provider failed")
+        return IntentEvaluationBatch(
+            evaluations=[
+                _evaluation(
+                    status=EntailmentStatus.SUPPORTED,
+                    chunk_ids=[str(chunks[0].id)],
+                ).model_copy(update={"intent_id": pid})
+                for pid in ids
+            ]
+        )
+
+    handler = AsyncMock(side_effect=create_batch_mock)
+    llm = _llm(handler, max_calls=35)
+    engine = EntailmentEngine(
+        llm_client=llm,
+        retriever=AsyncMock(return_value=chunks),
+        batch_size=10,
+        concurrency=1,
+    )
+    results = await engine.evaluate_intents(
+        intents=intents,
+        scan_id=uuid.uuid4(),
+        on_batch_complete=on_batch,
+    )
+
+    assert len(results) == 30
+    assert len(persisted) == 20
+    assert set(engine.last_failed_intent_ids) == {
+        i.intent_id for i in intents if i.persona == "developer"
+    }
+    cto_ids = {i.intent_id for i in intents if i.persona == "cto"}
+    proc_ids = {i.intent_id for i in intents if i.persona == "procurement"}
+    assert cto_ids | proc_ids == set(persisted)
+    for r in results:
+        if r.intent_id in engine.last_failed_intent_ids:
+            assert r.status is EntailmentStatus.UNKNOWN
+            assert r.confidence == 0.0
+        else:
+            assert r.status is EntailmentStatus.SUPPORTED
+
+
 def test_prompt_builder_includes_anti_hallucination_contract():
     assert "Never use outside knowledge" in NLI_SYSTEM_PROMPT
     assert "MUST NOT invent chunk IDs" in NLI_SYSTEM_PROMPT

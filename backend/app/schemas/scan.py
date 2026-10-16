@@ -193,12 +193,8 @@ class ScanResponse(BaseModel):
     job_status: str | None = Field(
         default=None, description="Durable scan_jobs.status when durable jobs are enabled"
     )
-    job_attempt_count: int | None = Field(
-        default=None, description="Durable job attempt_count"
-    )
-    job_max_attempts: int | None = Field(
-        default=None, description="Durable job max_attempts"
-    )
+    job_attempt_count: int | None = Field(default=None, description="Durable job attempt_count")
+    job_max_attempts: int | None = Field(default=None, description="Durable job max_attempts")
     repo_url: str | None = Field(
         default=None,
         description="Optional connected GitHub repository URL for automated PR generation",
@@ -215,11 +211,34 @@ class ScanResponse(BaseModel):
         description="Persisted progress percent from the worker; None if unknown",
     )
     progress_stage: str | None = Field(default=None, description="Current durable stage label")
-    progress_message: str | None = Field(default=None, description="Latest durable progress message")
-    progress_current: int | None = Field(default=None, description="Completed work units when known")
+    progress_message: str | None = Field(
+        default=None, description="Latest durable progress message"
+    )
+    progress_current: int | None = Field(
+        default=None, description="Completed work units when known"
+    )
     progress_total: int | None = Field(default=None, description="Total work units when known")
     progress_seq: int | None = Field(
         default=None, description="Last durable progress event sequence number"
+    )
+    failed_intent_ids: list[str] = Field(
+        default_factory=list,
+        description="Intent IDs that did not persist (failed ACT batch); empty on full success",
+    )
+    failure_reason: str | None = Field(
+        default=None,
+        description="Public reason when outcome is partial or failed (no secrets)",
+    )
+    provider_retries: int | None = Field(default=None, description="Same-provider retries")
+    provider_failovers: int | None = Field(default=None, description="Provider failovers")
+    duplicate_requests_joined: int | None = Field(
+        default=None, description="In-flight duplicate requests coalesced"
+    )
+    cache_hits: int | None = Field(
+        default=None, description="Cache hits that skipped a provider call"
+    )
+    evaluations_valid: int | None = Field(
+        default=None, description="Evaluations that passed citation validation"
     )
 
 

@@ -18,6 +18,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.database import DOMChunk as DOMChunkModel
 from app.models.database import Evidence as EvidenceModel
+from app.models.database import Intent as IntentModel
 from app.schemas.intelligence import EntailmentStatus, EvidenceReference, IntentEvaluation
 
 logger = logging.getLogger(__name__)
@@ -36,8 +37,7 @@ _EVIDENCE_VALIDATION_SUFFIX = (
     "resolved to persisted same-scan DOM chunks; status downgraded.]"
 )
 _PERSISTENCE_FAILURE_SUFFIX = (
-    " [Evidence persistence unavailable: citations were not durably validated; "
-    "status downgraded.]"
+    " [Evidence persistence unavailable: citations were not durably validated; status downgraded.]"
 )
 _HYDRATION_FAILURE_SUFFIX = (
     " [Evidence hydration unavailable: stored evidence could not be loaded; "
@@ -369,9 +369,7 @@ def apply_response_evidence_integrity(
             )
             continue
         if not evaluation.evidence:
-            out.extend(
-                downgrade_unvalidated_evaluations([evaluation], reason="missing_evidence")
-            )
+            out.extend(downgrade_unvalidated_evaluations([evaluation], reason="missing_evidence"))
             continue
         out.append(evaluation)
     return out
@@ -416,3 +414,65 @@ async def hydrate_evidence_for_intents(
             )
         )
     return out
+
+
+async def upsert_intent_evaluations(
+    session: Any,
+    *,
+    scan_id: uuid.UUID,
+    evaluations: Sequence[IntentEvaluation],
+    chunk_map: dict[uuid.UUID, DOMChunkModel] | None = None,
+    skip_keys: Sequence[str] | None = None,
+) -> tuple[list[IntentEvaluation], int]:
+    """Insert intents by (scan_id, intent_key). Existing keys are left unchanged.
+
+    Returns (cleaned evaluations in input order, number of new rows inserted).
+    Intents in ``skip_keys`` are omitted so failed batches stay unresolved in DB.
+    """
+    skip = {k for k in (skip_keys or []) if k}
+    if chunk_map is None:
+        chunk_map = await load_chunk_id_map(session, scan_id)
+
+    cleaned: list[IntentEvaluation] = []
+    inserted = 0
+    for eval_item in evaluations:
+        key = (eval_item.intent_id or "").strip()
+        if not key or key in skip:
+            continue
+        existing = await session.scalar(
+            select(IntentModel).where(
+                IntentModel.scan_id == scan_id,
+                IntentModel.intent_key == key,
+            )
+        )
+        if existing is not None:
+            cleaned.append(eval_item)
+            continue
+        intent_row_id = uuid.uuid4()
+        built = build_evidence_rows_for_intent(
+            intent_id=intent_row_id,
+            evaluation=eval_item,
+            chunk_map=chunk_map,
+            intent_scan_id=scan_id,
+        )
+        clean = apply_persisted_evidence_integrity(eval_item, built)
+        status_str = clean.status.value if hasattr(clean.status, "value") else str(clean.status)
+        cat_val = clean.category.value if clean.category else "general"
+        session.add(
+            IntentModel(
+                id=intent_row_id,
+                scan_id=scan_id,
+                intent_key=key,
+                category=cat_val,
+                persona=clean.persona,
+                query=clean.query,
+                status=status_str,
+                reasoning=clean.reasoning,
+                confidence=clean.confidence,
+            )
+        )
+        for ev_row in built.rows:
+            session.add(ev_row)
+        cleaned.append(clean)
+        inserted += 1
+    return cleaned, inserted

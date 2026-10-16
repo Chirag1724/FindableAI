@@ -359,6 +359,7 @@ class EntailmentEngine:
         self._batch_retries = max(0, int(settings.EVAL_BATCH_RETRIES))
         self._split_min = max(1, int(settings.EVAL_SPLIT_MIN_BATCH))
         self._max_recovery = max(1, int(settings.EVAL_MAX_RECOVERY_REQUESTS_PER_BATCH))
+        self.last_failed_intent_ids: list[str] = []
 
     @property
     def llm_client(self) -> LLMClient:
@@ -743,6 +744,7 @@ class EntailmentEngine:
         intents: Sequence[IntentQuery],
         scan_id: uuid.UUID,
         progress_callback: Callable[[int, int, IntentEvaluation], Awaitable[None]] | None = None,
+        on_batch_complete: Callable[[list[IntentEvaluation]], Awaitable[None]] | None = None,
     ) -> list[IntentEvaluation]:
         """
         Evaluate intents grouped by persona, then chunked by batch_size
@@ -750,8 +752,10 @@ class EntailmentEngine:
         Results are returned in the original intent order.
         """
         if not intents:
+            self.last_failed_intent_ids = []
             return []
 
+        self.last_failed_intent_ids = []
         total_count = len(intents)
         completed_count = 0
         progress_lock = asyncio.Lock()
@@ -816,6 +820,9 @@ class EntailmentEngine:
                         pass
             return evaluations
 
+        # Settle every batch: a sibling failure must not drop already-finished work.
+        # CancelledError is propagated (task shutdown), not converted into UNKNOWN.
+        raw_results: list[list[IntentEvaluation] | BaseException] = []
         if self._concurrency > 1:
             sem = asyncio.Semaphore(self._concurrency)
 
@@ -825,14 +832,60 @@ class EntailmentEngine:
                 async with sem:
                     return await _process_batch(c)
 
-            batch_results = await asyncio.gather(*[_bounded_batch(c) for c in chunks])
+            gathered = await asyncio.gather(
+                *[_bounded_batch(c) for c in chunks],
+                return_exceptions=True,
+            )
+            raw_results = list(gathered)
         else:
-            batch_results = []
             for c in chunks:
-                batch_results.append(await _process_batch(c))
+                try:
+                    raw_results.append(await _process_batch(c))
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    raw_results.append(exc)
+
         flattened: list[IntentEvaluation] = []
-        for br in batch_results:
+        failed_ids: list[str] = []
+        budget_exc: BudgetExhausted | None = None
+        saw_success = False
+        for chunk, br in zip(chunks, raw_results, strict=True):
+            if isinstance(br, asyncio.CancelledError):
+                raise br
+            if isinstance(br, BaseException):
+                if isinstance(br, BudgetExhausted):
+                    budget_exc = br
+                reason = f"batch_failed:{type(br).__name__}"
+                for intent, _ev in chunk:
+                    failed_ids.append(intent.intent_id)
+                    flattened.append(self._honest_unresolved(intent, reason))
+                continue
+            # A batch that produced only recovery placeholders did not persist any work.
+            if br and all(
+                e.status is EntailmentStatus.UNKNOWN
+                and float(e.confidence) == 0.0
+                and "unresolved after bounded recovery" in (e.reasoning or "").lower()
+                for e in br
+            ):
+                failed_ids.extend(e.intent_id for e in br)
+                flattened.extend(br)
+                continue
             flattened.extend(br)
+            saw_success = True
+            if on_batch_complete is not None:
+                try:
+                    await on_batch_complete(list(br))
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception(
+                        "on_batch_complete_failed scan_id=%s size=%s", scan_id, len(br)
+                    )
+
+        self.last_failed_intent_ids = failed_ids
+        if budget_exc is not None and not saw_success:
+            raise budget_exc
         by_id = {e.intent_id: e for e in flattened}
         ordered: list[IntentEvaluation] = []
         for intent in intents:
