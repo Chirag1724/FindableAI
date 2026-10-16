@@ -24,6 +24,23 @@ logger = logging.getLogger(__name__)
 
 ReserveHook = Callable[[int, float], Awaitable[None]]
 
+# Process-scoped completed-response cache so a live rerun of the same prompts
+# can skip budget/provider without depending on a still-alive BudgetGuard.
+# Inflight coalescing stays scan-scoped (per BudgetGuard).
+_PROCESS_RESPONSE_CACHE: dict[str, Any] = {}
+_PROCESS_RESPONSE_CACHE_MAX = 256
+
+
+def clear_process_response_cache() -> None:
+    """Drop process cache entries (tests / explicit reset)."""
+    _PROCESS_RESPONSE_CACHE.clear()
+
+
+def _store_process_response_cache(key: str, value: Any) -> None:
+    _PROCESS_RESPONSE_CACHE[key] = value
+    while len(_PROCESS_RESPONSE_CACHE) > _PROCESS_RESPONSE_CACHE_MAX:
+        _PROCESS_RESPONSE_CACHE.pop(next(iter(_PROCESS_RESPONSE_CACHE)), None)
+
 
 class LLMBudgetExceededError(Exception):
     """Raised when a scan's hard LLM call (or estimated USD) limit would be exceeded.
@@ -143,7 +160,8 @@ class BudgetGuard:
         self.inflight: dict[str, asyncio.Future[Any]] = {}
         self._inflight_lock = asyncio.Lock()
         # Completed identical requests reuse the prior result and skip budget.
-        self.response_cache: dict[str, Any] = {}
+        # Shared across scans in this process so a live rerun can cache-hit.
+        self.response_cache = _PROCESS_RESPONSE_CACHE
 
     def restore_used(self, used: int) -> None:
         """Raise the used counter to at least ``used`` (never decreases)."""

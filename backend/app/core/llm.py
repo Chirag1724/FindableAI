@@ -535,7 +535,9 @@ class LLMClient:
                 fut.exception()  # mark retrieved; waiters (if any) re-raise it
             raise
         else:
-            self._budget.response_cache[key] = result
+            from app.core.budget import _store_process_response_cache
+
+            _store_process_response_cache(key, result)
             if not fut.done():
                 fut.set_result(result)
             return result

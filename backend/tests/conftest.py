@@ -27,6 +27,9 @@ def isolate_tests_from_real_providers_and_queue(monkeypatch: pytest.MonkeyPatch)
       PG integration tests (``FINDABLE_PG_INTEGRATION=1``) use their disposable DB and
       keep the durable path. Tests may still override either setting explicitly.
     """
+    from app.core.budget import clear_process_response_cache
+
+    clear_process_response_cache()
     if not _flag("FINDABLE_LIVE_LLM"):
         for name in (
             "GEMINI_API_KEY",

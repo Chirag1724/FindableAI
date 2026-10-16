@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import BaseModel
 
-from app.core.budget import BudgetGuard, LLMBudgetExceededError
+from app.core.budget import BudgetGuard, LLMBudgetExceededError, clear_process_response_cache
 from app.core.llm import LLMClient, ProviderEndpoint
 from app.core.llm_errors import ErrorClass, LLMAuthError
 
@@ -150,6 +150,7 @@ async def test_429_exhausted_failsover_and_counts() -> None:
 
 @pytest.mark.asyncio
 async def test_cache_hit_skips_budget() -> None:
+    clear_process_response_cache()
     handler = AsyncMock(return_value=_Tiny(answer="cached"))
     client = _chain_client({_GROQ: handler}, max_calls=10)
     msgs = [{"role": "user", "content": "same-payload"}]

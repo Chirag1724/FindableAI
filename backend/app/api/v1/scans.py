@@ -1007,6 +1007,7 @@ async def run_scan_pipeline(
                 patches_source=patches_source,
                 is_production=is_prod,
                 failed_intent_ids=tuple(orch_result.failed_intent_ids or ()),
+                cache_hits=int(budget_guard.observability.cache_hits or 0),
             )
         )
 

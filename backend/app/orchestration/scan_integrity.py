@@ -69,6 +69,7 @@ class IntegrityInput:
     patches_source: PatchesSource
     is_production: bool
     failed_intent_ids: tuple[str, ...] = ()
+    cache_hits: int = 0
 
 
 @dataclass
@@ -109,6 +110,8 @@ def decide_scan_integrity(inp: IntegrityInput) -> IntegrityDecision:
     warnings: list[str] = []
     dag_n = max(0, inp.dag_evaluation_count)
     calls = max(0, inp.llm_calls_made)
+    cache_hits = max(0, int(inp.cache_hits or 0))
+    llm_evidence = calls > 0 or cache_hits > 0
     final_n = max(0, inp.final_evaluation_count)
 
     has_real_evals = dag_n > 0 and not inp.used_synthetic_intents
@@ -123,9 +126,10 @@ def decide_scan_integrity(inp: IntegrityInput) -> IntegrityDecision:
     mock_patches = inp.patches_source is PatchesSource.MOCK
 
     # --- execution_mode: never from calls_made alone ---
+    # Cache hits skip budget but still prove the real LLM path supplied results.
     if (
         has_real_evals
-        and calls > 0
+        and llm_evidence
         and not inp.used_synthetic_intents
         and not mock_score
         and not mock_patches
