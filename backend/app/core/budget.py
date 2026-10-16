@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.core.config import settings
 
@@ -140,6 +140,10 @@ class BudgetGuard:
         self._on_reserve = on_reserve
         self.observability = observability or _ScanObservability()
         self._lock = asyncio.Lock()
+        # Scan-scoped duplicate-request guard: identical in-flight provider requests
+        # (same model/schema/messages) share one future instead of two calls.
+        self.inflight: dict[str, asyncio.Future[Any]] = {}
+        self._inflight_lock = asyncio.Lock()
 
     def restore_used(self, used: int) -> None:
         """Raise the used counter to at least ``used`` (never decreases)."""

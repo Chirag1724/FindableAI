@@ -1,7 +1,10 @@
 """Scan-scoped provider/batch observability counters (concurrency-safe).
 
 Counters are monotonic and never decrease. They accompany BudgetGuard so every
-reported provider attempt corresponds to a reserved BudgetGuard unit.
+reported provider attempt corresponds to a reserved BudgetGuard unit:
+
+    provider_attempts_completed == provider_successes + provider_failures
+    retries + failovers <= provider_failures
 """
 
 from __future__ import annotations
@@ -19,6 +22,11 @@ class ScanObservability:
     fallback_provider_used: bool = False
     provider_successes: int = 0
     provider_failures: int = 0
+    provider_retries: int = 0
+    provider_failovers: int = 0
+    duplicate_requests_joined: int = 0
+    cache_hits: int = 0
+    evaluations_valid: int = 0
     batches_total: int | None = None
     batches_queued: int = 0
     batches_started: int = 0
@@ -40,7 +48,9 @@ class ScanObservability:
         async with self._lock:
             self.fallback_provider_used = True
 
-    async def record_provider_success(self, *, tokens_in: int | None = None, tokens_out: int | None = None) -> None:
+    async def record_provider_success(
+        self, *, tokens_in: int | None = None, tokens_out: int | None = None
+    ) -> None:
         async with self._lock:
             self.provider_successes += 1
             if tokens_in is not None:
@@ -51,6 +61,26 @@ class ScanObservability:
     async def record_provider_failure(self) -> None:
         async with self._lock:
             self.provider_failures += 1
+
+    async def record_retry(self) -> None:
+        async with self._lock:
+            self.provider_retries += 1
+
+    async def record_failover(self) -> None:
+        async with self._lock:
+            self.provider_failovers += 1
+
+    async def record_duplicate_joined(self) -> None:
+        async with self._lock:
+            self.duplicate_requests_joined += 1
+
+    async def record_cache_hit(self, count: int = 1) -> None:
+        async with self._lock:
+            self.cache_hits += max(0, int(count))
+
+    async def record_evaluations_valid(self, count: int) -> None:
+        async with self._lock:
+            self.evaluations_valid += max(0, int(count))
 
     async def init_batches(self, total: int) -> None:
         async with self._lock:
@@ -89,6 +119,11 @@ class ScanObservability:
             "provider_successes": self.provider_successes,
             "provider_failures": self.provider_failures,
             "provider_attempts_completed": self.provider_successes + self.provider_failures,
+            "provider_retries": self.provider_retries,
+            "provider_failovers": self.provider_failovers,
+            "duplicate_requests_joined": self.duplicate_requests_joined,
+            "cache_hits": self.cache_hits,
+            "evaluations_valid": self.evaluations_valid,
             "batches_total": self.batches_total,
             "batches_queued": self.batches_queued,
             "batches_started": self.batches_started,
