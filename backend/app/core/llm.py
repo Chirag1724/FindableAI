@@ -36,7 +36,9 @@ from app.core.provider_throttle import PROVIDER_THROTTLES, estimate_request_toke
 logger = logging.getLogger(__name__)
 
 # Process-wide concurrency gate for structured completion calls.
+# Recreated when the running event loop changes (pytest-asyncio per-test loops).
 _global_llm_sema: asyncio.Semaphore | None = None
+_global_llm_sema_loop: asyncio.AbstractEventLoop | None = None
 
 # Longest provider-advised wait we honor before treating a 429 as exhausted.
 RATE_LIMIT_MAX_WAIT_SECONDS = 65.0
@@ -58,9 +60,11 @@ _TRIP_SECONDS: dict[ErrorClass, float] = {
 
 
 def _get_global_llm_semaphore() -> asyncio.Semaphore:
-    global _global_llm_sema
-    if _global_llm_sema is None:
+    global _global_llm_sema, _global_llm_sema_loop
+    loop = asyncio.get_running_loop()
+    if _global_llm_sema is None or _global_llm_sema_loop is not loop:
         _global_llm_sema = asyncio.Semaphore(max(1, int(settings.LLM_GLOBAL_CONCURRENCY)))
+        _global_llm_sema_loop = loop
     return _global_llm_sema
 
 
