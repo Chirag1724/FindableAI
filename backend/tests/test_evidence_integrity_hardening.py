@@ -36,9 +36,7 @@ def _supported_eval(*, chunk_id: str) -> IntentEvaluation:
         reasoning="Cited chunk supports hours.",
         confidence=0.92,
         category=IntentCategory.AVAILABILITY,
-        evidence=[
-            EvidenceReference(chunk_id=chunk_id, dom_path="main > p", rank=1, excerpt="9-5")
-        ],
+        evidence=[EvidenceReference(chunk_id=chunk_id, dom_path="main > p", rank=1, excerpt="9-5")],
     )
 
 
@@ -160,7 +158,9 @@ async def test_store_dom_chunks_rejects_wrong_embedding_dimensions():
 def test_refine_remediation_eligible_requires_evidence_backed_findings():
     from app.orchestration.evidence_persistence import EvidenceBuildResult
 
-    assert refine_remediation_eligible(False, [_supported_eval(chunk_id=str(uuid.uuid4()))]) is False
+    assert (
+        refine_remediation_eligible(False, [_supported_eval(chunk_id=str(uuid.uuid4()))]) is False
+    )
     supported = _supported_eval(chunk_id=str(uuid.uuid4()))
     assert refine_remediation_eligible(True, [supported]) is True
     unknown_only = apply_persisted_evidence_integrity(

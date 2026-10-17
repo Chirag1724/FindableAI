@@ -349,7 +349,9 @@ async def test_dead_letter_allows_fresh_scan(session: AsyncSession):
 async def test_zombie_stale_heartbeat_allows_fresh_scan(session: AsyncSession):
     """A running job with a stale heartbeat must NOT block a new scan of the same URL."""
     old_scan_id = uuid.uuid4()
-    fp = request_fingerprint(url="https://example.com/zombie-hb", max_pages=1, personas=None, repo_url=None)
+    fp = request_fingerprint(
+        url="https://example.com/zombie-hb", max_pages=1, personas=None, repo_url=None
+    )
     key = "client:zombie-hb"
     async with session.begin():
         r1 = await enqueue_scan_job(
@@ -411,7 +413,9 @@ async def test_zombie_stale_heartbeat_allows_fresh_scan(session: AsyncSession):
 async def test_healthy_running_job_recent_heartbeat_deduplicates(session: AsyncSession):
     """An actively running job with a fresh heartbeat MUST deduplicate and return created=False."""
     scan_id = uuid.uuid4()
-    fp = request_fingerprint(url="https://example.com/healthy-hb", max_pages=1, personas=None, repo_url=None)
+    fp = request_fingerprint(
+        url="https://example.com/healthy-hb", max_pages=1, personas=None, repo_url=None
+    )
     key = "client:healthy-hb"
     async with session.begin():
         r1 = await enqueue_scan_job(
@@ -454,7 +458,9 @@ async def test_healthy_running_job_recent_heartbeat_deduplicates(session: AsyncS
 async def test_zombie_queued_job_past_timeout_allows_fresh_scan(session: AsyncSession):
     """A queued job left unhandled past the timeout must NOT block a new scan."""
     old_scan_id = uuid.uuid4()
-    fp = request_fingerprint(url="https://example.com/zombie-q", max_pages=1, personas=None, repo_url=None)
+    fp = request_fingerprint(
+        url="https://example.com/zombie-q", max_pages=1, personas=None, repo_url=None
+    )
     key = "client:zombie-q"
     async with session.begin():
         r1 = await enqueue_scan_job(
@@ -490,7 +496,6 @@ async def test_zombie_queued_job_past_timeout_allows_fresh_scan(session: AsyncSe
         )
     assert r2.created is True
     assert r2.job.id != r1.job.id
-
 
 
 @pytest.mark.asyncio

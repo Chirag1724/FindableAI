@@ -176,9 +176,7 @@ async def enqueue_scan_job(
                 existing.status,
                 existing.correlation_id,
             )
-            existing.idempotency_key = (
-                f"{existing.idempotency_key}:done:{existing.id.hex}"
-            )
+            existing.idempotency_key = f"{existing.idempotency_key}:done:{existing.id.hex}"
             existing.updated_at = now
 
             cid = correlation_id or new_correlation_id()
@@ -712,9 +710,7 @@ async def update_llm_checkpoint(
     if llm_usd is not None:
         usd = float(llm_usd)
         usd_col = func.coalesce(ScanJob.llm_usd_checkpoint, 0.0)
-        usd_expr = (
-            func.max(usd_col, usd) if dialect == "sqlite" else func.greatest(usd_col, usd)
-        )
+        usd_expr = func.max(usd_col, usd) if dialect == "sqlite" else func.greatest(usd_col, usd)
         values["llm_usd_checkpoint"] = usd_expr
     result = await session.execute(
         update(ScanJob)

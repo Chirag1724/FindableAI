@@ -126,9 +126,7 @@ async def save_job_checkpoint(
 
 
 async def count_persisted_chunks(session: AsyncSession, scan_id: uuid.UUID) -> int:
-    result = await session.scalar(
-        select(DOMChunk.id).where(DOMChunk.scan_id == scan_id).limit(1)
-    )
+    result = await session.scalar(select(DOMChunk.id).where(DOMChunk.scan_id == scan_id).limit(1))
     if result is None:
         return 0
     from sqlalchemy import func

@@ -56,9 +56,7 @@ def assert_disposable_url(url: str) -> None:
     db_name = (parsed.path or "").lstrip("/")
     blocked = {"prod", "production", "live"}
     if db_name.lower() in blocked and not allow_remote():
-        pytest.fail(
-            f"Refusing database name {db_name!r} without FINDABLE_PG_ALLOW_REMOTE=1"
-        )
+        pytest.fail(f"Refusing database name {db_name!r} without FINDABLE_PG_ALLOW_REMOTE=1")
 
 
 def admin_url(url: str) -> str:
@@ -126,8 +124,7 @@ def run_alembic_upgrade(url: str, revision: str = "head") -> None:
         if proc.returncode == 0:
             return
         last_err = (
-            f"cmd={cmd!r} exit={proc.returncode}\n"
-            f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+            f"cmd={cmd!r} exit={proc.returncode}\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
         )
     raise RuntimeError(f"alembic upgrade failed\n{last_err}")
 
@@ -157,8 +154,7 @@ def run_alembic_downgrade(url: str, revision: str = "base") -> None:
         if proc.returncode == 0:
             return
         last_err = (
-            f"cmd={cmd!r} exit={proc.returncode}\n"
-            f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+            f"cmd={cmd!r} exit={proc.returncode}\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
         )
     raise RuntimeError(f"alembic downgrade failed\n{last_err}")
 

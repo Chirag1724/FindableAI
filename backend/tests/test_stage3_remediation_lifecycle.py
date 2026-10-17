@@ -106,8 +106,7 @@ def test_path_normalization_rejects_traversal_variants():
 
 def test_secret_patterns_block_patch():
     leak = (
-        "--- a/index.html\n+++ b/index.html\n"
-        "+<!-- ghp_abcdefghijklmnopqrstuvwxyz0123456789 -->\n"
+        "--- a/index.html\n+++ b/index.html\n+<!-- ghp_abcdefghijklmnopqrstuvwxyz0123456789 -->\n"
     )
     check = validate_no_secrets(leak)
     assert check.status == CheckStatus.FAILED
@@ -399,8 +398,7 @@ async def test_e2e_lifecycle_negative_unsafe_patch_never_mutates(monkeypatch):
                     suggested_snippet="",
                 ),
                 unified_diff=(
-                    "--- a/index.html\n+++ b/index.html\n"
-                    "+<!-- AKIAIOSFODNN7EXAMPLEXX -->\n"
+                    "--- a/index.html\n+++ b/index.html\n+<!-- AKIAIOSFODNN7EXAMPLEXX -->\n"
                 ),
                 target_file="index.html",
                 is_synthetic=False,

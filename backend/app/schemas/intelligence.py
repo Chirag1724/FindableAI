@@ -100,6 +100,15 @@ class EvidenceReference(BaseModel):
 class IntentEvaluation(BaseModel):
     intent_id: str = Field(..., min_length=1)
     query: str = Field(..., min_length=1)
+    # Grounding anchor: model extracts verbatim evidence quote before classification
+    verbatim_quote: str | None = Field(
+        default=None,
+        description="Exact verbatim sentence or table cell copied from the evidence. None if not found.",
+    )
+    cited_chunk_id: str | None = Field(
+        default=None,
+        description="UUID/ID of the chunk that contains the verbatim_quote.",
+    )
     status: EntailmentStatus
     reasoning: str = Field(..., min_length=1)
     evidence: list[EvidenceReference] = Field(default_factory=list)

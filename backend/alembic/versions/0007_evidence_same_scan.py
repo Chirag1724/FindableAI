@@ -24,9 +24,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     # Idempotent: local DBs may already have persona from ORM create_all / partial apply.
-    op.execute(
-        "ALTER TABLE intents ADD COLUMN IF NOT EXISTS persona VARCHAR(50)"
-    )
+    op.execute("ALTER TABLE intents ADD COLUMN IF NOT EXISTS persona VARCHAR(50)")
     # Auditable repair: drop only evidence whose intent and chunk disagree on scan.
     # Valid same-scan evidence and all intent/finding rows are preserved.
     op.execute(

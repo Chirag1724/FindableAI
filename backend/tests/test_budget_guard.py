@@ -117,9 +117,7 @@ async def test_36th_reservation_rejected_before_provider():
     client = _client(handler, budget=guard)
 
     for i in range(35):
-        await client.create(
-            _Tiny, messages=[{"role": "user", "content": f"x{i}"}], max_retries=0
-        )
+        await client.create(_Tiny, messages=[{"role": "user", "content": f"x{i}"}], max_retries=0)
 
     assert guard.used == 35
     assert handler.await_count == 35
@@ -181,7 +179,9 @@ async def test_concurrent_40_attempts_limit_35():
         try:
             # Distinct payloads: identical in-flight requests are intentionally
             # coalesced by LLMClient (see test_identical_inflight_requests_are_coalesced).
-            await client.create(_Tiny, messages=[{"role": "user", "content": f"x{i}"}], max_retries=0)
+            await client.create(
+                _Tiny, messages=[{"role": "user", "content": f"x{i}"}], max_retries=0
+            )
             return "ok"
         except LLMBudgetExceededError:
             async with lock:
@@ -352,18 +352,14 @@ async def test_per_scan_isolation():
     client_b = _client(handler, budget=b)
 
     for i in range(35):
-        await client_a.create(
-            _Tiny, messages=[{"role": "user", "content": f"a{i}"}], max_retries=0
-        )
+        await client_a.create(_Tiny, messages=[{"role": "user", "content": f"a{i}"}], max_retries=0)
     with pytest.raises(LLMBudgetExceededError):
         await client_a.create(
             _Tiny, messages=[{"role": "user", "content": "a-overflow"}], max_retries=0
         )
 
     for i in range(35):
-        await client_b.create(
-            _Tiny, messages=[{"role": "user", "content": f"b{i}"}], max_retries=0
-        )
+        await client_b.create(_Tiny, messages=[{"role": "user", "content": f"b{i}"}], max_retries=0)
     assert b.used == 35
     assert a.used == 35
 
