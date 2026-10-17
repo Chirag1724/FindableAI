@@ -69,6 +69,12 @@ services:
       SCAN_JOB_INLINE_FALLBACK: "false"
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   worker:
     build:
@@ -80,7 +86,7 @@ services:
       postgres:
         condition: service_healthy
       backend:
-        condition: service_started
+        condition: service_healthy
     environment:
       ENVIRONMENT: production
       API_KEY: ${API_KEY:-}
@@ -120,7 +126,8 @@ services:
     container_name: findable-frontend
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       BACKEND_URL: http://backend:8000

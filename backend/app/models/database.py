@@ -38,6 +38,63 @@ class Base(DeclarativeBase):
     pass
 
 
+class Organization(Base):
+    __tablename__ = "organizations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    plan_tier: Mapped[str] = mapped_column(String(50), default="free", nullable=False)
+    rate_limit_per_min: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    scans: Mapped[list["Scan"]] = relationship("Scan", back_populates="organization")
+    api_keys: Mapped[list["ApiKey"]] = relationship(
+        "ApiKey", back_populates="organization", cascade="all, delete-orphan"
+    )
+    memberships: Mapped[list["OrgMembership"]] = relationship(
+        "OrgMembership", back_populates="organization", cascade="all, delete-orphan"
+    )
+
+
+class OrgMembership(Base):
+    __tablename__ = "org_memberships"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(50), default="member", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    organization: Mapped["Organization"] = relationship("Organization", back_populates="memberships")
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    key_prefix: Mapped[str] = mapped_column(String(16), nullable=False)
+    hashed_key: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    rate_limit_per_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    organization: Mapped["Organization"] = relationship("Organization", back_populates="api_keys")
+
+
 class Business(Base):
     __tablename__ = "businesses"
 
@@ -61,6 +118,12 @@ class Scan(Base):
     business_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("businesses.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    org_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -131,6 +194,7 @@ class Scan(Base):
     )
 
     business: Mapped[Business | None] = relationship("Business", back_populates="scans")
+    organization: Mapped[Organization | None] = relationship("Organization", back_populates="scans")
     dom_chunks: Mapped[list["DOMChunk"]] = relationship(
         "DOMChunk", back_populates="scan", cascade="all, delete-orphan"
     )

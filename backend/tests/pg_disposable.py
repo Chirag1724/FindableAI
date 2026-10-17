@@ -132,6 +132,37 @@ def run_alembic_upgrade(url: str, revision: str = "head") -> None:
     raise RuntimeError(f"alembic upgrade failed\n{last_err}")
 
 
+def run_alembic_downgrade(url: str, revision: str = "base") -> None:
+    env = os.environ.copy()
+    env["DATABASE_URL"] = url
+    exe = Path(sys.executable)
+    candidates = [
+        [str(exe), "-P", "-m", "alembic", "downgrade", revision],
+        [str(exe.parent / "alembic.exe"), "downgrade", revision],
+        [str(exe.parent / "Scripts" / "alembic.exe"), "downgrade", revision],
+        [str(exe.parent / "alembic"), "downgrade", revision],
+    ]
+    last_err = ""
+    for cmd in candidates:
+        if cmd[0].endswith(("alembic.exe", "alembic")) and not Path(cmd[0]).exists():
+            continue
+        proc = subprocess.run(
+            cmd,
+            cwd=str(_BACKEND_ROOT),
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode == 0:
+            return
+        last_err = (
+            f"cmd={cmd!r} exit={proc.returncode}\n"
+            f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        )
+    raise RuntimeError(f"alembic downgrade failed\n{last_err}")
+
+
 PG_SKIP_REASON = (
     "Set FINDABLE_PG_INTEGRATION=1 with a disposable PostgreSQL+pgvector URL "
     "(prefer FINDABLE_PG_DATABASE_URL on loopback)"

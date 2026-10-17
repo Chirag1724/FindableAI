@@ -35,6 +35,7 @@ from tests.pg_disposable import (
     integration_enabled,
     reset_public_schema,
     resolve_pg_url,
+    run_alembic_downgrade,
     run_alembic_upgrade,
 )
 
@@ -122,6 +123,9 @@ async def test_pg_migration_head_reachable(pg_url: str):
     try:
         await reset_public_schema(engine)
         # Intentionally do NOT create_all — migrations are the source of truth.
+        # Test full cycle: upgrade head -> rollback to base -> re-apply to head cleanly.
+        run_alembic_upgrade(pg_url)
+        run_alembic_downgrade(pg_url, "base")
         run_alembic_upgrade(pg_url)
 
         async with engine.connect() as conn:
