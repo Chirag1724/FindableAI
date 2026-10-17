@@ -479,15 +479,14 @@ npm run test
 
 Test suite sizes and “passed” badges in marketing copy can drift. Re-run the commands above for current counts. Unit/integration tests with fakes do **not** prove live Groq, GitHub, or production deploy success. See [docs/engineering/TESTING.md](docs/engineering/TESTING.md).
 
-### 6. Deployment (not production-certified)
+### 6. Production Cloud Deployment (Vercel + Render)
 
-Dockerfiles and Compose exist (`backend/Dockerfile`, `frontend/Dockerfile`, `docker-compose.yml`). CI workflow files exist under `.github/workflows/`.
+FindableAI is configured for streamlined cloud deployment with a split architecture:
 
-- Operational guide: [docs/engineering/DEPLOYMENT.md](docs/engineering/DEPLOYMENT.md)
-- Readiness / gaps: [docs/engineering/LIMITATIONS_AND_READINESS.md](docs/engineering/LIMITATIONS_AND_READINESS.md)
-- Env vars: [docs/engineering/ENVIRONMENT.md](docs/engineering/ENVIRONMENT.md)
-
-**This repository does not currently include** `docs/DEPLOYMENT_GUIDE.md`, `backend/railway.json`, `render.yaml`, or `frontend/vercel.json`. Do not claim a live cloud deploy succeeded unless you have run and verified it.
+- **End-to-End Walkthrough:** [docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)
+- **Render Blueprint (Backend API, Worker, Redis):** [`render.yaml`](render.yaml)
+- **Vercel Manifest (Next.js 14 Frontend):** [`frontend/vercel.json`](frontend/vercel.json)
+- **Operational Architecture & Env Reference:** [docs/engineering/DEPLOYMENT.md](docs/engineering/DEPLOYMENT.md) & [docs/engineering/ENVIRONMENT.md](docs/engineering/ENVIRONMENT.md)
 
 ## Team Roles & Ownership
 
