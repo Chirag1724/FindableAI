@@ -26,6 +26,10 @@ class HealthCheckResponse(BaseModel):
     auth: str | None = "unknown"
     environment: str = "development"
     metrics: dict | None = None
+    # Aggregate queue observability only (no tenant data / secrets).
+    queued_jobs: int | None = None
+    oldest_queued_age_seconds: float | None = None
+    worker_heartbeat_age_seconds: float | None = None
 
 
 @router.get("/health", response_model=HealthCheckResponse)
@@ -55,6 +59,9 @@ async def readiness_check():
     worker_status = "unknown"
     overall_status = "healthy"
     snap = metrics.snapshot()
+    queued_jobs: int | None = None
+    oldest_queued_age_seconds: float | None = None
+    worker_heartbeat_age_seconds: float | None = None
 
     if is_production_environment() and not production_api_key_configured():
         return HealthCheckResponse(
@@ -106,6 +113,7 @@ async def readiness_check():
 
     try:
         async with AsyncSessionLocal() as session:
+            now = datetime.now(UTC)
             queued = await session.scalar(
                 select(func.count())
                 .select_from(ScanJob)
@@ -118,12 +126,28 @@ async def readiness_check():
                 .select_from(ScanJob)
                 .where(ScanJob.status.in_([JobStatus.CLAIMED.value, JobStatus.RUNNING.value]))
             )
-            # Recent worker heartbeat within the heartbeat timeout indicates workers alive.
-            # (Workers heartbeat every ~5s while running a job; a 2x-lease window would
-            # hide a dead worker for 20 minutes.)
-            cutoff = datetime.now(UTC) - timedelta(
-                seconds=max(30, int(settings.SCAN_JOB_HEARTBEAT_TIMEOUT_SECONDS))
+            oldest_available = await session.scalar(
+                select(func.min(ScanJob.available_at)).where(
+                    ScanJob.status.in_([JobStatus.QUEUED.value, JobStatus.RETRY_SCHEDULED.value])
+                )
             )
+            newest_hb = await session.scalar(select(func.max(ScanJob.last_heartbeat_at)))
+
+            queued_jobs = int(queued or 0)
+            if oldest_available is not None:
+                oa = oldest_available
+                if oa.tzinfo is None:
+                    oa = oa.replace(tzinfo=UTC)
+                oldest_queued_age_seconds = max(0.0, (now - oa).total_seconds())
+            if newest_hb is not None:
+                hb = newest_hb
+                if hb.tzinfo is None:
+                    hb = hb.replace(tzinfo=UTC)
+                worker_heartbeat_age_seconds = max(0.0, (now - hb).total_seconds())
+
+            hb_timeout = max(30, int(settings.SCAN_JOB_HEARTBEAT_TIMEOUT_SECONDS))
+            queue_stale = max(30, int(settings.SCAN_JOB_QUEUE_STALE_SECONDS))
+            cutoff = now - timedelta(seconds=hb_timeout)
             recent_hb = await session.scalar(
                 select(func.count())
                 .select_from(ScanJob)
@@ -133,17 +157,26 @@ async def readiness_check():
                 )
             )
             queue_status = "ready"
-            if int(queued or 0) > 0 and int(recent_hb or 0) == 0 and int(active or 0) == 0:
-                # Work waiting but no recent worker activity.
+            stale_queue = (
+                queued_jobs > 0
+                and oldest_queued_age_seconds is not None
+                and oldest_queued_age_seconds >= queue_stale
+                and int(recent_hb or 0) == 0
+                and int(active or 0) == 0
+            )
+            if stale_queue or (
+                queued_jobs > 0 and int(recent_hb or 0) == 0 and int(active or 0) == 0
+            ):
                 worker_status = "stale_or_absent"
-                if settings.ENVIRONMENT.lower() == "production":
-                    overall_status = "degraded"
+                overall_status = "degraded"
             elif int(active or 0) > 0 or int(recent_hb or 0) > 0:
                 worker_status = "active"
             else:
                 worker_status = "idle"
-            metrics.set_gauge("scan_jobs_queue_depth", float(queued or 0))
+            metrics.set_gauge("scan_jobs_queue_depth", float(queued_jobs))
             metrics.set_gauge("scan_jobs_active", float(active or 0))
+            if oldest_queued_age_seconds is not None:
+                metrics.set_gauge("scan_jobs_oldest_queued_age_seconds", oldest_queued_age_seconds)
     except Exception as exc:
         logger.warning("Readiness queue probe failed: %s", exc)
         queue_status = "unavailable"
@@ -160,4 +193,7 @@ async def readiness_check():
         auth=auth_status,
         environment=settings.ENVIRONMENT,
         metrics=snap,
+        queued_jobs=queued_jobs,
+        oldest_queued_age_seconds=oldest_queued_age_seconds,
+        worker_heartbeat_age_seconds=worker_heartbeat_age_seconds,
     )

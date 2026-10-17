@@ -239,6 +239,12 @@ class ScanJob(Base):
     scan_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    org_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     job_type: Mapped[str] = mapped_column(String(50), nullable=False, default="scan_pipeline")
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="queued", index=True)
     idempotency_key: Mapped[str] = mapped_column(String(512), nullable=False)

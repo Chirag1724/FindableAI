@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { ScanStatusEvent, ScanStatus } from "@/types/scan";
 import { getScan } from "@/lib/api";
+import { getAuthHeaders } from "@/lib/authHeaders";
 import { deriveUiScanStatus } from "@/lib/pipelineStatus";
 
 export type StreamConnectionState =
@@ -24,10 +25,13 @@ export interface ScanStreamResult {
 }
 
 /**
- * Opens an EventSource for a scanId when `active` is true.
- * Parses each event safely (bad JSON does not crash).
- * Closes on completed/failed and on unmount.
- * Falls back to polling GET /api/v1/scans/{id} every 2s on SSE error.
+ * Opens an authenticated SSE stream for a scanId when `active` is true.
+ *
+ * Uses fetch + ReadableStream (not EventSource) so ``X-API-Key`` /
+ * ``Authorization`` headers can be sent. Auth is re-validated on every
+ * reconnect because each connection is a new HTTP request.
+ *
+ * Falls back to polling GET /api/v1/scans/{id} every 2s on stream error.
  * Safe under React 18 StrictMode double-effects.
  */
 export function useScanStream(
@@ -40,18 +44,17 @@ export function useScanStream(
     useState<StreamConnectionState>("idle");
   const [lastGoodStatus, setLastGoodStatus] = useState<ScanStatus | null>(null);
 
-  // Refs to hold mutable state without triggering re-renders
-  const esRef = useRef<EventSource | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const isMountedRef = useRef(true);
   const activeRef = useRef(active);
   const lastSeqRef = useRef<number>(-1);
+  const streamingRef = useRef(false);
   activeRef.current = active;
 
   const pushEvent = useCallback((event: ScanStatusEvent) => {
     if (!isMountedRef.current) return;
-    // Ignore stale snapshots (lower seq) so refresh/poll cannot rewind progress.
     if (typeof event.seq === "number" && event.seq >= 0) {
       if (event.seq < lastSeqRef.current) {
         return;
@@ -82,16 +85,17 @@ export function useScanStream(
   }, []);
 
   const stopStream = useCallback(() => {
-    if (esRef.current) {
-      esRef.current.close();
-      esRef.current = null;
+    if (streamAbortRef.current) {
+      streamAbortRef.current.abort();
+      streamAbortRef.current = null;
     }
+    streamingRef.current = false;
     stopPoll();
   }, [stopPoll]);
 
   const startPolling = useCallback(
     (id: string) => {
-      if (pollRef.current !== null) return; // already polling
+      if (pollRef.current !== null) return;
       if (!isMountedRef.current) return;
 
       setConnectionState("error");
@@ -106,7 +110,6 @@ export function useScanStream(
         try {
           const scan = await getScan(id, ac.signal);
           if (!isMountedRef.current) return;
-          // Prefer durable progress fields from PostgreSQL — never fabricate mid-run %.
           const durablePercent =
             typeof scan.progress_percent === "number"
               ? scan.progress_percent
@@ -140,11 +143,10 @@ export function useScanStream(
             if (isMountedRef.current) setConnectionState("closed");
           }
         } catch {
-          // Network error during poll - keep trying unless unmounted
+          // keep polling
         }
       };
 
-      // Run immediately, then repeat
       void poll();
       pollRef.current = setInterval(() => void poll(), POLL_INTERVAL_MS);
     },
@@ -165,52 +167,82 @@ export function useScanStream(
       return;
     }
 
-    // Guard against StrictMode double-invocation: if a stream is already open for this id, skip
-    if (esRef.current) return;
+    if (streamingRef.current) return;
 
     setConnectionState("connecting");
+    streamingRef.current = true;
 
-    // Preserve last seq across effect re-runs for the same scan so replay can
-    // resume; reset when scanId changes (handled by effect dependency).
     const priorSeq = lastSeqRef.current >= 0 ? lastSeqRef.current : null;
     const streamUrl =
       priorSeq != null
         ? `/api/v1/scans/${scanId}/stream?last_event_id=${priorSeq}`
         : `/api/v1/scans/${scanId}/stream`;
-    const es = new EventSource(streamUrl);
-    esRef.current = es;
 
-    es.onopen = () => {
-      if (!isMountedRef.current) return;
-      setConnectionState("open");
-    };
+    const ac = new AbortController();
+    streamAbortRef.current = ac;
 
-    es.onmessage = (ev: MessageEvent<string>) => {
-      if (!isMountedRef.current) return;
-      let parsed: ScanStatusEvent;
+    const run = async () => {
       try {
-        parsed = JSON.parse(ev.data) as ScanStatusEvent;
-      } catch {
-        return; // Bad JSON - skip silently
-      }
-      pushEvent(parsed);
-      if (TERMINAL.includes(parsed.status)) {
-        // Stream is done - close manually (server also closes but EventSource auto-reconnects)
-        es.close();
-        esRef.current = null;
-        if (isMountedRef.current) setConnectionState("closed");
+        const res = await fetch(streamUrl, {
+          method: "GET",
+          headers: {
+            Accept: "text/event-stream",
+            ...getAuthHeaders(),
+          },
+          signal: ac.signal,
+        });
+        if (!res.ok || !res.body) {
+          throw new Error(`stream_http_${res.status}`);
+        }
+        if (!isMountedRef.current) return;
+        setConnectionState("open");
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const chunks = buffer.split("\n\n");
+          buffer = chunks.pop() ?? "";
+          for (const chunk of chunks) {
+            const dataLines = chunk
+              .split("\n")
+              .filter((line) => line.startsWith("data:"))
+              .map((line) => line.slice(5).trimStart());
+            if (dataLines.length === 0) continue;
+            const raw = dataLines.join("\n");
+            let parsed: ScanStatusEvent;
+            try {
+              parsed = JSON.parse(raw) as ScanStatusEvent;
+            } catch {
+              continue;
+            }
+            pushEvent(parsed);
+            if (TERMINAL.includes(parsed.status)) {
+              ac.abort();
+              streamingRef.current = false;
+              if (isMountedRef.current) setConnectionState("closed");
+              return;
+            }
+          }
+        }
+        streamingRef.current = false;
+        if (isMountedRef.current && activeRef.current) {
+          startPolling(scanId);
+        }
+      } catch (err) {
+        if (ac.signal.aborted) return;
+        streamingRef.current = false;
+        if (isMountedRef.current && activeRef.current) {
+          startPolling(scanId);
+        }
       }
     };
 
-    es.onerror = () => {
-      if (!isMountedRef.current) return;
-      es.close();
-      esRef.current = null;
-      // Fall back to polling
-      if (isMountedRef.current && activeRef.current) {
-        startPolling(scanId);
-      }
-    };
+    void run();
 
     return () => {
       stopStream();

@@ -499,14 +499,12 @@ async def test_unknown_scan_returns_404_no_mock_data():
         stream_resp = await client.get(f"/api/v1/scans/{missing_id}/stream")
         assert stream_resp.status_code == 404
 
-        # Non-existent scan sub-resources should return empty lists, not mocks
+        # Non-existent scan sub-resources: 404 (fail-closed tenant authorize), never mocks
         patches_resp = await client.get(f"/api/v1/scans/{missing_id}/patches")
-        assert patches_resp.status_code == 200
-        assert patches_resp.json() == []
+        assert patches_resp.status_code == 404
 
         intents_resp = await client.get(f"/api/v1/scans/{missing_id}/intents")
-        assert intents_resp.status_code == 200
-        assert intents_resp.json() == []
+        assert intents_resp.status_code == 404
 
 
 @pytest.mark.asyncio

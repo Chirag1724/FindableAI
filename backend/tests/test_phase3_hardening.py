@@ -160,6 +160,10 @@ async def test_worker_marks_failed_prior_scan_without_success(monkeypatch):
         def begin(self):
             return _Begin()
 
+        async def get(self, _model, _id):
+            # Matching org_id (both None) so org-integrity check does not short-circuit.
+            return MagicMock(org_id=None)
+
     monkeypatch.setattr(worker_mod, "AsyncSessionLocal", lambda: _Sess())
 
     await w._execute_claimed(claimed)

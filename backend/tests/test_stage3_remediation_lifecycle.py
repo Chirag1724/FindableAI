@@ -7,7 +7,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from starlette.requests import Request
 
+from app.core.auth import TenantContext
 from app.core.budget import LLMBudgetExceededError
 from app.engines.patch_validator import (
     CheckStatus,
@@ -20,6 +22,13 @@ from app.orchestration.remediation_budget import (
     budget_guard_from_scan_usage,
     reserve_remediation_llm_call,
 )
+
+
+def _admin_request() -> Request:
+    req = Request({"type": "http", "headers": [], "method": "POST", "path": "/"})
+    req.state.tenant = TenantContext(is_system_admin=True)
+    return req
+
 from app.orchestration.remediation_lifecycle import (
     OUTCOME_FIXED,
     OUTCOME_INCONCLUSIVE,
@@ -423,11 +432,14 @@ async def test_e2e_lifecycle_negative_unsafe_patch_never_mutates(monkeypatch):
     monkeypatch.setattr(scans_mod, "GitHubPRService", lambda *_a, **_k: _Boom())
     monkeypatch.setattr(scans_mod, "build_pygithub_client_from_token", lambda *_a, **_k: object())
     monkeypatch.setattr(scans_mod, "resolve_scan_uuid", lambda _sid: None)
+    monkeypatch.setattr(
+        scans_mod, "_authorize_scan_ref", AsyncMock(return_value=None)
+    )
 
     from fastapi import HTTPException
 
     with pytest.raises(HTTPException) as exc_info:
-        await scans_mod.apply_scan_patch(scan_id)
+        await scans_mod.apply_scan_patch(scan_id, _admin_request())
     assert exc_info.value.status_code == 400
     assert create_called["n"] == 0
     scans_mod.SCANS_DB.pop(scan_id, None)
@@ -530,11 +542,15 @@ async def test_verify_maps_unresolved_to_failed_lifecycle(monkeypatch):
     monkeypatch.setattr(scans_mod, "upsert_remediation_run", _upsert)
     monkeypatch.setattr(scans_mod, "persist_verification_run", _persist)
     monkeypatch.setattr(scans_mod, "build_pygithub_client_from_token", lambda *_a, **_k: _Gh())
+    monkeypatch.setattr(
+        scans_mod, "_authorize_scan_ref", AsyncMock(return_value=scan_uuid)
+    )
 
     from app.schemas.remediation import VerifyRemediationRequest
 
     out = await scans_mod.verify_scan_remediation(
         scan_id,
+        _admin_request(),
         VerifyRemediationRequest(acceptance_keywords=["hours", "opentable"]),
     )
     assert out.issue_outcome == OUTCOME_UNRESOLVED
@@ -638,9 +654,13 @@ async def test_verify_blocks_when_pr_head_moves(monkeypatch):
     monkeypatch.setattr(scans_mod, "upsert_remediation_run", _upsert)
     monkeypatch.setattr(scans_mod, "persist_verification_run", _persist)
     monkeypatch.setattr(scans_mod, "build_pygithub_client_from_token", lambda *_a, **_k: _Gh())
+    monkeypatch.setattr(
+        scans_mod, "_authorize_scan_ref", AsyncMock(return_value=scan_uuid)
+    )
 
     out = await scans_mod.verify_scan_remediation(
         scan_id,
+        _admin_request(),
         VerifyRemediationRequest(acceptance_keywords=["hours", "opentable"]),
     )
     assert out.issue_outcome == OUTCOME_INCONCLUSIVE
