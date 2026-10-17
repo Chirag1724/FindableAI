@@ -46,22 +46,21 @@ Never use outside knowledge.
 Never rely on assumptions.
 Never infer business facts that are not explicitly supported.
 
-If the evidence does not answer the question, return UNKNOWN.
-If the evidence directly supports the requested fact, return SUPPORTED.
-If the evidence supports only part of the requested fact, return PARTIALLY_SUPPORTED.
-If the evidence directly conflicts with the requested fact, return CONTRADICTED.
+GROUNDING & QUOTE RULES:
+1. Locate and copy the exact sentence or table cell as verbatim_quote and set cited_chunk_id.
+2. If the evidence does not answer the question, set verbatim_quote=None, cited_chunk_id=None, and return UNKNOWN with evidence=[].
+3. If the evidence directly supports the requested fact, return SUPPORTED.
+4. If the evidence supports only part of the requested fact, return PARTIALLY_SUPPORTED.
+5. If the evidence directly conflicts with the requested fact, return CONTRADICTED.
 
-Every non-UNKNOWN result MUST cite one or more supplied chunk IDs.
-You MUST NOT invent chunk IDs.
-Only cite chunk IDs that appear in the provided evidence.
+CRITICAL: SILENCE IS NOT A CONTRADICTION.
+- If the evidence does not mention the subject of the query, return UNKNOWN.
+  Example: Query asks "Is there a student discount?" but evidence only lists standard plans without mentioning students -> Output UNKNOWN (NOT CONTRADICTED).
+- Only return CONTRADICTED if the evidence explicitly states the opposite.
+  Example: Query asks "Can I pay monthly?" and evidence says "Billed annually only, no monthly billing" -> Output CONTRADICTED.
 
-Do not answer the user directly.
-Return only the structured classification (IntentEvaluation).
-
-When status is UNKNOWN, evidence must be an empty list.
-When status is SUPPORTED, PARTIALLY_SUPPORTED, or CONTRADICTED, evidence must list
-EvidenceReference entries whose chunk_id values exactly match supplied IDs.
-Include reasoning that cites only the provided evidence.
+Every non-UNKNOWN result MUST cite one or more supplied chunk IDs and include a verbatim_quote.
+You MUST NOT invent chunk IDs or quotes.
 Confidence must be a float between 0.0 and 1.0.
 """
 
@@ -72,14 +71,18 @@ Never use outside knowledge or assumptions.
 Never infer business facts that are not explicitly supported.
 
 For EACH intent query item:
-- If the evidence does not answer the question, return UNKNOWN with evidence as an empty list [].
-- If the evidence directly supports the requested fact, return SUPPORTED (cite 1+ valid chunk IDs).
-- If the evidence supports only part of the requested fact, return PARTIALLY_SUPPORTED (cite 1+ valid chunk IDs).
-- If the evidence directly conflicts with the requested fact, return CONTRADICTED (cite 1+ valid chunk IDs).
+1. Locate and copy the exact sentence or table cell as verbatim_quote from that item's evidence chunks.
+2. If the evidence does not answer the question, set verbatim_quote=None, cited_chunk_id=None, and return UNKNOWN with evidence=[].
+3. If the evidence directly supports the requested fact, return SUPPORTED (cite 1+ valid chunk IDs).
+4. If the evidence supports only part of the requested fact, return PARTIALLY_SUPPORTED (cite 1+ valid chunk IDs).
+5. If the evidence directly conflicts with the requested fact, return CONTRADICTED (cite 1+ valid chunk IDs).
 
-Every non-UNKNOWN result MUST cite one or more supplied chunk IDs that appear in that item's evidence chunks.
-You MUST NOT invent chunk IDs.
-Only cite chunk IDs that appear in that specific item's provided evidence.
+CRITICAL: SILENCE IS NOT A CONTRADICTION.
+- If evidence is silent or does not mention the queried topic, you MUST return UNKNOWN.
+- Never mark CONTRADICTED unless the text explicitly denies or conflicts with the claim.
+
+Every non-UNKNOWN result MUST cite one or more supplied chunk IDs and provide a verbatim_quote.
+You MUST NOT invent chunk IDs. Only cite chunk IDs that appear in that specific item's provided evidence.
 Confidence must be a float between 0.0 and 1.0.
 
 Return an IntentEvaluationBatch with an evaluation corresponding to EACH provided intent item.
@@ -183,13 +186,23 @@ def format_evidence_for_prompt(evidence: Sequence[RetrievedEvidence]) -> str:
     return "\n\n".join(blocks)
 
 
-def format_evidence_compact(evidence: Sequence[RetrievedEvidence], *, max_chars: int = 180) -> str:
-    """Batch prompt: chunk id + truncated content only (URL/DOM rebuilt at validate)."""
+def format_evidence_compact(
+    evidence: Sequence[RetrievedEvidence],
+    *,
+    query: str | None = None,
+    max_chars: int = 220,
+) -> str:
+    """Batch prompt: chunk id + query-compressed content only (URL/DOM rebuilt at validate)."""
+    from app.crawler.context_compressor import compress_chunk_for_query
+
     blocks: list[str] = []
     for item in evidence:
         raw_text = (item.content or "").strip()
-        truncated = raw_text[:max_chars] if len(raw_text) > max_chars else raw_text
-        blocks.append(f"[{item.chunk_id}] {truncated}")
+        if query:
+            compact = compress_chunk_for_query(raw_text, query, max_chars=max_chars)
+        else:
+            compact = raw_text[:max_chars] if len(raw_text) > max_chars else raw_text
+        blocks.append(f"[{item.chunk_id}] {compact}")
     return "\n".join(blocks)
 
 
@@ -213,7 +226,11 @@ def build_batch_nli_user_prompt(
         header_parts.append(f"PERSONA: {persona}")
     sections: list[str] = [" ".join(header_parts)]
     for intent, evidence in items:
-        ev_text = format_evidence_compact(evidence) if evidence else "(no evidence)"
+        ev_text = (
+            format_evidence_compact(evidence, query=intent.query)
+            if evidence
+            else "(no evidence)"
+        )
         sections.append(f"INTENT ID: {intent.intent_id}\nQ: {intent.query}\nEVIDENCE:\n{ev_text}")
     return "\n\n".join(sections)
 
@@ -289,6 +306,17 @@ def validate_intent_evaluation(
         if chunk_id not in cited_ids:
             cited_ids.append(chunk_id)
 
+    verbatim_quote = (
+        evaluation.verbatim_quote.strip()
+        if evaluation.verbatim_quote and evaluation.verbatim_quote.strip()
+        else None
+    )
+    cited_chunk_id = (
+        evaluation.cited_chunk_id.strip()
+        if evaluation.cited_chunk_id and evaluation.cited_chunk_id.strip()
+        else None
+    )
+
     if evaluation.status is EntailmentStatus.UNKNOWN:
         if cited_ids:
             raise EntailmentError(
@@ -296,12 +324,25 @@ def validate_intent_evaluation(
                 reason="invalid_evidence_reference",
             )
         rebuilt: list[EvidenceReference] = []
+        verbatim_quote = None
+        cited_chunk_id = None
     else:
         if not cited_ids:
             raise EntailmentError(
                 f"{evaluation.status.value} requires at least one valid evidence citation",
                 reason="invalid_evidence_reference",
             )
+        if cited_chunk_id is None or cited_chunk_id not in retrieved_by_id:
+            cited_chunk_id = cited_ids[0]
+
+        # Verify quote appears in cited chunk, fallback to real excerpt if model paraphrased
+        if verbatim_quote:
+            chunk_content = retrieved_by_id[cited_chunk_id].content
+            if verbatim_quote.lower() not in chunk_content.lower():
+                verbatim_quote = chunk_content[:200].strip()
+        elif cited_chunk_id in retrieved_by_id:
+            verbatim_quote = retrieved_by_id[cited_chunk_id].content[:200].strip()
+
         rebuilt = []
         for chunk_id in cited_ids:
             item = retrieved_by_id[chunk_id]
@@ -322,6 +363,8 @@ def validate_intent_evaluation(
         query=intent.query,
         category=intent.category,
         persona=intent.persona,
+        verbatim_quote=verbatim_quote,
+        cited_chunk_id=cited_chunk_id,
         status=evaluation.status,
         reasoning=reasoning,
         evidence=rebuilt,
@@ -764,9 +807,18 @@ class EntailmentEngine:
         retrieved_list = await asyncio.gather(*retrieval_tasks)
         paired = list(zip(intents, retrieved_list, strict=True))
 
+        # In-memory exact query deduplication across personas/queries
+        dedup_map: dict[str, list[int]] = {}
+        for idx, it in enumerate(intents):
+            norm_q = " ".join(it.query.strip().lower().split())
+            dedup_map.setdefault(norm_q, []).append(idx)
+
+        primary_indices = {indices[0] for indices in dedup_map.values()}
+        primary_paired = [paired[i] for i in range(len(paired)) if i in primary_indices]
+
         groups: dict[str, list[tuple[IntentQuery, Sequence[RetrievedEvidence]]]] = {}
         group_order: list[str] = []
-        for intent, evidence in paired:
+        for intent, evidence in primary_paired:
             key = (intent.persona or "").strip().lower() or "_unassigned"
             if key not in groups:
                 groups[key] = []
@@ -887,6 +939,30 @@ class EntailmentEngine:
         if budget_exc is not None and not saw_success:
             raise budget_exc
         by_id = {e.intent_id: e for e in flattened}
+
+        # Populate duplicate queries from evaluated representative (saves LLM calls)
+        for _norm_q, indices in dedup_map.items():
+            if len(indices) > 1:
+                first_intent = intents[indices[0]]
+                first_eval = by_id.get(first_intent.intent_id)
+                if first_eval is not None:
+                    for dup_idx in indices[1:]:
+                        dup_intent = intents[dup_idx]
+                        if dup_intent.intent_id not in by_id:
+                            cloned = IntentEvaluation(
+                                intent_id=dup_intent.intent_id,
+                                query=dup_intent.query,
+                                category=dup_intent.category,
+                                persona=dup_intent.persona,
+                                verbatim_quote=first_eval.verbatim_quote,
+                                cited_chunk_id=first_eval.cited_chunk_id,
+                                status=first_eval.status,
+                                reasoning=first_eval.reasoning,
+                                evidence=list(first_eval.evidence),
+                                confidence=first_eval.confidence,
+                            )
+                            by_id[dup_intent.intent_id] = cloned
+
         ordered: list[IntentEvaluation] = []
         for intent in intents:
             ev = by_id.get(intent.intent_id)
