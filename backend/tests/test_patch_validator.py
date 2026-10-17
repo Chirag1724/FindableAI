@@ -115,3 +115,26 @@ def test_verification_never_fixes_on_pr_alone():
         validation_passed=True,
     )
     assert outcome3 == OUTCOME_UNRESOLVED
+
+
+def test_jsonld_schema_org_semantics_validated():
+    from app.engines.patch_validator import validate_jsonld_scripts
+
+    # Valid schema.org JSON-LD
+    valid_html = '<html><head><script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Acme"}</script></head></html>'
+    check = validate_jsonld_scripts(valid_html)
+    assert check.status == CheckStatus.PASSED
+
+    # Missing @type and @graph
+    missing_type_html = '<html><head><script type="application/ld+json">{"@context":"https://schema.org","name":"Acme"}</script></head></html>'
+    check_bad_type = validate_jsonld_scripts(missing_type_html)
+    assert check_bad_type.status == CheckStatus.FAILED
+    assert check_bad_type.safety_critical is True
+    assert "missing '@type'" in check_bad_type.detail
+
+    # Invalid @context
+    bad_context_html = '<html><head><script type="application/ld+json">{"@context":"https://not-schema.org","@type":"Thing"}</script></head></html>'
+    check_bad_ctx = validate_jsonld_scripts(bad_context_html)
+    assert check_bad_ctx.status == CheckStatus.FAILED
+    assert check_bad_ctx.safety_critical is True
+    assert "schema.org" in check_bad_ctx.detail

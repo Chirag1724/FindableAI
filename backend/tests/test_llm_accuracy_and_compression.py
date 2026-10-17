@@ -200,3 +200,37 @@ async def test_evaluate_intents_deduplicates_identical_queries():
     assert r_procurement.status == EntailmentStatus.SUPPORTED
     assert r_procurement.verbatim_quote == "Enterprise pricing starts at $500/month."
     assert r_procurement.persona == "procurement"
+
+
+@pytest.mark.asyncio
+async def test_evaluate_intents_zero_evidence_fast_paths_without_llm_call():
+    intent_no_ev = IntentQuery(
+        intent_id="intent_missing",
+        query="Does it support HIPAA compliance?",
+        persona="security",
+        category=IntentCategory.TRUST,
+        difficulty="hard",
+        expected_evidence_type="compliance_cert",
+    )
+
+    class EmptyRetriever:
+        async def __call__(self, query: str, scan_id: uuid.UUID, top_k: int):
+            return []  # zero evidence found
+
+    class FailingLLM:
+        async def create(self, *args, **kwargs):
+            pytest.fail("LLM should not be called when zero evidence is retrieved!")
+
+    engine = EntailmentEngine(llm_client=cast(LLMClient, FailingLLM()), retriever=EmptyRetriever())
+
+    results = await engine.evaluate_intents(
+        intents=[intent_no_ev],
+        scan_id=uuid.uuid4(),
+    )
+
+    assert len(results) == 1
+    eval_res = results[0]
+    assert eval_res.intent_id == "intent_missing"
+    assert eval_res.status == EntailmentStatus.UNKNOWN
+    assert eval_res.confidence == 0.0
+    assert "No relevant document content" in eval_res.reasoning

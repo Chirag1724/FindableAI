@@ -814,9 +814,38 @@ class EntailmentEngine:
         primary_indices = {indices[0] for indices in dedup_map.values()}
         primary_paired = [paired[i] for i in range(len(paired)) if i in primary_indices]
 
+        # Fast-path: immediately resolve intents with zero retrieved evidence without LLM calls
+        zero_evidence_evals: list[IntentEvaluation] = []
+        evidence_paired: list[tuple[IntentQuery, list[RetrievedEvidence]]] = []
+        for intent, evidence in primary_paired:
+            if not evidence:
+                zero_eval = IntentEvaluation(
+                    intent_id=intent.intent_id,
+                    query=intent.query,
+                    category=intent.category,
+                    persona=intent.persona,
+                    verbatim_quote=None,
+                    cited_chunk_id=None,
+                    status=EntailmentStatus.UNKNOWN,
+                    reasoning="No relevant document content found on crawled pages.",
+                    evidence=[],
+                    confidence=0.0,
+                )
+                zero_evidence_evals.append(zero_eval)
+            else:
+                evidence_paired.append((intent, evidence))
+
+        if progress_callback is not None and zero_evidence_evals:
+            for item in zero_evidence_evals:
+                completed_count += 1
+                try:
+                    await progress_callback(completed_count, total_count, item)
+                except Exception:
+                    pass
+
         groups: dict[str, list[tuple[IntentQuery, Sequence[RetrievedEvidence]]]] = {}
         group_order: list[str] = []
-        for intent, evidence in primary_paired:
+        for intent, evidence in evidence_paired:
             key = (intent.persona or "").strip().lower() or "_unassigned"
             if key not in groups:
                 groups[key] = []
@@ -896,7 +925,7 @@ class EntailmentEngine:
                 except Exception as exc:
                     raw_results.append(exc)
 
-        flattened: list[IntentEvaluation] = []
+        flattened: list[IntentEvaluation] = list(zero_evidence_evals)
         failed_ids: list[str] = []
         budget_exc: BudgetExhausted | None = None
         saw_success = False
