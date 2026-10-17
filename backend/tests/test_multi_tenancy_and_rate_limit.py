@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.auth import TenantContext, hash_api_key, verify_api_key
@@ -24,9 +24,9 @@ async def memory_db():
             lambda sync_conn: Base.metadata.create_all(
                 sync_conn,
                 tables=[
-                    Organization.__table__,
-                    ApiKey.__table__,
-                    Scan.__table__,
+                    Base.metadata.tables[Organization.__tablename__],
+                    Base.metadata.tables[ApiKey.__tablename__],
+                    Base.metadata.tables[Scan.__tablename__],
                 ],
             )
         )
@@ -60,6 +60,7 @@ async def test_token_bucket_enforces_limit_and_rfc_headers():
 
     assert exc_info.value.status_code == 429
     headers = exc_info.value.headers
+    assert headers is not None
     assert "Retry-After" in headers
     assert headers["X-RateLimit-Limit"] == "3"
     assert headers["X-RateLimit-Remaining"] == "0"
@@ -109,10 +110,7 @@ async def test_multi_tenant_api_key_validation(memory_db, monkeypatch):
         session.add(api_key)
         await session.commit()
 
-    class _MockRequest:
-        state = type("State", (), {"tenant": None})()
-
-    req = _MockRequest()
+    req = Request(scope={"type": "http"})
 
     # 1. Valid Org API key
     ctx = await verify_api_key(request=req, header_key=raw_key)
