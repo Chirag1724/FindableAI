@@ -30,10 +30,10 @@ interface ScoreGaugeProps {
 }
 
 const ARC_COLORS = {
-  coverage: "#8b5cf6", // violet-500
-  entailment: "#10b981", // emerald-500
-  contradiction: "#f43f5e", // rose-500
-  structure: "#38bdf8", // sky-400
+  coverage: "#10b981", // emerald-500 (40% weight - query coverage)
+  contradiction: "#2dd4bf", // teal-400 (30% weight - fact consistency)
+  structure: "#38bdf8", // sky-400 (20% weight - DOM structure)
+  entailment: "#94a3b8", // slate-400 (10% weight - machine extractability)
 };
 
 interface CustomTooltipProps {
@@ -205,14 +205,14 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
   ];
 
   return (
-    <div className="space-y-6 w-full">
+    <div className="space-y-4 sm:space-y-5 w-full">
       {/* Upper Grid: 3 balanced analytics cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 items-stretch">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 items-stretch">
         {/* CARD 1: OVERALL F-SCORE + RADIAL BREAKDOWN */}
-        <div className="h-full rounded-2xl bg-surface shadow-border p-5 sm:p-6 flex flex-col justify-between">
+        <div className="h-full rounded-2xl bg-surface/90 backdrop-blur-md shadow-border p-5 lg:p-6 flex flex-col justify-between hover:border-white/[0.12] transition-colors">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <Activity size={15} className="text-violet-400" />
+              <Activity size={15} className="text-emerald-400" />
               <span className="text-xs font-bold uppercase tracking-wider text-text-primary">
                 Overall Findability Score
               </span>
@@ -226,20 +226,20 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
             </span>
           </div>
 
-          <div className="relative mx-auto my-3 h-52 w-52 sm:h-60 sm:w-60 flex items-center justify-center">
+          <div className="relative mx-auto my-1.5 h-48 w-48 sm:h-52 sm:w-52 flex items-center justify-center">
             <ResponsiveContainer width="100%" height="100%">
               <RadialBarChart
                 cx="50%"
                 cy="50%"
-                innerRadius="50%"
+                innerRadius="58%"
                 outerRadius="98%"
-                barSize={7}
+                barSize={5}
                 data={radialData}
                 startAngle={90}
                 endAngle={-270}
               >
                 <RadialBar
-                  background={{ fill: "rgba(255, 255, 255, 0.06)" }}
+                  background={{ fill: "rgba(255, 255, 255, 0.04)" }}
                   dataKey="score"
                   cornerRadius={4}
                 />
@@ -249,20 +249,20 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
               <span
                 ref={scoreRef}
-                className="text-4xl sm:text-5xl font-extrabold text-white tracking-tight leading-none"
+                className="text-3xl sm:text-[34px] font-bold text-white tracking-tight leading-none"
               >
                 {animatedScore}
               </span>
-              <span className="text-[10px] font-mono tracking-widest text-text-muted uppercase mt-1.5 font-medium">
+              <span className="text-[9px] font-mono tracking-wider text-text-muted uppercase mt-1.5 font-medium">
                 OUT OF 100
               </span>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-x-8 gap-y-3 pt-4 border-t border-white/[0.06] text-xs">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2.5 pt-3.5 border-t border-white/[0.06] text-xs">
             {subScores.map((s) => (
               <div key={s.name} className="flex items-center justify-between gap-2">
-                <span className="flex items-center gap-2 text-text-muted text-xs">
+                <span className="flex items-center gap-1.5 text-text-muted text-xs">
                   <span
                     className="h-2 w-2 rounded-full shrink-0"
                     style={{ backgroundColor: s.color }}
@@ -278,11 +278,11 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
         </div>
 
         {/* CARD 2: WEIGHTED COMPONENT CONTRIBUTION */}
-        <div className="h-full rounded-xl bg-surface/90 backdrop-blur-md shadow-border p-5 sm:p-6 flex flex-col justify-between">
+        <div className="h-full rounded-2xl bg-surface/90 backdrop-blur-md shadow-border p-5 lg:p-6 flex flex-col justify-between hover:border-white/[0.12] transition-colors">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <BarChart3 size={14} className="text-sky-400" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-text-primary">
+              <BarChart3 size={15} className="text-sky-400" />
+              <span className="text-xs font-bold uppercase tracking-wider text-text-primary">
                 Weighted Contribution
               </span>
             </div>
@@ -317,25 +317,25 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
         </div>
 
         {/* CARD 3: RADAR INDEXABILITY PROFILE (NON-CLIPPED) */}
-        <div className="h-full rounded-xl bg-surface/90 backdrop-blur-md shadow-border p-5 sm:p-6 flex flex-col justify-between md:col-span-2 lg:col-span-1">
+        <div className="h-full rounded-2xl bg-surface/90 backdrop-blur-md shadow-border p-5 lg:p-6 flex flex-col justify-between md:col-span-2 lg:col-span-1 hover:border-white/[0.12] transition-colors">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <Compass size={14} className="text-emerald-400" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-text-primary">
+              <Compass size={15} className="text-emerald-400" />
+              <span className="text-xs font-bold uppercase tracking-wider text-text-primary">
                 Multi-Pillar Radar Profile
               </span>
             </div>
             <span className="text-[11px] font-mono text-text-muted">4-Factor Web</span>
           </div>
 
-          <div className="relative mx-auto my-1 h-52 w-full flex items-center justify-center">
+          <div className="relative mx-auto my-1 h-44 sm:h-48 w-full flex items-center justify-center">
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart
                 cx="50%"
                 cy="50%"
-                outerRadius="65%"
+                outerRadius="68%"
                 data={radarData}
-                margin={{ top: 10, right: 32, bottom: 10, left: 32 }}
+                margin={{ top: 8, right: 28, bottom: 8, left: 28 }}
               >
                 <PolarGrid stroke="rgba(255,255,255,0.08)" />
                 <PolarAngleAxis
@@ -366,7 +366,7 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
         <button
           type="button"
           onClick={() => setOpenDiagnostics((prev) => !prev)}
-          className="flex w-full items-center justify-between p-4 sm:p-5 text-left transition-colors duration-150 hover:bg-surface-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          className="flex w-full items-center justify-between p-3.5 sm:p-4 text-left transition-colors duration-150 hover:bg-surface-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           aria-expanded={openDiagnostics}
         >
           <div className="flex items-center gap-2.5">
@@ -392,11 +392,11 @@ export function ScoreGauge({ fScore }: ScoreGaugeProps) {
 
         {openDiagnostics && (
           <div className="p-4 sm:p-5 pt-0 border-t border-white/[0.06] mt-1 space-y-4 animate-fade-in">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-3">
               {subScores.map((s) => (
                 <div
                   key={s.name}
-                  className="rounded-lg bg-surface-secondary/80 shadow-border p-4 space-y-3 text-xs flex flex-col justify-between transition-all duration-150 hover:bg-surface-secondary hover:border-white/[0.12]"
+                  className="rounded-xl bg-surface-secondary/80 shadow-border p-3.5 space-y-2.5 text-xs flex flex-col justify-between transition-all duration-150 hover:bg-surface-secondary hover:border-white/[0.12]"
                 >
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
