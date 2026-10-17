@@ -23,7 +23,10 @@ async def session():
     def _create(sync_conn):
         Base.metadata.create_all(
             sync_conn,
-            tables=[Scan.__table__, ScanProgressEvent.__table__],
+            tables=[
+                Base.metadata.tables[Scan.__tablename__],
+                Base.metadata.tables[ScanProgressEvent.__tablename__],
+            ],
         )
 
     async with engine.begin() as conn:

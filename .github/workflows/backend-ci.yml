@@ -109,9 +109,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Apply Alembic migrations on clean disposable database
+      - name: Verify Alembic migrations (upgrade -> downgrade base -> upgrade head)
         run: |
-          # ``-P`` avoids cwd ``backend/alembic`` shadowing the installed package.
+          # Prove migrations apply from clean DB, rollback cleanly to base, and re-apply without schema corruption
+          python -P -m alembic upgrade head
+          python -P -m alembic downgrade base
           python -P -m alembic upgrade head
 
       - name: Collect PostgreSQL integration tests (must be exactly 8)
