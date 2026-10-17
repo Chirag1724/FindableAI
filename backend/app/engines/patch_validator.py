@@ -301,7 +301,7 @@ def validate_jsonld_scripts(html: str) -> ValidationCheck:
                 safety_critical=True,
             )
         try:
-            json.loads(raw)
+            data = json.loads(raw)
         except json.JSONDecodeError as exc:
             return _check(
                 "jsonld_syntax",
@@ -309,6 +309,37 @@ def validate_jsonld_scripts(html: str) -> ValidationCheck:
                 f"invalid JSON-LD: {exc.msg}",
                 safety_critical=True,
             )
+
+        items = data if isinstance(data, list) else [data]
+        for item in items:
+            if not isinstance(item, dict):
+                return _check(
+                    "jsonld_syntax",
+                    CheckStatus.FAILED,
+                    "JSON-LD root must be an object or list of objects",
+                    safety_critical=True,
+                )
+            type_val = item.get("@type")
+            graph_val = item.get("@graph")
+            if not type_val and not graph_val:
+                return _check(
+                    "jsonld_syntax",
+                    CheckStatus.FAILED,
+                    "missing '@type' or '@graph' in Schema.org JSON-LD",
+                    safety_critical=True,
+                )
+            if "@context" in item:
+                ctx = str(item.get("@context", "")).strip().lower()
+                valid_ctx = bool(
+                    re.match(r"^https?://(?:www\.)?schema\.org/?$", ctx) or ctx == "schema.org"
+                )
+                if not valid_ctx:
+                    return _check(
+                        "jsonld_syntax",
+                        CheckStatus.FAILED,
+                        "invalid '@context' (must reference schema.org)",
+                        safety_critical=True,
+                    )
     return _check("jsonld_syntax", CheckStatus.PASSED, f"{len(scripts)} script(s)")
 
 

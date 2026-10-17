@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from urllib.parse import urldefrag, urljoin, urlparse
+from urllib.parse import parse_qsl, urldefrag, urlencode, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -10,6 +10,78 @@ from app.core.config import settings
 from app.core.security import SSRFSecurityException, validate_target_url
 
 logger = logging.getLogger(__name__)
+
+_TRACKING_QUERY_PARAMS = frozenset(
+    {
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "utm_term",
+        "utm_content",
+        "ref",
+        "ref_src",
+        "fbclid",
+        "gclid",
+        "msclkid",
+        "_ga",
+        "_gl",
+    }
+)
+
+_NON_HTML_EXTENSIONS = frozenset(
+    {
+        ".pdf",
+        ".zip",
+        ".tar",
+        ".gz",
+        ".tgz",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".svg",
+        ".ico",
+        ".mp4",
+        ".mp3",
+        ".wav",
+        ".avi",
+        ".mov",
+        ".exe",
+        ".dmg",
+        ".apk",
+        ".iso",
+        ".bin",
+        ".docx",
+        ".xlsx",
+        ".pptx",
+        ".csv",
+    }
+)
+
+
+def canonicalize_url(url: str) -> str:
+    """Canonicalize URL by stripping tracking parameters, normalizing trailing slashes, and removing fragments."""
+    defrag_url, _ = urldefrag(url.strip())
+    parsed = urlparse(defrag_url)
+
+    # Filter out tracking query parameters
+    if parsed.query:
+        filtered_params = [
+            (k, v)
+            for k, v in parse_qsl(parsed.query, keep_blank_values=True)
+            if k.lower() not in _TRACKING_QUERY_PARAMS
+        ]
+        clean_query = urlencode(filtered_params)
+    else:
+        clean_query = ""
+
+    # Normalize trailing slash: remove trailing slash if path is non-empty and not root
+    path = parsed.path
+    if path and path != "/" and path.endswith("/"):
+        path = path.rstrip("/")
+
+    return parsed._replace(query=clean_query, path=path).geturl()
 
 
 @dataclass
@@ -36,6 +108,7 @@ class AsyncCrawler:
         allow_private: bool = False,
     ):
         self.max_pages = max_pages
+        self.concurrency = concurrency
         self.semaphore = asyncio.Semaphore(concurrency)
         self.timeout = httpx.Timeout(timeout_seconds, connect=10.0)
         self.allow_private = allow_private
@@ -195,7 +268,7 @@ class AsyncCrawler:
             )
 
     def extract_internal_links(self, html: str, base_url: str) -> list[str]:
-        """Extract and normalize all internal links sharing the same hostname."""
+        """Extract and normalize all internal links sharing the same hostname, stripping tracking params and binary assets."""
         soup = BeautifulSoup(html, "lxml")
         base_parsed = urlparse(base_url)
         internal_links: set[str] = set()
@@ -209,12 +282,16 @@ class AsyncCrawler:
                 continue
 
             full_url = urljoin(base_url, raw_href)
-            defrag_url, _ = urldefrag(full_url)
-            parsed = urlparse(defrag_url)
+            canonical = canonicalize_url(full_url)
+            parsed = urlparse(canonical)
 
             # Restrict strictly to the same hostname & scheme
             if parsed.scheme in ("http", "https") and parsed.netloc == base_parsed.netloc:
-                internal_links.add(defrag_url)
+                # Pre-filter static binary assets (PDFs, images, archives)
+                path_lower = parsed.path.lower()
+                if any(path_lower.endswith(ext) for ext in _NON_HTML_EXTENSIONS):
+                    continue
+                internal_links.add(canonical)
 
         return sorted(internal_links)
 
@@ -254,33 +331,54 @@ class AsyncCrawler:
 
     async def crawl(self, start_url: str) -> list[CrawlResult]:
         """
-        Execute an async BFS crawl starting at start_url, up to self.max_pages.
+        Execute an async BFS crawl starting at start_url, up to self.max_pages,
+        using concurrent batch dispatch bounded by self.concurrency.
         """
-        validate_target_url(start_url, allow_private=self.allow_private)
+        canonical_start = canonicalize_url(start_url)
+        validate_target_url(canonical_start, allow_private=self.allow_private)
 
         visited: set[str] = set()
-        queue: list[str] = [start_url]
+        queue: list[str] = [canonical_start]
         results: list[CrawlResult] = []
 
+        concurrency_limit = max(1, getattr(self, "concurrency", 5))
+
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            robots_txt = await self.fetch_robots_txt(client, start_url)
+            robots_txt = await self.fetch_robots_txt(client, canonical_start)
 
             while queue and len(results) < self.max_pages:
-                current_url = queue.pop(0)
-                if current_url in visited:
+                remaining_slots = self.max_pages - len(results)
+                batch_size = min(concurrency_limit, remaining_slots, len(queue))
+
+                # Collect next wave of unvisited URLs
+                batch_urls: list[str] = []
+                while queue and len(batch_urls) < batch_size:
+                    candidate = queue.pop(0)
+                    if candidate not in visited:
+                        visited.add(candidate)
+                        batch_urls.append(candidate)
+
+                if not batch_urls:
                     continue
 
-                visited.add(current_url)
-                result = await self.fetch_page(client, current_url)
-                if not result:
-                    continue
+                # Fetch batch in parallel
+                batch_results = await asyncio.gather(
+                    *[self.fetch_page(client, u) for u in batch_urls],
+                    return_exceptions=True,
+                )
 
-                result.robots_txt = robots_txt
-                results.append(result)
+                for res in batch_results:
+                    if not isinstance(res, CrawlResult):
+                        continue
 
-                # Enqueue newly discovered internal links
-                for link in result.internal_links:
-                    if link not in visited and link not in queue:
-                        queue.append(link)
+                    res.robots_txt = robots_txt
+                    results.append(res)
+                    if len(results) >= self.max_pages:
+                        break
+
+                    # Enqueue newly discovered internal links
+                    for link in res.internal_links:
+                        if link not in visited and link not in queue:
+                            queue.append(link)
 
         return results
