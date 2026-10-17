@@ -84,31 +84,28 @@ export function IntentSimulator() {
     SIMULATED_QUERIES.find((q) => q.id === activeQueryId) || SIMULATED_QUERIES[0];
 
   return (
-    <div className="rounded-xl bg-surface shadow-border overflow-hidden text-left">
+    <div className="rounded-2xl bg-surface/90 backdrop-blur-md shadow-border overflow-hidden text-left">
       {/* 1. Header Toolbar with Status & Persona Filter */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:p-5 border-b border-white/[0.08] bg-surface-secondary/40">
-        <div className="flex items-center flex-wrap gap-2 sm:gap-2.5">
-          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 px-4 py-2.5 sm:px-5 sm:py-3 border-b border-white/[0.08] bg-surface-secondary/40">
+        <div className="flex items-center flex-wrap gap-2.5">
+          <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
           <span className="font-mono text-xs font-semibold text-white tracking-wide">
             SYNTHETIC BUYER INTENT SIMULATION
           </span>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface shadow-border text-[10px] font-mono text-text-muted">
-            Sample Preview: Simulated Third-Party Audit (Acme Cloud)
-          </span>
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface text-text-muted border border-white/[0.08]">
-            30 Queries Generated
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            30 Evaluated Vectors
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none no-scrollbar shrink-0">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 sm:pb-0 scrollbar-none no-scrollbar shrink-0">
           {["All", "CTO", "Tech Lead", "Procurement"].map((p) => (
             <button
               key={p}
               onClick={() => setSelectedPersona(p)}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-mono tracking-tight transition-all duration-150 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+              className={`px-2.5 py-1 rounded-md text-xs font-mono tracking-tight transition-all duration-150 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
                 selectedPersona === p
                   ? "bg-white text-black font-semibold shadow-sm"
-                  : "bg-surface-secondary text-text-muted hover:text-white hover:bg-white/[0.06]"
+                  : "bg-surface-secondary text-text-muted hover:text-white hover:bg-white/[0.06] shadow-border"
               }`}
             >
               {p === "All" ? "All Personas" : p}
@@ -118,32 +115,32 @@ export function IntentSimulator() {
       </div>
 
       {/* 2. Persona Coverage Distribution Tiles */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-white/[0.08]">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 p-3 sm:p-3.5 bg-surface-secondary/20 border-b border-white/[0.08]">
         {PERSONA_STATS.map((stat) => (
-          <div key={stat.label} className="p-4 sm:p-5 bg-surface space-y-2">
-            <div className="flex items-center justify-between text-xs font-mono text-text-muted">
-              <span className="truncate">{stat.label}</span>
-              <span
-                className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
-                  stat.coverage >= 80
-                    ? "bg-emerald-950/60 text-emerald-400 ring-1 ring-inset ring-emerald-800"
-                    : "bg-amber-950/60 text-amber-400 ring-1 ring-inset ring-amber-800"
-                }`}
-              >
-                {stat.coverage}% Coverage
-              </span>
+          <div
+            key={stat.label}
+            className="px-3.5 py-2 rounded-xl bg-surface/80 border border-white/[0.06] shadow-border flex items-center justify-between hover:border-white/[0.12] transition-colors"
+          >
+            <div className="min-w-0 flex-1 mr-3">
+              <div className="flex items-center justify-between text-xs font-mono mb-1">
+                <span className="text-[11px] font-medium text-text-primary truncate">{stat.label}</span>
+                <span className={`text-[10px] font-bold font-mono ${stat.coverage >= 80 ? "text-emerald-400" : "text-amber-400"}`}>
+                  {stat.coverage}%
+                </span>
+              </div>
+              <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${stat.coverage >= 80 ? "bg-emerald-500" : "bg-amber-500"}`}
+                  style={{ width: `${stat.coverage}%` }}
+                />
+              </div>
             </div>
-            <div className="w-full bg-surface-secondary h-1.5 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full ${
-                  stat.coverage >= 80 ? "bg-emerald-500" : "bg-amber-500"
-                }`}
-                style={{ width: `${stat.coverage}%` }}
-              />
-            </div>
-            <div className="flex items-center justify-between text-[10px] font-mono text-text-muted">
-              <span>{stat.queries}</span>
-              <span className={stat.coverage >= 80 ? "text-emerald-400" : "text-amber-400"}>
+            <div className="text-right shrink-0">
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded border block ${
+                stat.coverage >= 80
+                  ? "bg-emerald-950/50 text-emerald-400 border-emerald-800/60"
+                  : "bg-amber-950/50 text-amber-400 border-amber-800/60"
+              }`}>
                 {stat.status}
               </span>
             </div>
@@ -152,24 +149,24 @@ export function IntentSimulator() {
       </div>
 
       {/* 3. Interactive Query List & Live Grounding Inspector */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-px bg-white/[0.08]">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-3.5 p-3 sm:p-3.5 bg-surface-secondary/10">
         {/* Queries List (7 cols) */}
-        <div className="lg:col-span-7 p-4 sm:p-5 bg-surface divide-y divide-white/[0.06]">
+        <div className="lg:col-span-7 rounded-xl bg-surface/90 border border-white/[0.08] p-3 shadow-border space-y-1">
           {filteredQueries.map((item) => {
             const isSelected = item.id === activeQueryId;
             return (
               <div
                 key={item.id}
                 onClick={() => setActiveQueryId(item.id)}
-                className={`p-3.5 rounded-lg cursor-pointer transition-all duration-150 space-y-2 my-1 ${
+                className={`p-2.5 rounded-lg cursor-pointer transition-all duration-150 space-y-1 ${
                   isSelected
-                    ? "bg-surface-secondary ring-1 ring-emerald-500/40"
+                    ? "bg-surface-secondary ring-1 ring-emerald-500/40 shadow-sm"
                     : "hover:bg-surface-secondary/60"
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-surface text-text-muted uppercase border border-white/[0.06]">
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-surface text-text-muted uppercase border border-white/[0.06]">
                       {item.persona}
                     </span>
                     <span className="text-[10px] font-mono text-text-muted hidden sm:inline">
@@ -179,12 +176,12 @@ export function IntentSimulator() {
 
                   <div className="flex items-center gap-1.5 shrink-0">
                     {item.entailment === "Entailed" ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950/50 text-emerald-400 ring-1 ring-inset ring-emerald-800">
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono bg-emerald-950/50 text-emerald-400 ring-1 ring-inset ring-emerald-800">
                         <CheckCircle2 className="h-3 w-3" />
                         <span>Entailed ({Math.round(item.score * 100)}%)</span>
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-rose-950/50 text-rose-400 ring-1 ring-inset ring-rose-800">
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono bg-rose-950/50 text-rose-400 ring-1 ring-inset ring-rose-800">
                         <AlertCircle className="h-3 w-3" />
                         <span>Uncovered ({Math.round(item.score * 100)}%)</span>
                       </span>
@@ -192,8 +189,8 @@ export function IntentSimulator() {
                   </div>
                 </div>
 
-                <p className="text-xs sm:text-sm text-text-primary font-medium leading-snug">
-                  &quot;{item.query}&quot;
+                <p className="text-xs text-text-primary font-medium leading-snug line-clamp-2">
+                  &ldquo;{item.query}&rdquo;
                 </p>
               </div>
             );
@@ -201,9 +198,9 @@ export function IntentSimulator() {
         </div>
 
         {/* Grounding Inspector Panel (5 cols) */}
-        <div className="lg:col-span-5 p-5 bg-surface flex flex-col justify-between space-y-4">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between pb-2.5 border-b border-white/[0.06]">
+        <div className="lg:col-span-5 rounded-xl bg-surface/90 border border-white/[0.08] p-3.5 shadow-border flex flex-col justify-between space-y-2.5">
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
               <span className="font-mono text-xs font-semibold text-white tracking-wide uppercase flex items-center gap-1.5">
                 <Search className="h-3.5 w-3.5 text-emerald-400" />
                 Grounding Verification
@@ -213,22 +210,22 @@ export function IntentSimulator() {
               </span>
             </div>
 
-            <div className="space-y-2 font-mono text-[11px]">
-              <div className="text-text-muted">Target DOM Anchor:</div>
-              <div className="p-2 rounded bg-surface-secondary border border-white/[0.08] text-sky-400 truncate">
+            <div className="space-y-1 font-mono text-[11px]">
+              <div className="text-[10px] text-text-muted">Target DOM Anchor:</div>
+              <div className="p-2 rounded bg-surface-secondary border border-white/[0.06] text-sky-400 truncate text-[11px]">
                 {activeQuery.evidenceAnchor}
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <span className="text-[11px] font-mono text-text-muted">Extracted Grounding Evidence:</span>
-              <div className="p-3 rounded-lg bg-black/40 border border-white/[0.06] text-xs text-text-primary leading-relaxed">
-                &quot;{activeQuery.extractedSnippet}&quot;
+            <div className="space-y-1">
+              <span className="text-[10px] font-mono text-text-muted">Extracted Grounding Evidence:</span>
+              <div className="p-2.5 rounded-lg bg-black/40 border border-white/[0.06] text-xs text-text-primary leading-relaxed line-clamp-2">
+                &ldquo;{activeQuery.extractedSnippet}&rdquo;
               </div>
             </div>
           </div>
 
-          <div className="p-3 rounded-lg bg-surface-secondary/40 border border-white/[0.06] font-mono text-[11px] text-text-muted flex items-center justify-between">
+          <div className="px-3 py-1.5 rounded-lg bg-surface-secondary/40 border border-white/[0.06] font-mono text-[11px] text-text-muted flex items-center justify-between">
             <span className="flex items-center gap-1.5">
               <Users className="h-3.5 w-3.5 text-text-muted" />
               Target Buyer Persona:

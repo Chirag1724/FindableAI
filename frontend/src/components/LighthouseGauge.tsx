@@ -36,8 +36,8 @@ export function LighthouseGauge({
   const tierColor = lighthouseTierColor(clampedScore);
 
   // SVG circular arc geometry
-  const size = 136;
-  const strokeWidth = 10;
+  const size = 98;
+  const strokeWidth = 7;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const progressOffset = circumference - (clampedScore / 100) * circumference;
@@ -45,16 +45,16 @@ export function LighthouseGauge({
   return (
     <div
       data-testid={`lighthouse-gauge-${engineKey}`}
-      className="group relative flex flex-col items-center rounded-xl bg-surface-secondary/70 p-5 shadow-border transition-all duration-200 hover:bg-surface-secondary"
+      className="group relative flex flex-col items-center rounded-xl bg-surface-secondary/70 p-3 sm:p-3.5 shadow-border transition-all duration-200 hover:bg-surface-secondary"
     >
       {/* Engine Header */}
-      <div className="mb-3.5 flex items-center gap-2">
+      <div className="mb-2 flex items-center gap-1.5">
         <div
-          className={`flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.04] shadow-border ${accentColorClass}`}
+          className={`flex h-4.5 w-4.5 items-center justify-center rounded-md bg-white/[0.04] shadow-border ${accentColorClass}`}
         >
-          <Icon size={14} aria-hidden="true" />
+          <Icon size={11} aria-hidden="true" />
         </div>
-        <span className="text-sm font-semibold tracking-tight text-white">
+        <span className="text-xs font-semibold tracking-tight text-white">
           {label}
         </span>
       </div>
@@ -103,19 +103,19 @@ export function LighthouseGauge({
 
         {/* Center Score Readout */}
         <div className="absolute flex flex-col items-center justify-center text-center">
-          <span ref={scoreRef} className={`font-mono text-3xl font-bold tracking-tight ${tierColor}`}>
+          <span ref={scoreRef} className={`font-mono text-xl font-bold tracking-tight ${tierColor}`}>
             {animatedScore}
           </span>
-          <span className="text-[10px] font-medium uppercase tracking-wider text-text-muted">
+          <span className="text-[8px] font-medium uppercase tracking-wider text-text-muted">
             / 100
           </span>
         </div>
       </div>
 
       {/* Tier Badge */}
-      <div className="mt-3 flex items-center gap-1.5">
+      <div className="mt-1.5 flex items-center gap-1.5">
         <span
-          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium border border-white/[0.08] ${
+          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9.5px] font-medium border border-white/[0.08] ${
             tier === "good"
               ? "bg-emerald-950/60 text-emerald-300"
               : tier === "needs_improvement"
@@ -129,8 +129,8 @@ export function LighthouseGauge({
 
       {/* Criteria Breakdown mini list if provided */}
       {criteria && Object.keys(criteria).length > 0 && (
-        <div className="mt-4 w-full border-t border-white/[0.06] pt-3 text-[11px]">
-          <div className="space-y-1.5">
+        <div className="mt-2.5 w-full border-t border-white/[0.06] pt-2 text-[10px]">
+          <div className="space-y-0.5">
             {Object.entries(criteria).slice(0, 3).map(([key, item]) => {
               const formattedName = key
                 .replace(/_/g, " ")
@@ -140,8 +140,8 @@ export function LighthouseGauge({
                   key={key}
                   className="flex items-center justify-between text-text-muted"
                 >
-                  <span className="truncate pr-2">{formattedName}</span>
-                  <span className="font-mono font-medium text-text-primary">
+                  <span className="truncate pr-1 text-[9.5px]">{formattedName}</span>
+                  <span className="font-mono font-medium text-text-primary text-[9.5px]">
                     {item.score}%
                   </span>
                 </div>
@@ -153,3 +153,4 @@ export function LighthouseGauge({
     </div>
   );
 }
+

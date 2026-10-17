@@ -11,13 +11,13 @@ const config: Config = {
     extend: {
       colors: {
         // Base surfaces
-        background: "#0A0A0A",
-        surface: "#141414",
-        "surface-secondary": "#191919",
-        "surface-tertiary": "#222222",
+        background: "#08090A",
+        surface: "#0E1015",
+        "surface-secondary": "#15171F",
+        "surface-tertiary": "#1D202A",
         // Primary text
-        "text-primary": "#EDEDED",
-        "text-muted": "#A1A1A1",
+        "text-primary": "#F0F0F2",
+        "text-muted": "#94969E",
         // Status semantic colors (named for meaning, not decoration)
         supported: {
           DEFAULT: "#10b981", // emerald-500

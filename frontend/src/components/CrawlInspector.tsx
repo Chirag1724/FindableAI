@@ -245,27 +245,21 @@ export function CrawlInspector() {
     currentRoute.nodes[selectedNodeIndex] || currentRoute.nodes[0];
 
   return (
-    <div className="rounded-xl bg-surface shadow-border overflow-hidden text-left">
+    <div className="rounded-2xl bg-surface/90 backdrop-blur-md shadow-border overflow-hidden text-left">
       {/* 1. Header Toolbar with Live Status & Route Switcher */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-4 sm:p-5 border-b border-white/[0.08] bg-surface-secondary/40">
-        <div className="flex items-center flex-wrap gap-2 sm:gap-3">
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            <span className="font-mono text-xs font-semibold text-white tracking-wide">
-              HEADLESS CHROMIUM v124
-            </span>
-          </div>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface shadow-border text-[10px] font-mono text-text-muted">
-            Sample Preview: Simulated Target Site (example.com)
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 px-4 py-2.5 sm:px-5 sm:py-3 border-b border-white/[0.08] bg-surface-secondary/40">
+        <div className="flex items-center flex-wrap gap-2.5">
+          <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="font-mono text-xs font-semibold text-white tracking-wide">
+            DOM EXTRACTION &amp; CHUNKING ENGINE
           </span>
-          <span className="hidden sm:inline text-white/[0.2]">&bull;</span>
-          <span className="hidden sm:inline font-mono text-[11px] text-text-muted">
-            DOM Extraction Engine Active
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            Headless Chromium v124
           </span>
         </div>
 
         {/* Route Filter Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0 scrollbar-none no-scrollbar shrink-0">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 sm:pb-0 scrollbar-none no-scrollbar shrink-0">
           {ROUTES_DATA.map((r) => (
             <button
               key={r.id}
@@ -273,10 +267,10 @@ export function CrawlInspector() {
                 setSelectedRouteId(r.id);
                 setSelectedNodeIndex(0);
               }}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-mono tracking-tight transition-all duration-150 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+              className={`px-2.5 py-1 rounded-md text-xs font-mono tracking-tight transition-all duration-150 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
                 selectedRouteId === r.id
                   ? "bg-white text-black font-semibold shadow-sm"
-                  : "bg-surface-secondary text-text-muted hover:text-white hover:bg-white/[0.06]"
+                  : "bg-surface-secondary text-text-muted hover:text-white hover:bg-white/[0.06] shadow-border"
               }`}
             >
               {r.name}
@@ -285,8 +279,8 @@ export function CrawlInspector() {
         </div>
       </div>
 
-      {/* 2. Four Telemetry Metrics Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-white/[0.08]">
+      {/* 2. Four Sleek Telemetry Metrics Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 p-3 sm:p-3.5 bg-surface-secondary/20 border-b border-white/[0.08]">
         {[
           {
             label: "Pages Crawled",
@@ -313,31 +307,36 @@ export function CrawlInspector() {
             icon: CheckCircle2,
           },
         ].map((stat) => (
-          <div key={stat.label} className="p-4 sm:p-5 bg-surface">
-            <div className="flex items-center justify-between text-text-muted mb-1">
-              <span className="text-[10px] uppercase font-mono tracking-wider">
+          <div
+            key={stat.label}
+            className="px-3.5 py-2 rounded-xl bg-surface/80 border border-white/[0.06] shadow-border flex items-center justify-between hover:border-white/[0.12] transition-colors"
+          >
+            <div>
+              <span className="text-[10px] uppercase font-mono tracking-wider text-text-muted font-medium block">
                 {stat.label}
               </span>
-              <stat.icon className="h-3.5 w-3.5 text-text-muted opacity-60" />
+              <div className="flex items-baseline gap-2 mt-0.5">
+                <span className="text-lg sm:text-xl font-bold text-white font-mono leading-none">
+                  {stat.value}
+                </span>
+                <span className="text-[10px] text-emerald-400 font-mono">
+                  {stat.sub}
+                </span>
+              </div>
             </div>
-            <p className="text-xl sm:text-2xl font-semibold text-white font-mono">
-              {stat.value}
-            </p>
-            <p className="text-[11px] text-emerald-400 font-mono mt-0.5">
-              {stat.sub}
-            </p>
+            <stat.icon className="h-4 w-4 text-text-muted opacity-40 shrink-0" />
           </div>
         ))}
       </div>
 
       {/* 3. Two-Column Visual Inspection Panel */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-px bg-white/[0.08]">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-3.5 p-3 sm:p-3.5 bg-surface-secondary/10">
         {/* Left Column: Parsed DOM Hierarchy Tree (7 cols) */}
-        <div className="lg:col-span-7 p-5 sm:p-6 bg-surface flex flex-col justify-between space-y-4">
+        <div className="lg:col-span-7 rounded-xl bg-surface/90 border border-white/[0.08] p-3.5 shadow-border flex flex-col justify-between space-y-2.5">
           <div>
-            <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
+            <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
               <div className="flex items-center gap-2">
-                <Code2 className="h-4 w-4 text-sky-400" />
+                <Code2 className="h-3.5 w-3.5 text-sky-400" />
                 <span className="font-mono text-xs font-semibold text-white tracking-wide uppercase">
                   Parsed DOM Node Hierarchy
                 </span>
@@ -348,20 +347,20 @@ export function CrawlInspector() {
             </div>
 
             {/* Tree Nodes List */}
-            <div className="space-y-2 mt-3.5 font-mono text-xs">
+            <div className="space-y-1 mt-2 font-mono text-xs">
               {currentRoute.nodes.map((node, idx) => {
                 const isSelected = idx === selectedNodeIndex;
                 return (
                   <button
                     key={idx}
                     onClick={() => setSelectedNodeIndex(idx)}
-                    className={`w-full text-left p-3 rounded-lg transition-all duration-150 flex items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg transition-all duration-150 flex items-center justify-between gap-2.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500 ${
                       isSelected
                         ? "bg-surface-secondary ring-1 ring-emerald-500/40 shadow-sm"
                         : "bg-surface-secondary/50 hover:bg-surface-secondary hover:ring-1 hover:ring-white/10"
                     }`}
                   >
-                    <div className="flex items-center gap-2.5 truncate">
+                    <div className="flex items-center gap-2 truncate">
                       <span className="text-text-muted text-[10px] w-6 shrink-0">
                         {node.line}
                       </span>
@@ -375,7 +374,7 @@ export function CrawlInspector() {
 
                     <div className="flex items-center gap-2 shrink-0">
                       <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-mono ${
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${
                           isSelected
                             ? "bg-emerald-950/60 text-emerald-400 ring-1 ring-inset ring-emerald-700"
                             : "bg-surface text-text-muted ring-1 ring-inset ring-white/[0.08]"
@@ -387,7 +386,7 @@ export function CrawlInspector() {
                         {node.chunks}
                       </span>
                       <ChevronRight
-                        className={`h-3.5 w-3.5 transition-transform ${
+                        className={`h-3 w-3 transition-transform ${
                           isSelected ? "text-emerald-400 translate-x-0.5" : "text-text-muted opacity-40"
                         }`}
                       />
@@ -400,25 +399,25 @@ export function CrawlInspector() {
 
           {/* Active Node Detail Card */}
           {activeNode && (
-            <div className="p-3.5 rounded-lg bg-surface-secondary/70 border border-white/[0.08] space-y-2">
-              <div className="flex items-center justify-between text-[11px] font-mono">
+            <div className="p-2.5 rounded-lg bg-surface-secondary/70 border border-white/[0.08] space-y-1">
+              <div className="flex items-center justify-between text-[10px] font-mono">
                 <span className="text-emerald-400 font-medium flex items-center gap-1.5">
                   <Database className="h-3 w-3" />
                   Extracted Semantic Text Content
                 </span>
                 <span className="text-text-muted">{activeNode.tokens} Tokens</span>
               </div>
-              <p className="text-xs text-text-primary leading-relaxed font-sans bg-black/30 p-2.5 rounded border border-white/[0.04]">
-                &quot;{activeNode.preview}&quot;
+              <p className="text-xs text-text-primary leading-relaxed font-sans bg-black/30 p-2 rounded border border-white/[0.04] line-clamp-1 sm:line-clamp-2">
+                &ldquo;{activeNode.preview}&rdquo;
               </p>
             </div>
           )}
         </div>
 
         {/* Right Column: Interactive Latency / Chunks Visual Graph (5 cols) */}
-        <div className="lg:col-span-5 p-5 sm:p-6 bg-surface flex flex-col justify-between space-y-4">
+        <div className="lg:col-span-5 rounded-xl bg-surface/90 border border-white/[0.08] p-3.5 shadow-border flex flex-col justify-between space-y-2.5">
           <div>
-            <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
+            <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
               <span className="font-mono text-xs font-semibold text-white tracking-wide uppercase">
                 Extraction Metrics
               </span>
@@ -447,12 +446,12 @@ export function CrawlInspector() {
             </div>
 
             {/* Recharts Area / Bar Visual Graph */}
-            <div className="h-48 w-full mt-4">
+            <div className="h-32 sm:h-36 w-full mt-2">
               <ResponsiveContainer width="100%" height="100%">
                 {chartMetric === "latency" ? (
                   <AreaChart
                     data={ROUTE_CHART_SERIES}
-                    margin={{ top: 10, right: 10, left: -25, bottom: 0 }}
+                    margin={{ top: 8, right: 10, left: -25, bottom: 0 }}
                   >
                     <defs>
                       <linearGradient id="crawlLatencyGrad" x1="0" y1="0" x2="0" y2="1">
@@ -506,7 +505,7 @@ export function CrawlInspector() {
                 ) : (
                   <BarChart
                     data={ROUTE_CHART_SERIES}
-                    margin={{ top: 10, right: 10, left: -25, bottom: 0 }}
+                    margin={{ top: 8, right: 10, left: -25, bottom: 0 }}
                   >
                     <XAxis
                       dataKey="label"
@@ -548,30 +547,26 @@ export function CrawlInspector() {
           </div>
 
           {/* Microdata / Schema Indicator */}
-          <div className="p-3 rounded-lg bg-surface-secondary/40 border border-white/[0.06] space-y-1 font-mono text-[11px]">
-            <div className="flex items-center justify-between text-text-muted">
-              <span className="text-violet-400 flex items-center gap-1.5 font-medium">
-                <FileCode className="h-3.5 w-3.5" />
-                Schema.org Microdata
-              </span>
-              <span className="text-emerald-400 text-[10px]">Valid JSON-LD</span>
-            </div>
-            <p className="text-text-primary text-[10px] truncate">
-              {currentRoute.schema}
-            </p>
+          <div className="px-3 py-1.5 rounded-lg bg-surface-secondary/40 border border-white/[0.06] flex items-center justify-between font-mono text-[11px]">
+            <span className="text-violet-400 flex items-center gap-1.5 font-medium text-[10px] truncate mr-2">
+              <FileCode className="h-3 w-3 shrink-0" />
+              <span className="text-text-muted shrink-0">Schema:</span>
+              <span className="text-text-primary truncate">{currentRoute.schema}</span>
+            </span>
+            <span className="text-emerald-400 text-[10px] shrink-0 font-semibold">Valid JSON-LD</span>
           </div>
         </div>
       </div>
 
       {/* 4. Bottom Live Terminal Telemetry Stream */}
-      <div className="p-3.5 bg-background border-t border-white/[0.08] font-mono text-[11px] text-text-muted flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+      <div className="px-4 py-2 bg-surface-secondary/40 border-t border-white/[0.08] font-mono text-xs text-text-muted flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div className="flex items-center gap-2 truncate min-w-0">
           <Terminal className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-          <span className="text-emerald-400 font-semibold shrink-0">CSS Selector:</span>
-          <span className="text-text-primary truncate">{activeNode.selector}</span>
+          <span className="text-emerald-400 font-semibold shrink-0 text-[11px]">CSS Selector:</span>
+          <span className="text-text-primary text-[11px] truncate">{activeNode.selector}</span>
         </div>
-        <div className="flex items-center gap-3 shrink-0 text-[10px]">
-          <span className="text-text-muted">{activeNode.line}</span>
+        <div className="flex items-center gap-2.5 shrink-0 text-[10px]">
+          <span>{activeNode.line}</span>
           <span className="text-white/[0.2]">&bull;</span>
           <span className="text-emerald-400 font-medium">Verified Semantic Anchor</span>
         </div>
