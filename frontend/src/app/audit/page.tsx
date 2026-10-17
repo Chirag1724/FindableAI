@@ -8,16 +8,12 @@ import {
   ArrowLeft,
   ArrowRight,
   Search,
-  Sliders,
   Github,
   AlertCircle,
   Check,
   Shield,
   Code2,
   Scale,
-  Zap,
-  Globe,
-  Lock,
   Minus,
   Plus,
 } from "lucide-react";
@@ -296,37 +292,72 @@ export default function AuditPage() {
       </header>
 
       {/* Main Workspace */}
-      <main className="relative z-10 mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 pt-8 sm:pt-12 pb-16 sm:pb-20 w-full">
-        {/* Title Header */}
-        <div className="text-center mb-8 sm:mb-10" data-animate-item>
-          <div className="inline-flex items-center gap-2 px-3 sm:px-3.5 py-1 rounded-full bg-surface-secondary shadow-border text-[10px] sm:text-[11px] font-medium tracking-wider text-text-muted uppercase mb-3 sm:mb-4">
-            <Sliders className="h-3 w-3 text-emerald-400" />
-            <span>Diagnostic Console</span>
-          </div>
+      <main className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 sm:py-10 w-full flex-1">
+        {/* Breadcrumb & Technical Header */}
+        <div className="mb-6 sm:mb-8 border-b border-white/[0.08] pb-6" data-animate-item>
+          <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-[11px] font-mono text-text-muted mb-2.5">
+            <Link href="/" className="hover:text-white transition-colors">
+              FindableAI
+            </Link>
+            <span className="text-white/30">/</span>
+            <span className="text-text-muted">Audits</span>
+            <span className="text-white/30">/</span>
+            <span className="text-white">New Session</span>
+          </nav>
 
-          <h1 className="text-2xl sm:text-4xl lg:text-5xl text-white font-semibold tracking-tight mb-2.5 sm:mb-3">
-            Initialize your machine audit
-          </h1>
-          <p className="text-xs sm:text-sm text-text-muted max-w-lg mx-auto leading-relaxed px-2 sm:px-0">
-            Configure crawl scope, synthetic buyer personas, and optional GitHub repository integration for automated fixes.
-          </p>
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+            <div>
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl text-white font-semibold tracking-tight">
+                Initialize your machine audit
+              </h1>
+              <p className="text-xs sm:text-sm text-text-muted mt-1.5 max-w-xl leading-relaxed">
+                Configure crawl scope, synthetic buyer personas, and optional GitHub repository integration for automated fixes.
+              </p>
+            </div>
+
+            {/* Technical Specification Box */}
+            <div className="rounded-lg bg-surface-secondary/50 border border-white/[0.06] p-3 text-[11px] font-mono grid grid-cols-2 gap-x-5 gap-y-1 shrink-0">
+              <div>
+                <span className="text-text-muted">PARSER: </span>
+                <span className="text-white">DOM AST v1</span>
+              </div>
+              <div>
+                <span className="text-text-muted">WORKERS: </span>
+                <span className="text-white">5 Concurrent</span>
+              </div>
+              <div>
+                <span className="text-text-muted">SAFETY: </span>
+                <span className="text-white">SSRF Enforced</span>
+              </div>
+              <div>
+                <span className="text-text-muted">ACCESS: </span>
+                <span className="text-white">Read-Only</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Audit Form Card */}
-        <div
-          className="rounded-xl bg-surface shadow-border p-5 sm:p-8 relative overflow-hidden"
-          data-animate-item
-        >
-          <form onSubmit={(e) => void handleSubmit(e)} noValidate className="space-y-6 sm:space-y-7">
+        {/* Audit Form Grid Layout */}
+        <form onSubmit={(e) => void handleSubmit(e)} noValidate className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
+          {/* Left Column: Core Audit Configuration (8 cols) */}
+          <div className="lg:col-span-8 space-y-6">
             {/* Field 1: Target URL */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label
-                  htmlFor="scan-url-input"
-                  className="block text-xs font-mono tracking-wider uppercase text-text-muted font-medium"
-                >
-                  Target Website URL <span className="text-rose-400">*</span>
-                </label>
+            <div
+              className="rounded-xl bg-surface shadow-border p-5 sm:p-7 relative overflow-hidden space-y-4"
+              data-animate-item
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <label
+                    htmlFor="scan-url-input"
+                    className="block text-xs font-mono tracking-wider uppercase text-text-muted font-medium"
+                  >
+                    Target Website URL <span className="text-rose-400">*</span>
+                  </label>
+                  <p className="text-[11px] text-text-muted mt-0.5">
+                    Enter the domain or landing page URL you wish to crawl and evaluate.
+                  </p>
+                </div>
 
                 {/* Quick Fill */}
                 <button
@@ -336,7 +367,7 @@ export default function AuditPage() {
                     handleUrlChange(DEMO_TARGET.url);
                     setRepoUrl(DEMO_TARGET.repoUrl);
                   }}
-                  className="inline-flex items-center px-2.5 py-1 rounded-md bg-surface-secondary text-text-muted hover:text-white hover:bg-white/[0.08] transition-colors duration-150 border border-white/[0.08] active:scale-95 text-[11px] font-mono"
+                  className="inline-flex items-center px-2.5 py-1 rounded-md bg-surface-secondary text-text-muted hover:text-white hover:bg-white/[0.08] transition-colors duration-150 border border-white/[0.08] active:scale-95 text-[11px] font-mono shrink-0"
                   title="Auto-fill with FindableAI sample target"
                 >
                   FindableAI
@@ -368,24 +399,32 @@ export default function AuditPage() {
               </div>
 
               {urlError && (
-                <p id="url-error" role="alert" className="mt-2 text-xs text-rose-400">
+                <p id="url-error" role="alert" className="text-xs text-rose-400">
                   {urlError}
                 </p>
               )}
             </div>
 
             {/* Field 2: Synthetic Intent Personas */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-xs font-mono tracking-wider uppercase text-text-muted font-medium">
-                  Synthetic Intent Personas
-                </label>
-                <span className="text-[11px] text-text-muted font-mono">
+            <div
+              className="rounded-xl bg-surface shadow-border p-5 sm:p-7 relative overflow-hidden space-y-4"
+              data-animate-item
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="block text-xs font-mono tracking-wider uppercase text-text-muted font-medium">
+                    Synthetic Intent Personas
+                  </label>
+                  <p className="text-[11px] text-text-muted mt-0.5">
+                    Select the autonomous personas to simulate AI discovery and evaluate technical claims.
+                  </p>
+                </div>
+                <span className="text-[11px] text-text-muted font-mono shrink-0">
                   {selectedPersonas.length} of {PERSONAS.length} active
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {PERSONAS.map((p) => {
                   const isActive = selectedPersonas.includes(p.id);
                   const Icon = p.icon;
@@ -394,15 +433,15 @@ export default function AuditPage() {
                       key={p.id}
                       type="button"
                       onClick={() => togglePersona(p.id)}
-                      className={`p-3.5 rounded-lg text-left transition-all duration-150 flex flex-col justify-between shadow-border ${
+                      className={`p-4 rounded-lg text-left transition-all duration-150 flex flex-col justify-between shadow-border ${
                         isActive
                           ? "bg-surface-secondary ring-1 ring-emerald-500/40 shadow-sm"
                           : "bg-surface opacity-60 hover:opacity-100 hover:bg-surface-secondary"
                       }`}
                     >
-                      <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center justify-between mb-2.5">
                         <div className="flex items-center gap-2">
-                          <Icon className="h-3.5 w-3.5 text-text-muted" />
+                          <Icon className="h-4 w-4 text-text-muted" />
                           <span className="text-xs font-medium text-white">{p.name}</span>
                         </div>
                         <div
@@ -415,7 +454,7 @@ export default function AuditPage() {
                           <Check className="h-2.5 w-2.5 stroke-[3]" />
                         </div>
                       </div>
-                      <p className="text-[10px] text-text-muted leading-relaxed">
+                      <p className="text-[11px] text-text-muted leading-relaxed">
                         {p.description}
                       </p>
                     </button>
@@ -425,7 +464,10 @@ export default function AuditPage() {
             </div>
 
             {/* Field 3: Crawl Scope (Production-grade) */}
-            <div className="space-y-3">
+            <div
+              className="rounded-xl bg-surface shadow-border p-5 sm:p-7 relative overflow-hidden space-y-4"
+              data-animate-item
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <label
@@ -438,7 +480,7 @@ export default function AuditPage() {
                     Select a preset or fine-tune page crawling depth with the slider.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <span className="text-[11px] font-mono text-text-muted hidden sm:inline">
                     Est. {maxPages <= 1 ? "~1.2s" : maxPages <= 5 ? `~${Math.round(maxPages * 0.7)}s` : `~${Math.round(maxPages * 0.55)}s`}
                   </span>
@@ -472,7 +514,7 @@ export default function AuditPage() {
               </div>
 
               {/* Clickable Preset Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 {CRAWL_PRESETS.map((preset) => {
                   const isSelected = maxPages === preset.pages;
                   return (
@@ -481,13 +523,13 @@ export default function AuditPage() {
                       type="button"
                       data-testid={`preset-pages-${preset.pages}`}
                       onClick={() => setMaxPages(preset.pages)}
-                      className={`relative flex flex-col items-start p-2.5 rounded-lg border text-left transition-all duration-150 focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 ${
+                      className={`relative flex flex-col items-start p-3 rounded-lg border text-left transition-all duration-150 focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 ${
                         isSelected
                           ? "bg-white/[0.08] border-white/30 text-white shadow-sm ring-1 ring-white/20"
                           : "bg-surface-secondary/70 border-white/[0.06] hover:border-white/20 hover:bg-surface-secondary"
                       }`}
                     >
-                      <div className="flex items-center justify-between w-full mb-1">
+                      <div className="flex items-center justify-between w-full mb-1.5">
                         <span className={`font-mono text-xs font-semibold ${isSelected ? "text-white" : "text-text-primary"}`}>
                           {preset.title}
                         </span>
@@ -510,7 +552,7 @@ export default function AuditPage() {
               </div>
 
               {/* Slider Track with Dynamic Gradient Fill - Soft Minimalist Tone */}
-              <div className="pt-1.5">
+              <div className="pt-2">
                 <input
                   id="max-pages-slider"
                   type="range"
@@ -549,7 +591,7 @@ export default function AuditPage() {
               </div>
 
               {/* Engine Specs Bar */}
-              <div className="flex items-center justify-between text-[11px] font-mono text-text-muted bg-surface-secondary/40 border border-white/[0.04] px-3 py-1.5 rounded-md">
+              <div className="flex items-center justify-between text-[11px] font-mono text-text-muted bg-surface-secondary/40 border border-white/[0.04] px-3.5 py-2 rounded-md">
                 <span className="flex items-center gap-1.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                   <span>5 async workers</span>
@@ -558,23 +600,29 @@ export default function AuditPage() {
                 <span className="hidden sm:inline">SSRF protected</span>
               </div>
             </div>
+          </div>
 
+          {/* Right Column: Execution & Integrations (4 cols) */}
+          <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-24">
             {/* Field 4: Optional GitHub Repo for Automated PRs */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
+            <div
+              className="rounded-xl bg-surface shadow-border p-5 sm:p-6 space-y-4"
+              data-animate-item
+            >
+              <div className="flex items-center justify-between">
                 <label
                   htmlFor="repo-url-input"
                   className="text-xs font-mono tracking-wider uppercase text-text-muted font-medium flex items-center gap-1.5"
                 >
                   <Github className="h-3.5 w-3.5 text-text-primary" />
-                  <span>GitHub Repository (Optional)</span>
+                  <span>GitHub Repository</span>
                 </label>
                 <span className="text-[10px] text-text-muted uppercase tracking-wider font-mono">
-                  For automated PRs
+                  Optional
                 </span>
               </div>
 
-              <div className="flex items-center gap-3 rounded-lg bg-surface-secondary shadow-border px-4 py-3 transition-colors duration-150 focus-within:ring-2 focus-within:ring-white/30">
+              <div className="flex items-center gap-3 rounded-lg bg-surface-secondary shadow-border px-3.5 py-2.5 transition-colors duration-150 focus-within:ring-2 focus-within:ring-white/30">
                 <input
                   id="repo-url-input"
                   type="url"
@@ -584,56 +632,74 @@ export default function AuditPage() {
                   className="w-full bg-transparent text-xs text-white placeholder-text-muted/50 focus:outline-none"
                 />
               </div>
-              <p className="mt-1.5 text-[11px] text-text-muted">
+              <p className="text-[11px] text-text-muted leading-relaxed">
                 When provided, FindableAI generates unified DOM diffs and Schema.org JSON-LD microdata, opening a ready-to-merge pull request.
               </p>
             </div>
 
-            {/* Global Error Banner */}
-            {submitError && (
-              <div
-                role="alert"
-                className="flex items-start gap-2.5 p-3.5 rounded-lg bg-rose-950/40 border border-rose-800/50 text-xs text-rose-300"
-              >
-                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                <p>{submitError}</p>
+            {/* Launch Summary & Execution Card */}
+            <div
+              className="rounded-xl bg-surface shadow-border p-5 sm:p-6 space-y-5"
+              data-animate-item
+            >
+              <div className="border-b border-white/[0.06] pb-3">
+                <h3 className="text-xs font-mono uppercase tracking-wider text-text-muted font-semibold">
+                  Execution Summary
+                </h3>
               </div>
-            )}
 
-            {/* Submit Action */}
-            <div className="pt-2">
-              <button
-                type="submit"
-                id="scan-submit"
-                data-testid="scan-submit"
-                disabled={submitting}
-                className="group w-full py-3.5 px-6 rounded-lg bg-white text-black font-semibold text-xs tracking-wider uppercase transition-all duration-150 hover:bg-neutral-200 active:scale-[0.99] flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <span>{submitting ? "Initializing Crawl..." : "Initialize Machine Audit"}</span>
-                <ArrowRight className="h-4 w-4 transition-transform duration-150 group-hover:translate-x-1" />
-              </button>
+              <div className="space-y-2.5 text-xs font-mono">
+                <div className="flex justify-between items-center text-text-muted">
+                  <span>Target</span>
+                  <span className="text-white truncate max-w-[170px]" title={url || "Not set"}>
+                    {url ? url.replace(/^https?:\/\//, "") : "Not set"}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-text-muted">
+                  <span>Scope</span>
+                  <span className="text-white">{maxPages} {maxPages === 1 ? "page" : "pages"}</span>
+                </div>
+                <div className="flex justify-between items-center text-text-muted">
+                  <span>Personas</span>
+                  <span className="text-white">{selectedPersonas.length} active</span>
+                </div>
+                <div className="flex justify-between items-center text-text-muted">
+                  <span>Automated PRs</span>
+                  <span className="text-white">{repoUrl ? "Enabled" : "Disabled"}</span>
+                </div>
+              </div>
+
+              {/* Global Error Banner */}
+              {submitError && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2.5 p-3.5 rounded-lg bg-rose-950/40 border border-rose-800/50 text-xs text-rose-300"
+                >
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <p>{submitError}</p>
+                </div>
+              )}
+
+              {/* Submit Action */}
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  id="scan-submit"
+                  data-testid="scan-submit"
+                  disabled={submitting}
+                  className="group w-full py-3.5 px-6 rounded-lg bg-white text-black font-semibold text-xs tracking-wider uppercase transition-all duration-150 hover:bg-neutral-200 active:scale-[0.99] flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50 shadow-md"
+                >
+                  <span>{submitting ? "Initializing Crawl..." : "Initialize Machine Audit"}</span>
+                  <ArrowRight className="h-4 w-4 transition-transform duration-150 group-hover:translate-x-1" />
+                </button>
+              </div>
+
+              <p className="text-[10px] text-center text-text-muted font-mono">
+                Protected by non-invasive rate limiting & SSRF validation.
+              </p>
             </div>
-          </form>
-        </div>
-
-        {/* 3 Telemetry Safeguard Badges */}
-        <div
-          className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center mt-6"
-          data-animate-item
-        >
-          <div className="p-3 rounded-lg bg-surface/50 border border-white/[0.06] text-[11px] font-mono text-text-muted flex items-center justify-center gap-1.5">
-            <Globe className="h-3 w-3 text-emerald-400" />
-            <span>100% Non-Invasive Crawl</span>
           </div>
-          <div className="p-3 rounded-lg bg-surface/50 border border-white/[0.06] text-[11px] font-mono text-text-muted flex items-center justify-center gap-1.5">
-            <Lock className="h-3 w-3 text-sky-400" />
-            <span>Zero Write-Access Required</span>
-          </div>
-          <div className="p-3 rounded-lg bg-surface/50 border border-white/[0.06] text-[11px] font-mono text-text-muted flex items-center justify-center gap-1.5">
-            <Zap className="h-3 w-3 text-amber-400" />
-            <span>Deterministic Scoring</span>
-          </div>
-        </div>
+        </form>
       </main>
 
       {/* Footer */}

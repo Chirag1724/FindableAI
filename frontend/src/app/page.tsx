@@ -7,17 +7,13 @@ import {
   ArrowRight,
   ArrowUpRight,
   Plus,
-  Globe,
-  Bot,
-  ShieldCheck,
-  Activity,
-  GitPullRequest,
   Menu,
   X,
   Zap,
-  Compass,
   FileCode2,
   Search,
+  Bot,
+  ShieldCheck,
 } from "lucide-react";
 import { getHealth } from "@/lib/api";
 import type { FScoreBreakdown } from "@/types/scan";
@@ -416,14 +412,6 @@ export default function HomePage() {
             <div className="hero-glow absolute inset-0 opacity-60" />
           </div>
 
-          {/* Eyebrow Pill */}
-          <div
-            data-hero-reveal
-            className="relative z-10 inline-flex items-center px-3.5 py-1 rounded-full bg-surface-secondary shadow-border text-[10px] sm:text-[11px] font-medium tracking-widest text-text-muted uppercase mb-5 sm:mb-6"
-          >
-            <span className="truncate">Machine Discoverability Optimization</span>
-          </div>
-
           {/* Headline */}
           <h1
             data-hero-reveal
@@ -473,10 +461,6 @@ export default function HomePage() {
         {/* Section 2: Feature 1 - Crawl & DOM Extraction */}
         <section id="crawl" data-reveal-section className="mb-20 sm:mb-24 lg:mb-32 scroll-mt-32 pt-4 max-w-5xl mx-auto w-full">
           <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-10">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-secondary shadow-border text-[10px] font-mono tracking-wider text-text-muted uppercase mb-3">
-              <Globe className="h-3 w-3 text-white" />
-              <span>Stage 01</span>
-            </div>
             <h2 className="text-2xl sm:text-4xl text-white font-semibold tracking-tight mb-2.5">
               See what AI engines see
             </h2>
@@ -497,10 +481,6 @@ export default function HomePage() {
         {/* Section 3: Feature 2 - Synthetic Intent Simulation */}
         <section id="intent" data-reveal-section className="mb-20 sm:mb-24 lg:mb-32 scroll-mt-32 pt-4 max-w-5xl mx-auto w-full">
           <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-10">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-secondary shadow-border text-[10px] font-mono tracking-wider text-text-muted uppercase mb-3">
-              <Bot className="h-3 w-3 text-white" />
-              <span>Stage 02</span>
-            </div>
             <h2 className="text-2xl sm:text-4xl text-white font-semibold tracking-tight mb-2.5">
               Questions buyers actually ask
             </h2>
@@ -524,10 +504,6 @@ export default function HomePage() {
         {/* Section 5: Feature 3 - Contradiction Detection */}
         <section id="contradictions" data-reveal-section className="mb-20 sm:mb-24 lg:mb-32 scroll-mt-32 pt-4 max-w-5xl mx-auto w-full">
           <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-10">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-secondary shadow-border text-[10px] font-mono tracking-wider text-text-muted uppercase mb-3">
-              <ShieldCheck className="h-3 w-3 text-white" />
-              <span>Stage 03</span>
-            </div>
             <h2 className="text-2xl sm:text-4xl text-white font-semibold tracking-tight mb-2.5">
               Catch cross-page conflicts
             </h2>
@@ -548,10 +524,6 @@ export default function HomePage() {
         {/* Section 6: Feature 4 - Deterministic F-Score */}
         <section id="fscore" data-reveal-section className="mb-20 sm:mb-24 lg:mb-32 scroll-mt-32 pt-4 max-w-5xl mx-auto w-full">
           <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-10">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-secondary shadow-border text-[10px] font-mono tracking-wider text-text-muted uppercase mb-3">
-              <Activity className="h-3 w-3 text-white" />
-              <span>Stage 04</span>
-            </div>
             <h2 className="text-2xl sm:text-4xl text-white font-semibold tracking-tight mb-2.5">
               One score, four pillars
             </h2>
@@ -574,10 +546,6 @@ export default function HomePage() {
         {/* Section 7: Feature 5 - AI Lighthouse Engine */}
         <section id="lighthouse" data-reveal-section className="mb-20 sm:mb-24 lg:mb-32 scroll-mt-32 pt-4 max-w-5xl mx-auto w-full">
           <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-10">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-secondary shadow-border text-[10px] font-mono tracking-wider text-text-muted uppercase mb-3">
-              <Compass className="h-3 w-3 text-white" />
-              <span>Stage 05</span>
-            </div>
             <h2 className="text-2xl sm:text-4xl text-white font-semibold tracking-tight mb-2.5">
               See how each AI engine reads your site
             </h2>
@@ -643,10 +611,6 @@ export default function HomePage() {
         {/* Section 8: Feature 6 - Autonomous Remediation */}
         <section id="remediation" data-reveal-section className="mb-20 sm:mb-24 lg:mb-32 scroll-mt-32 pt-4 max-w-5xl mx-auto w-full">
           <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-10">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-secondary shadow-border text-[10px] font-mono tracking-wider text-text-muted uppercase mb-3">
-              <GitPullRequest className="h-3 w-3 text-white" />
-              <span>Stage 06</span>
-            </div>
             <h2 className="text-2xl sm:text-4xl text-white font-semibold tracking-tight mb-2.5">
               From gap to pull request
             </h2>
