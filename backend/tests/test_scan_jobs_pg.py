@@ -129,9 +129,7 @@ async def test_pg_migration_head_reachable(pg_url: str):
         run_alembic_upgrade(pg_url)
 
         async with engine.connect() as conn:
-            ext = await conn.scalar(
-                text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")
-            )
+            ext = await conn.scalar(text("SELECT 1 FROM pg_extension WHERE extname = 'vector'"))
             assert ext == 1
 
             fencing = await conn.execute(

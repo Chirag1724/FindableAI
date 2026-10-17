@@ -227,9 +227,7 @@ def build_batch_nli_user_prompt(
     sections: list[str] = [" ".join(header_parts)]
     for intent, evidence in items:
         ev_text = (
-            format_evidence_compact(evidence, query=intent.query)
-            if evidence
-            else "(no evidence)"
+            format_evidence_compact(evidence, query=intent.query) if evidence else "(no evidence)"
         )
         sections.append(f"INTENT ID: {intent.intent_id}\nQ: {intent.query}\nEVIDENCE:\n{ev_text}")
     return "\n\n".join(sections)

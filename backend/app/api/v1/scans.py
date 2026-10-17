@@ -320,9 +320,7 @@ def _stage_to_scan_status(stage: str | None) -> ScanStatus | None:
     return None
 
 
-def _db_status_to_scan_status(
-    status_raw: str | None, *, stage: str | None = None
-) -> ScanStatus:
+def _db_status_to_scan_status(status_raw: str | None, *, stage: str | None = None) -> ScanStatus:
     """Map durable DB status strings onto the API ScanStatus enum."""
     if status_raw and status_raw in [e.value for e in ScanStatus]:
         return ScanStatus(status_raw)
@@ -661,9 +659,7 @@ async def run_scan_pipeline(
             robots_txt_content = (
                 crawl_results[0].robots_txt if crawl_results and crawl_results[0].robots_txt else ""
             )
-            await _save_checkpoint(
-                mark_stage(checkpoint, "crawl", meta={"pages": pages_crawled})
-            )
+            await _save_checkpoint(mark_stage(checkpoint, "crawl", meta={"pages": pages_crawled}))
 
             # Phase 2: EXTRACTING_DOM
             await _emit_event(
@@ -836,7 +832,9 @@ async def run_scan_pipeline(
                             chunk_map=chunk_map,
                         )
             except Exception:
-                logger.exception("batch_persist_failed scan_id=%s size=%s", scan_id, len(batch_evals))
+                logger.exception(
+                    "batch_persist_failed scan_id=%s size=%s", scan_id, len(batch_evals)
+                )
 
         async def _on_nli_progress(completed: int, total: int, item: Any) -> None:
             pct = min(90, 80 + int((completed / max(total, 1)) * 10))
@@ -1245,9 +1243,7 @@ async def run_scan_pipeline(
         publish_remediation_eligible = integrity.remediation_eligible
         publish_warnings = list(integrity.warnings)
         if not evidence_durably_validated and not used_synthetic_intents:
-            evaluations = downgrade_unvalidated_evaluations(
-                evaluations, reason="persistence"
-            )
+            evaluations = downgrade_unvalidated_evaluations(evaluations, reason="persistence")
             dag_evaluations = evaluations
             publish_remediation_eligible = False
             if PERSISTENCE_FAIL_WARN not in publish_warnings:
@@ -1610,7 +1606,9 @@ async def _attach_job_observability(scan_resp: ScanResponse, scan_uuid: uuid.UUI
                     durable_seq = None
                 mem_seq = scan_resp.progress_seq
                 use_durable = False
-                if durable_seq is not None and (mem_seq is None or int(durable_seq) >= int(mem_seq)):
+                if durable_seq is not None and (
+                    mem_seq is None or int(durable_seq) >= int(mem_seq)
+                ):
                     use_durable = True
                 if use_durable and db_scan.status in ("in_progress", "pending", "queued"):
                     if getattr(db_scan, "progress_percent", None) is not None:
@@ -1860,9 +1858,7 @@ async def get_scan(scan_id: str) -> ScanResponse:
                         created_at = getattr(db_scan, "created_at", None)
                         if completed_at is not None and created_at is not None:
                             try:
-                                exec_secs = max(
-                                    0.0, (completed_at - created_at).total_seconds()
-                                )
+                                exec_secs = max(0.0, (completed_at - created_at).total_seconds())
                             except Exception:
                                 exec_secs = 0.0
                         summary = AuditSummary(
@@ -2017,12 +2013,8 @@ async def get_scan_job_status(scan_id: str) -> ScanJobStatusResponse:
                 error_code=job_row.error_code if job_row else None,
                 error_detail=public_error,
                 failure_category=job_row.failure_category if job_row else None,
-                llm_calls_checkpoint=(
-                    int(job_row.llm_calls_checkpoint or 0) if job_row else None
-                ),
-                llm_usd_checkpoint=(
-                    float(job_row.llm_usd_checkpoint or 0.0) if job_row else None
-                ),
+                llm_calls_checkpoint=(int(job_row.llm_calls_checkpoint or 0) if job_row else None),
+                llm_usd_checkpoint=(float(job_row.llm_usd_checkpoint or 0.0) if job_row else None),
                 cost_basis="estimated",
                 progress_percent=getattr(db_scan, "progress_percent", None) if db_scan else None,
                 progress_stage=getattr(db_scan, "progress_stage", None) if db_scan else None,
@@ -2033,7 +2025,9 @@ async def get_scan_job_status(scan_id: str) -> ScanJobStatusResponse:
                 batches_total=getattr(db_scan, "batches_total", None) if db_scan else None,
                 batches_completed=getattr(db_scan, "batches_completed", None) if db_scan else None,
                 batches_failed=getattr(db_scan, "batches_failed", None) if db_scan else None,
-                provider_successes=getattr(db_scan, "provider_successes", None) if db_scan else None,
+                provider_successes=getattr(db_scan, "provider_successes", None)
+                if db_scan
+                else None,
                 provider_failures=getattr(db_scan, "provider_failures", None) if db_scan else None,
                 primary_llm_model=getattr(db_scan, "primary_llm_model", None) if db_scan else None,
                 fallback_provider_used=(
@@ -2108,15 +2102,15 @@ async def stream_scan_progress(
                         # Snapshot fallback when event history is empty/unavailable.
                         status_raw = str(snap.get("status") or "in_progress")
                         stage_raw = str(snap.get("progress_stage") or "") or None
-                        status_enum = _db_status_to_scan_status(
-                            status_raw, stage=stage_raw
-                        )
+                        status_enum = _db_status_to_scan_status(status_raw, stage=stage_raw)
                         synth = ScanStatusEvent(
                             scan_id=scan_id,
                             status=status_enum,
                             progress_percent=int(snap.get("progress_percent") or 0),
                             current_step=str(snap.get("progress_stage") or status_raw),
-                            message=str(snap.get("progress_message") or "Restored progress snapshot"),
+                            message=str(
+                                snap.get("progress_message") or "Restored progress snapshot"
+                            ),
                             timestamp=datetime.now(UTC),
                             seq=int(snap.get("progress_seq") or 0) or None,
                             progress_current=snap.get("progress_current"),
@@ -2295,9 +2289,7 @@ async def get_scan_intents(scan_id: str) -> list[dict[str, Any]]:
                     evidence_by_intent: dict[uuid.UUID, list[EvidenceReference]] = {}
                     hydrate_failed = False
                     try:
-                        evidence_by_intent = await hydrate_evidence_for_intents(
-                            s, list(db_intents)
-                        )
+                        evidence_by_intent = await hydrate_evidence_for_intents(s, list(db_intents))
                     except Exception as hydrate_err:
                         hydrate_failed = True
                         logger.warning(
@@ -3414,9 +3406,7 @@ async def verify_scan_remediation(
                     detail=row.detail,
                     fresh_evidence=list(row.fresh_evidence or []),
                     created_at=row.created_at,
-                    verification_method=getattr(
-                        row, "verification_method", "heuristic_post_pr"
-                    ),
+                    verification_method=getattr(row, "verification_method", "heuristic_post_pr"),
                     fully_verified=bool(getattr(row, "fully_verified", False)),
                     is_full_rescan=bool(getattr(row, "is_full_rescan", False)),
                 )
@@ -3450,9 +3440,7 @@ async def list_scan_verifications(scan_id: str) -> list[VerificationRunOut]:
                     detail=r.detail,
                     fresh_evidence=list(r.fresh_evidence or []),
                     created_at=r.created_at,
-                    verification_method=getattr(
-                        r, "verification_method", "heuristic_post_pr"
-                    ),
+                    verification_method=getattr(r, "verification_method", "heuristic_post_pr"),
                     fully_verified=bool(getattr(r, "fully_verified", False)),
                     is_full_rescan=bool(getattr(r, "is_full_rescan", False)),
                 )

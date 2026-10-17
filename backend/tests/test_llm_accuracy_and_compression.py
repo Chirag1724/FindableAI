@@ -137,12 +137,16 @@ async def test_evaluate_intents_deduplicates_identical_queries():
 
     chunk_id = str(uuid.uuid4())
     dummy_chunks = [
-        type("Chunk", (), {
-            "id": chunk_id,
-            "url": "https://example.com",
-            "dom_path": "main",
-            "content": "Enterprise pricing starts at $500/month.",
-        })()
+        type(
+            "Chunk",
+            (),
+            {
+                "id": chunk_id,
+                "url": "https://example.com",
+                "dom_path": "main",
+                "content": "Enterprise pricing starts at $500/month.",
+            },
+        )()
     ]
 
     class MockRetriever:
@@ -157,6 +161,7 @@ async def test_evaluate_intents_deduplicates_identical_queries():
             self.calls += 1
             # Return an IntentEvaluationBatch
             from app.schemas.intelligence import IntentEvaluationBatch
+
             return IntentEvaluationBatch(
                 evaluations=[
                     IntentEvaluation(

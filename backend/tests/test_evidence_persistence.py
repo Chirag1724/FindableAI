@@ -303,9 +303,7 @@ def test_apply_integrity_keeps_durable_refs_only():
             EvidenceReference(chunk_id=str(cid), dom_path="main > p", rank=2),
         ],
     )
-    built = EvidenceBuildResult(
-        rows=[row], citation_count=2, persisted_count=1, unresolved_count=1
-    )
+    built = EvidenceBuildResult(rows=[row], citation_count=2, persisted_count=1, unresolved_count=1)
     clean = apply_persisted_evidence_integrity(evaluation, built)
     assert clean.status is EntailmentStatus.SUPPORTED
     assert len(clean.evidence) == 1

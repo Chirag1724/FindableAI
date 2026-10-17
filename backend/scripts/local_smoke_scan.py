@@ -83,13 +83,10 @@ def main() -> int:
 
     # Never send repo_url — smoke is incapable of opening a GitHub PR.
     payload = {"url": args.url, "max_pages": int(args.max_pages)}
-    code, created = _request(
-        "POST", f"{base}/api/v1/scans", body=payload, api_key=api_key
-    )
+    code, created = _request("POST", f"{base}/api/v1/scans", body=payload, api_key=api_key)
     if code == 503:
         print(
-            "FAIL: scan rejected (missing credentials or durability). "
-            f"Detail: {created}",
+            f"FAIL: scan rejected (missing credentials or durability). Detail: {created}",
             file=sys.stderr,
         )
         return 3

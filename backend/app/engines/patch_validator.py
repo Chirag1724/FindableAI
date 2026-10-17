@@ -164,9 +164,7 @@ def validate_repo_path(path: str) -> ValidationCheck:
             safety_critical=True,
         )
     if raw.startswith("//") or raw.startswith("\\\\"):
-        return _check(
-            "path_safe", CheckStatus.FAILED, "UNC path rejected", safety_critical=True
-        )
+        return _check("path_safe", CheckStatus.FAILED, "UNC path rejected", safety_critical=True)
     if raw.startswith("/") or raw.startswith("~") or "://" in raw or re.match(r"^[a-zA-Z]:", raw):
         return _check(
             "path_safe", CheckStatus.FAILED, "absolute/URL path rejected", safety_critical=True
@@ -216,7 +214,9 @@ def validate_no_secrets(patch_text: str) -> ValidationCheck:
         )
     # Prefer added lines so we do not block quotes of existing redacted material in context.
     added = "\n".join(
-        line[1:] for line in text.splitlines() if line.startswith("+") and not line.startswith("+++")
+        line[1:]
+        for line in text.splitlines()
+        if line.startswith("+") and not line.startswith("+++")
     )
     haystack = added if added.strip() else text
     for label, pattern in _SECRET_PATTERNS:

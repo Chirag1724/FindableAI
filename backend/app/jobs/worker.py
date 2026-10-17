@@ -142,9 +142,7 @@ class ScanJobWorker:
                     llm_calls_checkpoint=int(job.llm_calls_checkpoint or 0),
                     llm_usd_checkpoint=float(getattr(job, "llm_usd_checkpoint", 0.0) or 0.0),
                     checkpoint_json=(
-                        {**job.checkpoint_json}
-                        if isinstance(job.checkpoint_json, dict)
-                        else None
+                        {**job.checkpoint_json} if isinstance(job.checkpoint_json, dict) else None
                     ),
                     idempotency_key=job.idempotency_key,
                 )

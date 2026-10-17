@@ -253,8 +253,7 @@ async def upsert_remediation_run(
             )
         if (existing.repo_full_name or "").lower() != (repo_full_name or "").lower():
             raise IdempotencyScopeConflict(
-                f"idempotency key bound to repo {existing.repo_full_name!r}, "
-                f"not {repo_full_name!r}"
+                f"idempotency key bound to repo {existing.repo_full_name!r}, not {repo_full_name!r}"
             )
 
         # Idempotent recovery: never remutate when a PR URL/number is already known.

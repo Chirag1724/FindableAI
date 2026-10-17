@@ -20,10 +20,11 @@ logger = logging.getLogger(__name__)
 # 1. Sliding Window Rate Limiter (IP-based endpoint protection)
 # ---------------------------------------------------------------------------
 
+
 class SlidingWindowRateLimiter:
     """In-memory thread-safe sliding window rate limiter."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._requests: dict[str, list[float]] = defaultdict(list)
         self._lock = asyncio.Lock()
 
@@ -92,6 +93,7 @@ rate_limit_mutating = rate_limit(
 # ---------------------------------------------------------------------------
 # 2. Token-Bucket Rate Limiter (Organization / Scoped API Key Multi-Tenancy)
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class RateLimitResult:
