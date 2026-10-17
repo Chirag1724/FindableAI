@@ -57,6 +57,9 @@ class Organization(Base):
     memberships: Mapped[list["OrgMembership"]] = relationship(
         "OrgMembership", back_populates="organization", cascade="all, delete-orphan"
     )
+    token_ledger: Mapped[list["OrgTokenLedger"]] = relationship(
+        "OrgTokenLedger", back_populates="organization", cascade="all, delete-orphan"
+    )
 
 
 class OrgMembership(Base):
@@ -226,6 +229,9 @@ class Scan(Base):
     )
     progress_events: Mapped[list["ScanProgressEvent"]] = relationship(
         "ScanProgressEvent", back_populates="scan", cascade="all, delete-orphan"
+    )
+    token_ledger: Mapped[list["OrgTokenLedger"]] = relationship(
+        "OrgTokenLedger", back_populates="scan", cascade="all, delete-orphan"
     )
 
 
@@ -543,3 +549,36 @@ class VerificationRun(Base):
     remediation_run: Mapped[RemediationRun] = relationship(
         "RemediationRun", back_populates="verification_runs"
     )
+
+
+class OrgTokenLedger(Base):
+    """Tenant token usage and spend ledger for billing audits and rate limiting (Migration 0012)."""
+
+    __tablename__ = "org_token_ledger"
+    __table_args__ = (Index("ix_org_token_ledger_org_created", "org_id", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    scan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("scans.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    tokens_in: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_out: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    organization: Mapped["Organization"] = relationship(
+        "Organization", back_populates="token_ledger"
+    )
+    scan: Mapped["Scan"] = relationship("Scan", back_populates="token_ledger")

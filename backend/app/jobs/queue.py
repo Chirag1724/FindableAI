@@ -591,6 +591,31 @@ async def complete_job(
             fencing_token,
             worker_id,
         )
+        try:
+            from app.models.database import OrgTokenLedger
+            from app.models.database import Scan as ScanModel
+
+            job_row = await session.get(ScanJob, job_id)
+            if job_row and job_row.scan_id:
+                scan_row = await session.get(ScanModel, job_row.scan_id)
+                if scan_row and scan_row.org_id:
+                    tokens_in = int(scan_row.llm_tokens_in or 0)
+                    tokens_out = int(scan_row.llm_tokens_out or 0)
+                    cost_usd = float(scan_row.llm_usd_estimated or 0.0)
+                    model_name = str(scan_row.primary_llm_model or "default")
+                    if tokens_in > 0 or tokens_out > 0 or cost_usd > 0.0:
+                        ledger_entry = OrgTokenLedger(
+                            org_id=scan_row.org_id,
+                            scan_id=scan_row.id,
+                            model=model_name,
+                            tokens_in=tokens_in,
+                            tokens_out=tokens_out,
+                            cost_usd=cost_usd,
+                        )
+                        session.add(ledger_entry)
+                        await session.flush()
+        except Exception as ledger_err:
+            logger.warning("failed_to_record_token_ledger job_id=%s: %s", job_id, ledger_err)
     else:
         metrics.incr("scan_jobs_stale_complete")
         logger.warning(
