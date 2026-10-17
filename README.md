@@ -422,7 +422,7 @@ pip install -r requirements.txt
 playwright install chromium
 
 # 3c. Migrations (never drop/recreate the volume; always upgrade on top of current head)
-alembic current                        # expect 0012_composite_indexes_and_token_ledger (head) or older
+alembic current                        # expect 0012_indexes_and_token_ledger (head) or older
 alembic upgrade head
 
 # 3d. Verify provider credentials (one minimal request per configured provider; no keys printed)

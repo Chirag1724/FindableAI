@@ -1,6 +1,6 @@
 """Add composite GIN indexes, active queue partial indexing, and tenant token ledger.
 
-Revision ID: 0012_composite_indexes_and_token_ledger
+Revision ID: 0012_indexes_and_token_ledger
 Revises: 0011_organizations_and_api_keys
 Create Date: 2026-10-17 19:50:00.000000
 
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-revision: str = "0012_composite_indexes_and_token_ledger"
+revision: str = "0012_indexes_and_token_ledger"
 down_revision: str | None = "0011_organizations_and_api_keys"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
