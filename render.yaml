@@ -1,0 +1,120 @@
+services:
+  # ---------------------------------------------------------------------------
+  # 1. FastAPI REST API & SSE Streaming Service
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: findable-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: PORT
+        value: 8000
+      - key: DATABASE_URL
+        sync: false # PostgreSQL 16 connection string with pgvector (e.g. Neon, Supabase, or Render)
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: findable-redis
+          property: connectionString
+      - key: CORS_ORIGINS
+        value: https://*.vercel.app,http://localhost:3000
+      - key: API_KEY
+        generateValue: true
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: DEFAULT_LLM_MODEL
+        value: groq/openai/gpt-oss-120b
+      - key: FAST_LLM_MODEL
+        value: groq/openai/gpt-oss-20b
+      - key: HEAVY_LLM_MODEL
+        value: groq/openai/gpt-oss-120b
+      - key: FALLBACK_LLM_MODEL
+        value: groq/openai/gpt-oss-120b
+      - key: LLM_BUDGET_CAP_USD
+        value: "0.01"
+      - key: MAX_LLM_CALLS_PER_SCAN
+        value: "60"
+      - key: DURABLE_SCAN_JOBS
+        value: "true"
+      - key: SCAN_JOB_INLINE_FALLBACK
+        value: "false"
+
+  # ---------------------------------------------------------------------------
+  # 2. Durable Background Queue Worker
+  # ---------------------------------------------------------------------------
+  - type: worker
+    name: findable-worker
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: starter
+    dockerCommand: python -m app.worker
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: findable-redis
+          property: connectionString
+      - key: API_KEY
+        fromService:
+          type: web
+          name: findable-api
+          envVarKey: API_KEY
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: DEFAULT_LLM_MODEL
+        value: groq/openai/gpt-oss-120b
+      - key: FAST_LLM_MODEL
+        value: groq/openai/gpt-oss-20b
+      - key: HEAVY_LLM_MODEL
+        value: groq/openai/gpt-oss-120b
+      - key: FALLBACK_LLM_MODEL
+        value: groq/openai/gpt-oss-120b
+      - key: LLM_BUDGET_CAP_USD
+        value: "0.01"
+      - key: MAX_LLM_CALLS_PER_SCAN
+        value: "60"
+      - key: DURABLE_SCAN_JOBS
+        value: "true"
+      - key: SCAN_JOB_INLINE_FALLBACK
+        value: "false"
+      - key: SCAN_JOB_POLL_INTERVAL_SECONDS
+        value: "2"
+      - key: SCAN_JOB_LEASE_SECONDS
+        value: "600"
+      - key: SCAN_JOB_MAX_ATTEMPTS
+        value: "3"
+
+  # ---------------------------------------------------------------------------
+  # 3. Redis Service (Queue coordination & caching)
+  # ---------------------------------------------------------------------------
+  - type: redis
+    name: findable-redis
+    plan: starter
+    ipAllowList: [] # internal only
+    maxmemoryPolicy: allkeys-lru

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import uuid
+from typing import cast
 
 import pytest
 
+from app.core.llm import LLMClient
 from app.crawler.context_compressor import clean_dom_noise, compress_chunk_for_query
 from app.engines.entailment_engine import (
     EntailmentEngine,
@@ -178,7 +180,7 @@ async def test_evaluate_intents_deduplicates_identical_queries():
             )
 
     mock_llm = MockLLM()
-    engine = EntailmentEngine(llm_client=mock_llm, retriever=MockRetriever())
+    engine = EntailmentEngine(llm_client=cast(LLMClient, mock_llm), retriever=MockRetriever())
 
     results = await engine.evaluate_intents(
         intents=[intent_cto, intent_procurement],
