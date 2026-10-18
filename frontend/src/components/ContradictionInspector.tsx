@@ -64,19 +64,16 @@ export function ContradictionInspector() {
     CONTRADICTIONS_DATA[0];
 
   return (
-    <div className="rounded-xl bg-surface shadow-border overflow-hidden text-left">
-      {/* 1. Header Toolbar with Status */}
+    <div className="rounded-2xl bg-surface/90 backdrop-blur-md shadow-border overflow-hidden text-left">
+      {/* 1. Header Toolbar with Status & Switcher */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:p-5 border-b border-white/[0.08] bg-surface-secondary/40">
-        <div className="flex items-center flex-wrap gap-2 sm:gap-2.5">
-          <span className="h-2 w-2 rounded-full bg-rose-500" />
+        <div className="flex items-center flex-wrap gap-2.5">
+          <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
           <span className="font-mono text-xs font-semibold text-white tracking-wide">
             CROSS-PAGE NLI INFERENCE ENGINE
           </span>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface shadow-border text-[10px] font-mono text-text-muted">
-            Sample Preview
-          </span>
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-950/50 text-rose-400 border border-rose-800/60">
-            {CONTRADICTIONS_DATA.length} Conflicts Detected
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">
+            {CONTRADICTIONS_DATA.length} Inconsistencies Detected
           </span>
         </div>
 
@@ -86,10 +83,10 @@ export function ContradictionInspector() {
             <button
               key={c.id}
               onClick={() => setActiveConflictId(c.id)}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-mono tracking-tight transition-all duration-150 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-mono tracking-tight transition-all duration-150 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${
                 activeConflictId === c.id
                   ? "bg-white text-black font-semibold shadow-sm"
-                  : "bg-surface-secondary text-text-muted hover:text-white hover:bg-white/[0.06]"
+                  : "bg-surface-secondary text-text-muted hover:text-white hover:bg-white/[0.06] shadow-border"
               }`}
             >
               {c.title}
@@ -99,33 +96,33 @@ export function ContradictionInspector() {
       </div>
 
       {/* 2. Top Conflict Telemetry Summary */}
-      <div className="p-4 sm:p-5 border-b border-white/[0.08] bg-surface flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+      <div className="px-5 py-3.5 sm:px-6 sm:py-4 border-b border-white/[0.08] bg-surface flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
           <span
-            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-mono uppercase ${
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-mono uppercase font-semibold ${
               activeConflict.severity === "High"
-                ? "bg-rose-950/50 text-rose-400 ring-1 ring-inset ring-rose-800"
-                : "bg-amber-950/50 text-amber-400 ring-1 ring-inset ring-amber-800"
+                ? "bg-rose-950/60 text-rose-400 border border-rose-800/60"
+                : "bg-amber-950/60 text-amber-400 border border-amber-800/60"
             }`}
           >
-            <AlertCircle className="h-3 w-3" />
+            <AlertCircle className="h-3.5 w-3.5" />
             <span>{activeConflict.severity} Severity Contradiction</span>
           </span>
-          <span className="text-xs font-semibold text-white font-mono">
+          <span className="text-sm font-semibold text-white tracking-tight">
             {activeConflict.title}
           </span>
         </div>
 
-        <div className="flex items-center gap-3 text-xs font-mono">
+        <div className="flex items-center gap-3 text-xs font-mono shrink-0">
           <span className="text-text-muted">NLI Confidence:</span>
-          <div className="flex items-center gap-1.5">
-            <div className="w-20 bg-surface-secondary h-1.5 rounded-full overflow-hidden">
+          <div className="flex items-center gap-2">
+            <div className="w-24 bg-surface-secondary h-2 rounded-full overflow-hidden shadow-inner">
               <div
-                className="bg-rose-500 h-full rounded-full"
+                className="bg-rose-500 h-full rounded-full transition-all duration-300"
                 style={{ width: `${activeConflict.confidence}%` }}
               />
             </div>
-            <span className="text-rose-400 font-semibold">
+            <span className="text-rose-400 font-semibold font-mono">
               {activeConflict.confidence}%
             </span>
           </div>
@@ -133,67 +130,76 @@ export function ContradictionInspector() {
       </div>
 
       {/* 3. Side-by-Side Contradiction Matrix */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-white/[0.08]">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-5 p-4 sm:p-5 lg:p-6 bg-surface-secondary/20">
         {/* Source Claim */}
-        <div className="p-5 sm:p-6 bg-surface space-y-3">
-          <div className="flex items-center justify-between text-xs pb-2 border-b border-white/[0.06]">
-            <span className="font-mono text-[11px] uppercase tracking-wider text-emerald-400 font-semibold flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Source Marketing Claim
-            </span>
-            <span className="text-[10px] font-mono text-text-muted">
-              {activeConflict.sourceRoute}
-            </span>
-          </div>
+        <div className="rounded-xl bg-surface/90 border border-white/[0.08] p-4 sm:p-5 space-y-3 shadow-border flex flex-col justify-between">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs pb-2 border-b border-white/[0.06]">
+              <span className="font-mono text-xs uppercase tracking-wider text-emerald-400 font-semibold flex items-center gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                Source Marketing Claim
+              </span>
+              <span className="text-[11px] font-mono text-text-muted px-2 py-0.5 rounded bg-surface-secondary shadow-border">
+                {activeConflict.sourceRoute}
+              </span>
+            </div>
 
-          <div className="p-2.5 rounded bg-surface-secondary text-[11px] font-mono text-text-muted truncate border border-white/[0.06]">
-            CSS: <span className="text-emerald-400">{activeConflict.sourceSelector}</span>
-          </div>
+            <div className="p-2 rounded-lg bg-surface-secondary text-[11px] font-mono text-text-muted truncate border border-white/[0.06]">
+              CSS: <span className="text-emerald-400">{activeConflict.sourceSelector}</span>
+            </div>
 
-          <p className="text-xs sm:text-sm text-text-primary leading-relaxed bg-black/30 p-3.5 rounded-lg border border-white/[0.06]">
-            &quot;{activeConflict.sourceText}&quot;
-          </p>
+            <p className="text-xs sm:text-sm text-text-primary leading-relaxed bg-black/40 p-3.5 rounded-lg border border-white/[0.06]">
+              &ldquo;{activeConflict.sourceText}&rdquo;
+            </p>
+          </div>
         </div>
 
         {/* Conflicting Claim */}
-        <div className="p-5 sm:p-6 bg-surface space-y-3">
-          <div className="flex items-center justify-between text-xs pb-2 border-b border-white/[0.06]">
-            <span className="font-mono text-[11px] uppercase tracking-wider text-rose-400 font-semibold flex items-center gap-1.5">
-              <AlertCircle className="h-3.5 w-3.5" />
-              Conflicting Factual Claim
-            </span>
-            <span className="text-[10px] font-mono text-text-muted">
-              {activeConflict.conflictRoute}
-            </span>
-          </div>
+        <div className="rounded-xl bg-surface/90 border border-white/[0.08] p-4 sm:p-5 space-y-3 shadow-border flex flex-col justify-between">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs pb-2 border-b border-white/[0.06]">
+              <span className="font-mono text-xs uppercase tracking-wider text-rose-400 font-semibold flex items-center gap-1.5">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                Conflicting Factual Claim
+              </span>
+              <span className="text-[11px] font-mono text-text-muted px-2 py-0.5 rounded bg-surface-secondary shadow-border">
+                {activeConflict.conflictRoute}
+              </span>
+            </div>
 
-          <div className="p-2.5 rounded bg-surface-secondary text-[11px] font-mono text-text-muted truncate border border-white/[0.06]">
-            CSS: <span className="text-rose-400">{activeConflict.conflictSelector}</span>
-          </div>
+            <div className="p-2 rounded-lg bg-surface-secondary text-[11px] font-mono text-text-muted truncate border border-white/[0.06]">
+              CSS: <span className="text-rose-400">{activeConflict.conflictSelector}</span>
+            </div>
 
-          <p className="text-xs sm:text-sm text-text-primary leading-relaxed bg-black/30 p-3.5 rounded-lg border border-white/[0.06]">
-            &quot;{activeConflict.conflictText}&quot;
-          </p>
+            <p className="text-xs sm:text-sm text-text-primary leading-relaxed bg-black/40 p-3.5 rounded-lg border border-white/[0.06]">
+              &ldquo;{activeConflict.conflictText}&rdquo;
+            </p>
+          </div>
         </div>
       </div>
 
       {/* 4. Automated Resolution Diff Proposal */}
-      <div className="p-4 sm:p-5 bg-background border-t border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <Zap className="h-4 w-4 text-emerald-400 shrink-0" />
+      <div className="p-4 sm:p-5 bg-surface-secondary/40 border-t border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="h-8 w-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
+            <Zap className="h-4 w-4 text-emerald-400" />
+          </div>
           <div className="text-xs space-y-0.5">
             <span className="font-mono text-[10px] uppercase text-emerald-400 font-semibold tracking-wider block">
               Recommended Remediation
             </span>
-            <p className="text-text-muted text-[11px]">
+            <p className="text-text-muted text-xs leading-relaxed">
               {activeConflict.fixRecommendation}
             </p>
           </div>
         </div>
 
-        <span className="px-3 py-1 rounded bg-surface-secondary text-[10px] font-mono text-text-muted shrink-0 border border-white/[0.08]">
-          Patch Ready
-        </span>
+        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+          <span className="px-3 py-1.5 rounded-lg bg-surface-secondary text-xs font-mono text-text-muted border border-white/[0.08] shadow-border flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            <span>Patch Ready</span>
+          </span>
+        </div>
       </div>
     </div>
   );
