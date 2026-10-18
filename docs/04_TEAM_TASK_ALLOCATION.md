@@ -737,21 +737,7 @@ Do **not** start a new independent intelligence engine.
 | **Shared** | — | — | — | — | — | — | 6 | **6** | **4** |
 | **Total** | **11** | **6** | **12** | **6** | **12** | **10** | **6** | **63** | **51** |
 
-> **Count note:** Shiv completed 17/17 assigned AI/ML, scoring, durable queue and DAG tasks. Himanshu completed 20/20 backend foundation, crawler, AI Lighthouse, framework patch assembly, and core UI pages/modal tasks. Chirag completed client UI layout panels, Vitest suites, manifest/assets, and deployment configuration.
->
-> **Production readiness:** Shiv's **17/17** completed tasks mean the assigned AI/ML + patch + orchestration roadmap is done in-repo at engine scope. They do **not** imply the full product is production-ready. See **[§10](#10-production-readiness-roadmap)** and [LIMITATIONS_AND_READINESS.md](engineering/LIMITATIONS_AND_READINESS.md). Critical remaining gaps: honest fallback UX, durable persistence/hydrate, retrieval wiring truth, regression fixtures; mock F-score/patches still exist on non-prod / failure paths after DAG wiring.
-
-### Calibrated Real Work Distribution
-
-> Based on `git blame` analysis of **production logic only** (excluding docs, JSON/lockfiles, generated output, and test boilerplate):
-
-| Person | Calibrated Share | Primary Contributions |
-| :--- | :--- | :--- |
-| **Shiv Raj Singh** | **44%** | Core backend AI engines (NLI, intent, scorer, contradiction), F-Score math, DAG orchestrator, durable PostgreSQL queue leases & workers, budget guard |
-| **Himanshu Raj** | **44%** | Full-stack: async crawler, DOM chunker, AI Lighthouse engine, robots analyzer, llms.txt generator, framework patch assembler, landing/audit/patch UI pages, PatchModal |
-| **Chirag Dwivedi** | **12%** | UI component stubs (layout shells, normalization helpers), Vitest test suite, release configs, manifest & assets |
-
----
+</br>
 
 > **End of Document — Team Task Allocation v1.0**
 

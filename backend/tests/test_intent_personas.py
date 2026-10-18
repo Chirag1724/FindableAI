@@ -95,6 +95,7 @@ def test_validate_intent_batch_two_personas():
 
 def test_validate_intent_batch_rejects_count_mismatch():
     import pytest
+
     from app.engines.intent_generator import IntentGenerationError
 
     queries = [_make_dummy_query(cat, idx) for idx, cat in enumerate(IntentCategory, start=1)]

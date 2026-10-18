@@ -784,7 +784,7 @@ class EntailmentEngine:
         *,
         intents: Sequence[IntentQuery],
         scan_id: uuid.UUID,
-        progress_callback: Callable[[int, int, IntentEvaluation], Awaitable[None]] | None = None,
+        progress_callback: Callable[[int, int, IntentEvaluation | None], Awaitable[None]] | None = None,
         on_batch_complete: Callable[[list[IntentEvaluation]], Awaitable[None]] | None = None,
     ) -> list[IntentEvaluation]:
         """

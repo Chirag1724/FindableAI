@@ -252,6 +252,7 @@ export default function SmartUrlInput({
   const tldId = `${id ?? reactId}-tld`;
   const customId = `${id ?? reactId}-custom`;
   const previewId = `${id ?? reactId}-preview`;
+  const historyListboxId = `${id ?? reactId}-history-listbox`;
 
   const [parts, setParts] = useState<SmartUrlParts>(() => partsFromCanonical(value));
   const [history, setHistory] = useState<string[]>([]);
@@ -358,6 +359,7 @@ export default function SmartUrlInput({
 
   const historyPanel = showHistory ? (
     <div
+      id={historyListboxId}
       ref={historyPanelRef}
       data-testid="url-history-panel"
       role="listbox"
@@ -384,6 +386,7 @@ export default function SmartUrlInput({
             <button
               type="button"
               role="option"
+              aria-selected="false"
               data-testid="url-history-item"
               onClick={() => applyHistoryUrl(item)}
               className="min-w-0 flex-1 truncate rounded-lg px-2.5 py-2 text-left text-sm font-mono text-text-muted hover:bg-white/[0.05] hover:text-white transition-colors duration-100"
@@ -438,6 +441,7 @@ export default function SmartUrlInput({
             <input
               id={domainId}
               data-testid={testId}
+              role="combobox"
               type="text"
               inputMode="url"
               autoComplete="off"
@@ -452,6 +456,7 @@ export default function SmartUrlInput({
               aria-invalid={!!error}
               aria-autocomplete="list"
               aria-expanded={showHistory}
+              aria-controls={showHistory ? historyListboxId : undefined}
               className="min-w-0 w-full bg-transparent text-sm text-white placeholder-text-muted/45 focus:outline-none"
             />
           </div>
@@ -542,6 +547,7 @@ export default function SmartUrlInput({
             <input
               id={customId}
               data-testid={testId}
+              role="combobox"
               type="url"
               autoComplete="off"
               disabled={disabled}
@@ -557,6 +563,7 @@ export default function SmartUrlInput({
               aria-invalid={!!error}
               aria-autocomplete="list"
               aria-expanded={showHistory}
+              aria-controls={showHistory ? historyListboxId : undefined}
               className="w-full bg-transparent text-sm text-white placeholder-text-muted/45 focus:outline-none"
             />
           </div>

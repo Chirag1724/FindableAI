@@ -20,8 +20,6 @@ if sys.platform == "win32":
 
 WORKER_START_COMMAND = "cd backend && python -m app.worker"
 
-
-
 def warn_if_no_job_executor() -> None:
     """Startup guard: durable queue enabled but this API process will not execute jobs.
 

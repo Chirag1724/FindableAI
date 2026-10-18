@@ -37,7 +37,6 @@ from app.core.llm_errors import (
     classify_provider_error,
 )
 from app.core.provider_throttle import (
-    PROVIDER_THROTTLES,
     estimate_request_tokens,
     get_provider_throttle,
 )
@@ -391,7 +390,7 @@ class LLMClient:
                     and self._api_key not in keys
                     and key_matches_provider("groq", self._api_key)[0]
                 ):
-                    keys = [self._api_key] + keys
+                    keys = [self._api_key, *keys]
                 if keys:
                     primary_key = KEY_POOL.get_next_key_sync("groq") or keys[0]
                     if self._api_key and self._api_key != settings.GROQ_API_KEY:

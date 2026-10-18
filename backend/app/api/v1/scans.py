@@ -178,8 +178,15 @@ async def _authorize_scan_ref(scan_id: str, tenant: TenantContext) -> uuid.UUID 
             async with AsyncSessionLocal() as s:
                 await get_scan_for_org(s, scan_uuid, tenant)
                 return scan_uuid
-        except HTTPException:
-            raise
+        except HTTPException as http_exc:
+            if http_exc.status_code == 404 and (
+                scan_id in SCANS_DB
+                or str(scan_uuid) in SCANS_DB
+                or f"scan_{scan_uuid.hex}" in SCANS_DB
+            ):
+                pass
+            else:
+                raise
         except Exception:
             # DB unavailable: fall through to in-memory auth for local/dev.
             pass
@@ -2547,8 +2554,9 @@ async def get_scan_chunks(scan_id: str, request: Request) -> list[dict[str, Any]
                         }
                         for c in db_chunks
                     ]
-        except HTTPException:
-            raise
+        except HTTPException as http_exc:
+            if http_exc.status_code != 404:
+                raise
         except Exception as e:
             logger.debug("DB chunks lookup bypassed: %s", e)
 
@@ -2617,8 +2625,9 @@ async def get_scan_intents(scan_id: str, request: Request) -> list[dict[str, Any
                         converted, hydrate_failed=hydrate_failed
                     )
                     return [item.model_dump(mode="json") for item in converted]
-        except HTTPException:
-            raise
+        except HTTPException as http_exc:
+            if http_exc.status_code != 404:
+                raise
         except Exception as e:
             logger.debug("DB intents lookup error: %s", e)
 
@@ -2662,8 +2671,9 @@ async def get_scan_contradictions(scan_id: str, request: Request) -> list[dict[s
                         }
                         for c in db_cons
                     ]
-        except HTTPException:
-            raise
+        except HTTPException as http_exc:
+            if http_exc.status_code != 404:
+                raise
         except Exception as e:
             logger.debug("DB contradictions lookup error: %s", e)
 
@@ -2705,8 +2715,9 @@ async def get_scan_patches(
             async with AsyncSessionLocal() as s:
                 db_scan = await get_scan_for_org(s, scan_uuid, tenant)
                 scan_repo_url = db_scan.repo_url
-        except HTTPException:
-            raise
+        except HTTPException as http_exc:
+            if http_exc.status_code != 404:
+                raise
         except Exception as e:
             logger.debug("DB scan repo_url lookup error: %s", e)
 
@@ -2989,7 +3000,16 @@ async def apply_scan_patch(
                 evaluations=intents_for_elig or None,
             )
             budget_before = int(getattr(db_s, "llm_calls_made", 0) or 0)
-    except HTTPException:
+    except HTTPException as http_exc:
+        if http_exc.status_code == 404:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "reason": "no_validated_evidence",
+                    "detail": "Scan has no durable record in database; cache-only remediation requires persisted evidence.",
+                    "hint": "Re-run a fresh scan, then retry remediation.",
+                },
+            ) from http_exc
         raise
     except Exception as elig_err:
         # Fail closed: cannot verify durable provenance → refuse remediation
