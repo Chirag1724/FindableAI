@@ -243,7 +243,7 @@ The `rank-bm25` Python library is **not** a dependency of the current backend. K
 2. Token / ILIKE-style scoring over scan chunks as a supplement or fallback.
 3. In-memory keyword scoring over `CHUNKS_DB` if the database path fails.
 
-Dense vector similarity at query time and Reciprocal Rank Fusion (RRF) are **not** implemented in this path. Embeddings may still be **written** via `store_dom_chunks`. See [LIMITATIONS_AND_READINESS.md](engineering/LIMITATIONS_AND_READINESS.md).
+Dense ANN candidates and lexical candidates are fused by Reciprocal Rank Fusion in `reciprocal_rank_fusion` (`score = Σ 1/(k+rank)`, 1-based ranks, `k=RETRIEVAL_RRF_K`). Embeddings are written via `store_dom_chunks`. See [LIMITATIONS_AND_READINESS.md](engineering/LIMITATIONS_AND_READINESS.md).
 
 ### 2.8 PyGithub
 

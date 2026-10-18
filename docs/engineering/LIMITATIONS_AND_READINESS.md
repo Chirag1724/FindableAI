@@ -26,11 +26,11 @@ Do **not** describe the product as production-ready solely because Dockerfiles, 
 | :--- | :--- | :--- | :--- |
 | **Real LLM execution** | Implemented (when provider configured) | `LLMClient` + DAG; `decide_scan_integrity` requires DAG evaluations **and** `llm_calls_made > 0` **and** no synthetic/mock intelligence for `real_llm` | Live Groq success **unverified** without credentials. |
 | **Synthetic / mock demo** | **Opt-in only** (`ALLOW_SYNTHETIC_DEMO=true`, never production) | `should_inject_synthetic_*` gated by flag; default **false**. Demo placeholders have no fabricated evidence; no audit-grade F-Score; mock patches `is_synthetic=True`; never `remediation_eligible=true` | Leaving the flag on in shared envs still shows demo rows in-memory — keep off for normal scans. |
-| **Retrieval / RRF** | Implemented (Stage 3) | ACT uses `build_act_retriever` → `hybrid_search` (dense + lexical + RRF). Honest modes: `rrf_hybrid` / `dense_only` / `lexical_only` / `memory_fallback`. Falls back to first-*k* OBSERVE only when retrieval returns empty. | Live pgvector ANN **unverified** without disposable Postgres. |
+| **Retrieval / RRF** | Implemented (Stage 3) | ACT uses `build_act_retriever` → `hybrid_search` (dense + lexical fused by `reciprocal_rank_fusion`). Formula: `score(d)=Σ 1/(k+rank)` with **1-based** ranks, `k=RETRIEVAL_RRF_K` (default 60), equal list weights, within-list UUID dedupe, tie-break `(-score, str(uuid))`, top-N=`RETRIEVAL_TOP_K`. Modes: `rrf_hybrid` / `dense_only` / `lexical_only` / `memory_fallback`. Falls back to first-*k* OBSERVE only when retrieval returns empty. | Live pgvector ANN **unverified** without disposable Postgres. |
 | **Evidence persistence** | Implemented (Stage 2) | `evidence_persistence.py` writes `Evidence` rows for real DAG evals when cites resolve to persisted `DOMChunk` UUIDs; stores provenance; cold hydrate; unique `(intent_id, chunk_id, observation_phase)`. | Live Postgres apply of `0003`/`0004` **BLOCKED** without disposable DB. |
 | **Scan-result hydration** | Implemented for integrity contract | Alembic `0002_scan_integrity` + `Scan` columns + `apply_integrity_to_scan_row` / `unpack_integrity_from_scan_row`; cold `GET /scans/{id}` restores integrity | Full crawled-page detail list still thin on cold hydrate; multi-worker still process-local for SSE/cache. **Postgres migration apply not verified in every environment.** |
 | **F-Score consistency** | Implemented | `F = 0.40*S_ans + 0.30*S_con + 0.20*S_str + 0.10*S_acc` (components already 0–100; **no** outer ×100) | `ScoreWeights` still labeled provisional in schema. Authoritative score only when `score_source=deterministic_scorer` on real evaluations. |
-| **Remediation authorization** | Fail-closed | Apply requires `remediation_eligible is True`; rejects `None`/`False`; rejects `is_synthetic` patches **before** GitHub mutation | Live GitHub PR success **unverified** without `GITHUB_TOKEN`. |
+| **Remediation authorization** | Fail-closed (cache-only SSOT) | Apply/validate go through `evaluate_cache_only_remediation` / `decide_cache_only_for_scan`: tenant + completed/audited status + provenance (hash/fingerprint/URL/timestamp) + `EVIDENCE_TTL_SECONDS` freshness + validated evidence. Zero provider calls / zero budget. Reason codes in 409/422. | Live GitHub PR success **unverified** without `GITHUB_TOKEN`. |
 | **GitHub PR creation** | Credential-gated + lifecycle | Real PyGithub path; `remediation_runs` + idempotency (`0004`); deterministic validation before mutation | Live GitHub **unverified** without `GITHUB_TOKEN`. Opening a PR ≠ verified fix. |
 | **Post-PR verification** | Implemented (heuristic) | `POST .../remediation/verify` binds an immutable `head_sha`, keyword/content heuristic; `fully_verified` always false for `heuristic_post_pr` | Full website re-scan **not implemented**. Live verify **unverified** without token + PR. |
 | **Remediation lifecycle concurrency** | Implemented (CAS) | `remediation_runs.state_revision` + transition graph; idempotency key scoped to scan\|repo\|branch | Multi-worker load under production traffic **not load-tested**. |
@@ -71,7 +71,7 @@ Frontend: “No fixes required” only when `remediation_eligible === true` and 
 | Intent evaluations | Yes | Yes for **real** DAG evals only (demo rows not persisted) | |
 | Contradictions | Yes | Yes for non-synthetic | |
 | Patches | Yes | Assembler non-synthetic only | `pr_url` column exists; apply path still may not persist it |
-| Evidence rows | Yes (on evaluations) | Yes when cite → persisted `DOMChunk` UUID | Provenance cols + unique `(intent, chunk, phase)` in `0003`; ACT still first-k (no RRF) |
+| Evidence rows | Yes (on evaluations) | Yes when cite → persisted `DOMChunk` UUID | Provenance + `content_hash`/`cache_fingerprint` (0017); unique `(intent, chunk, phase)` in `0003`; ACT prefers hybrid+RRF when index hits, else first-k |
 | Lighthouse | `LIGHTHOUSE_DB` | Not a scan column | |
 
 ---
@@ -79,13 +79,15 @@ Frontend: “No fixes required” only when `remediation_eligible === true` and 
 ## Actual runtime retrieval path
 
 ```
-Crawl → DOMChunker → (optional) store_dom_chunks + embeddings
-     → FindableAIDAG ACT
-          default retriever = first k OBSERVE chunks
-          optional hybrid_search = tsvector / keyword (no dense ANN, no RRF)
+Crawl → DOMChunker → store_dom_chunks (+ embeddings when available)
+     → FindableAIDAG ACT via build_act_retriever
+          preferred: hybrid_search(dense ANN + lexical) → reciprocal_rank_fusion
+            k = RETRIEVAL_RRF_K (default 60), ranks 1-based, top-N = RETRIEVAL_TOP_K
+            lists: dense_ids then lexical_ids (equal weight, no per-list weights)
+          fallback when empty: first-k OBSERVE chunks (query ignored)
 ```
 
-SSE label `HYBRID_RETRIEVAL` is a progress milestone name, not proof that hybrid/RRF ran.
+SSE label `HYBRID_RETRIEVAL` is a progress milestone name; check `RetrievalMeta.mode` for whether RRF actually ran.
 
 ---
 

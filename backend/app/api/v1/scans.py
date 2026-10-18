@@ -26,6 +26,7 @@ from app.core.auth import TenantContext, verify_api_key
 from app.core.budget import BudgetGuard
 from app.core.config import settings
 from app.core.llm import LLMClient
+from app.core.permissions import OrgAction, assert_permission
 from app.core.rate_limiter import rate_limit_mutating, rate_limit_scans
 from app.core.security import SSRFSecurityException, validate_target_url
 from app.core.tenancy import (
@@ -1481,6 +1482,7 @@ async def create_scan(
     from app.jobs.worker import process_job_inline
 
     tenant = _tenant_from_request(http_request)
+    assert_permission(tenant, OrgAction.CREATE_SCAN)
     # org_id comes only from the authenticated principal — never from the body.
     stamp_org_id = tenant.org_id
 
@@ -1804,12 +1806,13 @@ async def cancel_scan(
 ) -> dict[str, Any]:
     """Cancel a queued or running scan (idempotent; terminal conflict → 409).
 
-    Authorization uses the central tenant helper. Any authenticated org principal
-    that can access the scan may cancel (no separate viewer role exists yet).
+    Authorization uses the central tenant helper plus the role permission matrix
+    (viewers cannot cancel).
     """
     from app.jobs.cancel import cancel_result_payload, request_scan_cancel
 
     tenant = _tenant_from_request(request)
+    assert_permission(tenant, OrgAction.CANCEL_SCAN)
     scan_uuid = await _authorize_scan_ref(scan_id, tenant)
     if scan_uuid is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
@@ -2422,6 +2425,23 @@ async def stream_scan_progress(
                 if not delivered:
                     idle_rounds += 1
                     if idle_rounds % 10 == 0:
+                        # Re-validate principal still has access (revoked key / removed member).
+                        if not tenant.is_system_admin and tenant.api_key_id is not None:
+                            try:
+                                from app.core.membership import api_key_still_active
+
+                                async with AsyncSessionLocal() as s:
+                                    still = await api_key_still_active(s, tenant.api_key_id)
+                                    if not still:
+                                        yield 'event: error\ndata: {"reason":"access_revoked"}\n\n'
+                                        return
+                                    if scan_uuid is not None:
+                                        await get_scan_for_org(s, scan_uuid, tenant)
+                            except HTTPException:
+                                yield 'event: error\ndata: {"reason":"access_revoked"}\n\n'
+                                return
+                            except Exception:
+                                pass
                         yield ": heartbeat\n\n"
                 else:
                     idle_rounds = 0
@@ -2814,8 +2834,14 @@ async def apply_scan_patch(
     request: Request,
     payload: ApplyScanPatchRequest | None = None,
 ) -> PullRequestResult:
-    """Triggers autonomous GitHub PR creation for this scan's proposed patches (Task P1-2.4)."""
+    """Triggers autonomous GitHub PR creation for this scan's proposed patches (Task P1-2.4).
+
+    Cache-only path: eligibility is decided by
+    ``decide_cache_only_for_scan`` (tenant, scan state, provenance, freshness,
+    integrity). Zero new provider calls and zero budget consumption.
+    """
     tenant = _tenant_from_request(request)
+    assert_permission(tenant, OrgAction.RUN_REMEDIATION)
     await _authorize_scan_ref(scan_id, tenant)
     scan = SCANS_DB.get(scan_id)
     if not scan:
@@ -2859,53 +2885,6 @@ async def apply_scan_patch(
         except Exception as db_e:
             logger.debug("Failed saving updated repo_url in database: %s", db_e)
 
-    # Server-side eligibility: never trust a client flag alone.
-    # - Durable row with remediation_eligible!=True always blocks.
-    # - When intents are present, refine against evidence-backed findings.
-    # - Empty intents defer to the flag; deterministic evidence_grounding still
-    #   blocks mutation before GitHub when cites are missing.
-    intents_for_elig = list(scan.intents or [])
-    authoritative_eligible = scan.remediation_eligible is True
-    if intents_for_elig:
-        authoritative_eligible = refine_remediation_eligible(
-            authoritative_eligible, intents_for_elig
-        )
-    if scan_uuid:
-        try:
-            async with AsyncSessionLocal() as s:
-                db_s = await s.get(ScanModel, scan_uuid)
-                if db_s is not None:
-                    integrity_row = unpack_integrity_from_scan_row(db_s)
-                    if integrity_row.remediation_eligible is not True:
-                        authoritative_eligible = False
-                    else:
-                        authoritative_eligible = True
-                        if intents_for_elig:
-                            authoritative_eligible = refine_remediation_eligible(
-                                True, intents_for_elig
-                            )
-        except Exception as elig_err:
-            logger.warning(
-                "Remediation eligibility DB recompute unavailable for %s: %s "
-                "(using in-memory refined eligibility)",
-                scan_id,
-                elig_err,
-            )
-
-    # Fail closed: only an explicit True allows remediation (None/False/missing → reject).
-    if authoritative_eligible is not True:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "Remediation is not eligible for this scan "
-                f"(execution_mode={scan.execution_mode!r}, "
-                f"result_source={scan.result_source!r}, "
-                f"outcome={scan.outcome!r}, "
-                f"remediation_eligible={scan.remediation_eligible!r}). "
-                "Synthetic, incomplete, or unverified results cannot open evidence-backed PRs."
-            ),
-        )
-
     # Deterministic GitHub apply must not depend on an LLM call; block if a caller
     # incorrectly wires mutation to an exhausted remediation LLM path.
     from app.orchestration.remediation_budget import (
@@ -2938,6 +2917,56 @@ async def apply_scan_patch(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="GitHub integration token is not configured on server (GITHUB_TOKEN). Add a GitHub Personal Access Token (PAT with 'repo' scope) to environment variables to enable automated PR creation.",
         )
+
+    # Single source of truth: cache-only remediation eligibility (Phase 3).
+    # Runs after cheap input checks, before any GitHub I/O or provider use.
+    from app.orchestration.cache_remediation import (
+        decide_cache_only_for_scan,
+        eligibility_http_exception,
+    )
+
+    intents_for_elig = list(scan.intents or [])
+    if scan_uuid is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "reason": "no_validated_evidence",
+                "detail": "Scan has no durable UUID; cache-only remediation requires persisted evidence.",
+                "hint": "Re-run a fresh scan, then retry remediation.",
+            },
+        )
+    try:
+        async with AsyncSessionLocal() as s:
+            db_s = await get_scan_for_org(s, scan_uuid, tenant)
+            decision = await decide_cache_only_for_scan(
+                s,
+                scan=db_s,
+                tenant_org_id=tenant.org_id,
+                is_system_admin=tenant.is_system_admin,
+                evaluations=intents_for_elig or None,
+            )
+            budget_before = int(getattr(db_s, "llm_calls_made", 0) or 0)
+    except HTTPException:
+        raise
+    except Exception as elig_err:
+        # Fail closed: cannot verify durable provenance → refuse remediation
+        # (do not fall back to the in-memory flag alone).
+        logger.warning("cache_only_eligibility_unavailable scan_id=%s: %s", scan_id, elig_err)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "reason": "eligibility_unavailable",
+                "detail": "Could not verify cache-only remediation eligibility from durable storage.",
+                "hint": "Ensure migrations are applied and the scan has persisted evidence, then retry.",
+            },
+        ) from elig_err
+
+    if not decision.eligible:
+        raise eligibility_http_exception(decision)
+
+    # Structural guarantee: cache-only path must not touch providers / budget.
+    request.state.cache_only_remediation = True
+    request.state.budget_before_remediation = budget_before
 
     # Collect durable evidence cites from evaluations (Stage 4 grounding).
     evidence_chunk_ids: list[str] = []
@@ -3354,16 +3383,34 @@ async def apply_scan_patch(
 async def validate_scan_patches(scan_id: str, request: Request) -> PatchValidationResponse:
     """Run deterministic patch validators without mutating GitHub."""
     tenant = _tenant_from_request(request)
+    assert_permission(tenant, OrgAction.RUN_REMEDIATION)
     await _authorize_scan_ref(scan_id, tenant)
     scan = SCANS_DB.get(scan_id)
     if not scan:
         scan = await get_scan_for_tenant(scan_id, tenant)
 
-    if scan.remediation_eligible is not True:
+    from app.orchestration.cache_remediation import (
+        decide_cache_only_for_scan,
+        eligibility_http_exception,
+    )
+
+    scan_uuid = resolve_scan_uuid(scan_id)
+    if scan_uuid is None:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Scan is not remediation_eligible; validation refused.",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"reason": "no_validated_evidence", "detail": "Scan has no durable UUID."},
         )
+    async with AsyncSessionLocal() as s:
+        db_s = await get_scan_for_org(s, scan_uuid, tenant)
+        decision = await decide_cache_only_for_scan(
+            s,
+            scan=db_s,
+            tenant_org_id=tenant.org_id,
+            is_system_admin=tenant.is_system_admin,
+            evaluations=list(scan.intents or []) or None,
+        )
+    if not decision.eligible:
+        raise eligibility_http_exception(decision)
     if not scan.patches:
         raise HTTPException(status_code=400, detail="No patches to validate.")
     if any(getattr(p, "is_synthetic", False) for p in scan.patches):
@@ -3376,14 +3423,12 @@ async def validate_scan_patches(scan_id: str, request: Request) -> PatchValidati
             if cid:
                 evidence_chunk_ids.append(str(cid))
     known_chunk_ids: set[str] | None = None
-    scan_uuid = resolve_scan_uuid(scan_id)
-    if scan_uuid:
-        try:
-            async with AsyncSessionLocal() as s:
-                chunk_map = await load_chunk_id_map(s, scan_uuid)
-                known_chunk_ids = {str(cid) for cid in chunk_map}
-        except Exception:
-            known_chunk_ids = None
+    try:
+        async with AsyncSessionLocal() as s:
+            chunk_map = await load_chunk_id_map(s, scan_uuid)
+            known_chunk_ids = {str(cid) for cid in chunk_map}
+    except Exception:
+        known_chunk_ids = None
 
     checks: list[ValidationCheckOut] = []
     eligible = True
@@ -3810,6 +3855,7 @@ async def list_scans(
     When another page exists, ``X-Next-Cursor`` is set.
     """
     tenant = _tenant_from_request(request)
+    assert_permission(tenant, OrgAction.READ_SCANS)
     page_size = clamp_list_limit(limit)
 
     try:

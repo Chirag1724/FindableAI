@@ -440,7 +440,8 @@ async def test_e2e_lifecycle_negative_unsafe_patch_never_mutates(monkeypatch):
 
     with pytest.raises(HTTPException) as exc_info:
         await scans_mod.apply_scan_patch(scan_id, _admin_request())
-    assert exc_info.value.status_code == 400
+    # Phase 3: no durable UUID → cache-only eligibility rejects (422), never GitHub.
+    assert exc_info.value.status_code in (400, 422)
     assert create_called["n"] == 0
     scans_mod.SCANS_DB.pop(scan_id, None)
 

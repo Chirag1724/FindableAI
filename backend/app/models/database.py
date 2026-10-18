@@ -102,6 +102,11 @@ class ApiKey(Base):
     )
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Effective org role for this key (owner|admin|member|viewer). Source of truth for
+    # API permission checks — never trust a client-supplied role claim alone.
+    role: Mapped[str] = mapped_column(String(50), nullable=False, default="member", server_default="member")
+    # Optional link to OrgMembership.user_id for revoke-on-removal.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
 
     organization: Mapped["Organization"] = relationship("Organization", back_populates="api_keys")
 
@@ -352,6 +357,8 @@ class DOMChunk(Base):
         Computed("to_tsvector('english', content)", persisted=True),
         nullable=True,
     )
+    # SHA-256 of content at capture time (Phase 3 provenance).
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -432,6 +439,9 @@ class Evidence(Base):
     observation_phase: Mapped[str] = mapped_column(
         String(50), nullable=False, default="scan", server_default="scan"
     )
+    # Phase 3 provenance: SHA-256 of excerpt + cache/version fingerprint at capture.
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    cache_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

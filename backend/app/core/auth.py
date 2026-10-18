@@ -27,6 +27,8 @@ class TenantContext:
     plan_tier: str = "free"
     is_system_admin: bool = False
     api_key_id: uuid.UUID | None = None
+    # Org role from ApiKey.role (DB). System admin bypasses role checks.
+    role: str = "member"
 
 
 def hash_api_key(raw_key: str) -> str:
@@ -143,12 +145,14 @@ async def verify_api_key(
                 except Exception:
                     pass
 
+                key_role = (getattr(api_key_row, "role", None) or "member").strip().lower()
                 ctx = TenantContext(
                     org_id=org_row.id,
                     org_name=org_row.name,
                     plan_tier=org_row.plan_tier,
                     is_system_admin=False,
                     api_key_id=api_key_row.id,
+                    role=key_role or "member",
                 )
                 request.state.tenant = ctx
                 return ctx

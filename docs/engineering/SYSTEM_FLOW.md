@@ -123,7 +123,7 @@ flowchart TD
 - **Components Responsible:** [`backend/app/orchestration/dag.py`](../../backend/app/orchestration/dag.py) (`_observe_chunks_retriever`, `_resolve_entailment`), optional [`backend/app/crawler/search.py`](../../backend/app/crawler/search.py) (`hybrid_search`), [`backend/app/engines/entailment_engine.py`](../../backend/app/engines/entailment_engine.py) (`default_hybrid_retriever`).
 - **Actual live scan path (default):**
   1. The worker emits `ScanStatus.HYBRID_RETRIEVAL` (75% progress) as an SSE milestone name.
-  2. `FindableAIDAG` builds `EntailmentEngine` with `_observe_chunks_retriever`: returns the first *k* OBSERVE DOM chunks in stable order (**query text is ignored**). Dense ANN search and **RRF are not used**.
+  2. `FindableAIDAG` prefers `build_act_retriever` → `hybrid_search` (dense + lexical + RRF). Falls back to first-*k* OBSERVE chunks only when retrieval returns empty.
   3. `hybrid_search` (Postgres `tsvector` / `ts_rank_cd`, then token/ILIKE, then in-memory keyword scoring) exists as Contract-1 and is the default only when an `EntailmentEngine` is constructed **without** a custom retriever. The scan pipeline does **not** inject it today.
   4. Embeddings may be written at Stage 5 (`store_dom_chunks`) but are **not queried** inside `hybrid_search`.
 - **Status:** Partially implemented / not fully wired. See [LIMITATIONS_AND_READINESS.md](LIMITATIONS_AND_READINESS.md).
