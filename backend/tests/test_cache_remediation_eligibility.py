@@ -34,15 +34,15 @@ def _scan(**kwargs):
     return SimpleNamespace(**base)
 
 
-def _evidence(*, age_seconds: float = 0.0, **overrides):
+def _evidence(*, age_seconds: float = 0.0, now: datetime | None = None, **overrides):
     excerpt = overrides.pop("excerpt", "Hours: Mon-Fri 9-5")
-    now = datetime.now(UTC)
+    clock = now or datetime.now(UTC)
     row = SimpleNamespace(
         source_url="https://example.com/",
         excerpt=excerpt,
         content_hash=content_hash_for_text(excerpt),
         cache_fingerprint=current_cache_fingerprint(),
-        created_at=now - timedelta(seconds=age_seconds),
+        created_at=clock - timedelta(seconds=age_seconds),
         chunk_id=uuid.uuid4(),
     )
     for k, v in overrides.items():
@@ -128,16 +128,48 @@ def test_fingerprint_mismatch():
     assert d.reason is RemediationDenyReason.FINGERPRINT_MISMATCH
 
 
+@pytest.mark.parametrize(
+    "age_seconds,expect_eligible",
+    [
+        (99, True),  # just below TTL
+        (100, True),  # exactly TTL — age <= TTL
+        (101, False),  # just above TTL — genuinely stale
+    ],
+)
+def test_evidence_ttl_boundaries(monkeypatch, age_seconds: int, expect_eligible: bool):
+    """Frozen clock: no wall-clock drift between stamp and evaluate."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "EVIDENCE_TTL_SECONDS", 100)
+    org = uuid.uuid4()
+    frozen = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
+    d = evaluate_cache_only_remediation(
+        scan=_scan(org_id=org),
+        tenant_org_id=org,
+        is_system_admin=False,
+        evidence_rows=[_evidence(age_seconds=age_seconds, now=frozen)],
+        now=frozen,
+    )
+    if expect_eligible:
+        assert d.eligible is True
+        assert d.reason is None
+    else:
+        assert d.eligible is False
+        assert d.reason is RemediationDenyReason.STALE_EVIDENCE
+
+
 def test_stale_beyond_ttl(monkeypatch):
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "EVIDENCE_TTL_SECONDS", 100)
     org = uuid.uuid4()
+    frozen = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
     d = evaluate_cache_only_remediation(
         scan=_scan(org_id=org),
         tenant_org_id=org,
         is_system_admin=False,
-        evidence_rows=[_evidence(age_seconds=101)],
+        evidence_rows=[_evidence(age_seconds=101, now=frozen)],
+        now=frozen,
     )
     assert d.reason is RemediationDenyReason.STALE_EVIDENCE
 
@@ -147,13 +179,16 @@ def test_boundary_exactly_ttl_is_eligible(monkeypatch):
 
     monkeypatch.setattr(settings, "EVIDENCE_TTL_SECONDS", 100)
     org = uuid.uuid4()
+    frozen = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
     d = evaluate_cache_only_remediation(
         scan=_scan(org_id=org),
         tenant_org_id=org,
         is_system_admin=False,
-        evidence_rows=[_evidence(age_seconds=100)],
+        evidence_rows=[_evidence(age_seconds=100, now=frozen)],
+        now=frozen,
     )
     assert d.eligible is True
+    assert d.reason is None
 
 
 def test_invalid_evaluation_mem_chunk():

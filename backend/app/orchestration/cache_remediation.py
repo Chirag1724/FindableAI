@@ -208,9 +208,14 @@ def evaluate_cache_only_remediation(
         ts = created_at
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=UTC)
-        age = (clock - ts).total_seconds()
+        # Stale iff age > TTL (eligible when age <= TTL). Compare timedeltas —
+        # not float total_seconds() — so exact TTL boundaries are stable and
+        # microsecond float noise cannot flip age == TTL into stale.
+        age_delta = clock - ts
+        ttl_delta = timedelta(seconds=ttl)
+        age = age_delta.total_seconds()
         oldest_age = age if oldest_age is None else max(oldest_age, age)
-        if age > ttl:
+        if age_delta > ttl_delta:
             return EligibilityDecision(
                 False,
                 RemediationDenyReason.STALE_EVIDENCE,
