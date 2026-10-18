@@ -72,7 +72,7 @@ flowchart TD
 ## 3. Step-by-Step Execution Lifecycle
 
 ### Stage 1: Frontend Submission & SSE Stream Connection
-- **Components Responsible:** [`frontend/src/app/page.tsx`](file:///c:/Users/LENOVO/Desktop/FindableAI/frontend/src/app/page.tsx), [`frontend/src/lib/api.ts`](file:///c:/Users/LENOVO/Desktop/FindableAI/frontend/src/lib/api.ts), [`frontend/src/hooks/useScanStream.ts`](file:///c:/Users/LENOVO/Desktop/FindableAI/frontend/src/hooks/useScanStream.ts)
+- **Components Responsible:** [`frontend/src/app/page.tsx`](../../frontend/src/app/page.tsx), [`frontend/src/lib/api.ts`](../../frontend/src/lib/api.ts), [`frontend/src/hooks/useScanStream.ts`](../../frontend/src/hooks/useScanStream.ts)
 - **Execution:**
   1. The user inputs a target URL, optional personas (`cto`, `developer`, `procurement`, `compliance`, `end_user`), crawl depth (`max_pages`: 1-100), and optional GitHub repository URL.
   2. `createScan()` dispatches a `POST /api/v1/scans` request with payload `{ url, max_pages: 5, personas: ["cto", "developer", "procurement"], repo_url }`.
@@ -80,7 +80,7 @@ flowchart TD
   4. An `EventSource` connection is established to `/api/v1/scans/{scan_id}/stream` to receive real-time phase updates.
 
 ### Stage 2: Scan Creation & SSRF Validation Shield
-- **Components Responsible:** [`backend/app/api/v1/scans.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/api/v1/scans.py) (`create_scan()`), [`backend/app/core/security.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/core/security.py) (`validate_target_url()`)
+- **Components Responsible:** [`backend/app/api/v1/scans.py`](../../backend/app/api/v1/scans.py) (`create_scan()`), [`backend/app/core/security.py`](../../backend/app/core/security.py) (`validate_target_url()`)
 - **Execution:**
   1. The API validates the URL scheme (only `http` and `https` allowed).
   2. Hostnames are resolved to IP addresses and evaluated against blacklists: loopback (`127.0.0.0/8`), private RFC-1918 subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), and cloud metadata IP endpoints (`169.254.169.254`).
@@ -88,7 +88,7 @@ flowchart TD
   4. If valid, an initial `ScanResponse` record is inserted into `SCANS_DB` and the database with status `PENDING`, and `run_scan_pipeline` is scheduled as a FastAPI `BackgroundTask`.
 
 ### Stage 3: Headless Playwright / Async HTTP Crawler
-- **Components Responsible:** [`backend/app/crawler/crawler.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/crawler/crawler.py) (`AsyncCrawler.crawl()`)
+- **Components Responsible:** [`backend/app/crawler/crawler.py`](../../backend/app/crawler/crawler.py) (`AsyncCrawler.crawl()`)
 - **Execution:**
   1. The worker emits `ScanStatus.CRAWLING` (15% progress) over SSE.
   2. `AsyncCrawler` initiates a breadth-first search (BFS) crawl constrained to the target root domain, respecting `max_pages` (default 5, configurable up to 100).
@@ -97,21 +97,21 @@ flowchart TD
   5. Crawled page metadata and HTTP status codes are stored as `CrawledPageDetail` objects for inspectability in the UI.
 
 ### Stage 4: Semantic DOM Chunking & CSS Selector Generation
-- **Components Responsible:** [`backend/app/crawler/dom_chunker.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/crawler/dom_chunker.py) (`DOMChunker.chunk()`)
+- **Components Responsible:** [`backend/app/crawler/dom_chunker.py`](../../backend/app/crawler/dom_chunker.py) (`DOMChunker.chunk()`)
 - **Execution:**
   1. The worker emits `ScanStatus.EXTRACTING_DOM` (30% progress).
   2. HTML documents are parsed using BeautifulSoup and decomposed into distinct semantic blocks (`section`, `article`, `main`, `table`, `tr`, `p`, `h1`-`h6`).
   3. For every chunk, a deterministic CSS selector path is computed (e.g. `body > main > section#pricing > div.tier:nth-of-type(2)`), capturing text content, tag name, and word count.
 
 ### Stage 5: Dense Vector Embeddings & pgvector Indexing
-- **Components Responsible:** [`backend/app/core/embeddings.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/core/embeddings.py) (`EmbeddingClient`), [`backend/app/crawler/search.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/crawler/search.py) (`store_dom_chunks()`)
+- **Components Responsible:** [`backend/app/core/embeddings.py`](../../backend/app/core/embeddings.py) (`EmbeddingClient`), [`backend/app/crawler/search.py`](../../backend/app/crawler/search.py) (`store_dom_chunks()`)
 - **Execution:**
   1. The worker emits `ScanStatus.EXTRACTING_DOM` (45% progress).
   2. 1536-dimensional vector embeddings are generated for all chunks. If live embedding APIs are unreachable, deterministic pseudo-embeddings are generated to ensure mathematical continuity.
   3. Chunks, embeddings, and PostgreSQL `tsvector` full-text search representations are stored in database tables or indexed in memory.
 
 ### Stage 6: Multi-Persona Synthetic Intent Simulation (30 Taxonomical Queries)
-- **Components Responsible:** [`backend/app/engines/intent_generator.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/intent_generator.py) (`IntentGenerator.generate_intents()`, `resolve_query_persona()`), [`backend/app/orchestration/dag.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/orchestration/dag.py)
+- **Components Responsible:** [`backend/app/engines/intent_generator.py`](../../backend/app/engines/intent_generator.py) (`IntentGenerator.generate_intents()`, `resolve_query_persona()`), [`backend/app/orchestration/dag.py`](../../backend/app/orchestration/dag.py)
 - **Execution:**
   1. The worker emits `ScanStatus.SYNTHESIZING_INTENTS` (60% progress).
   2. Using the business context extracted in Stage 4, the synthetic intent engine queries Groq LLM (via `Instructor`) to generate exactly 30 high-intent queries across 10 taxonomies:
@@ -129,14 +129,14 @@ flowchart TD
 - **Status:** Partially implemented / not fully wired. See [LIMITATIONS_AND_READINESS.md](LIMITATIONS_AND_READINESS.md).
 
 ### Stage 8: NLI Entailment Classification & Contradiction Detection
-- **Components Responsible:** [`backend/app/engines/entailment_engine.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/entailment_engine.py), [`backend/app/engines/contradiction.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/contradiction.py)
+- **Components Responsible:** [`backend/app/engines/entailment_engine.py`](../../backend/app/engines/entailment_engine.py), [`backend/app/engines/contradiction.py`](../../backend/app/engines/contradiction.py)
 - **Execution:**
   1. The worker emits `ScanStatus.NLI_EVALUATION` (85% progress).
   2. Natural Language Inference evaluates whether the retrieved DOM chunks entail, partially support, or fail to support the simulated query.
   3. Structured facts (phone numbers, addresses, opening hours, pricing) are extracted across pages and compared. Conflicting values are classified into `HARD_CONTRADICTION` or `SOFT_INCONSISTENCY` with citation links.
 
 ### Stage 9: Canonical F-Score Computation
-- **Components Responsible:** [`backend/app/engines/scorer.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/scorer.py) (`Scorer.score()`, `adapt_score_breakdown_to_api()`)
+- **Components Responsible:** [`backend/app/engines/scorer.py`](../../backend/app/engines/scorer.py) (`Scorer.score()`, `adapt_score_breakdown_to_api()`)
 - **Execution:**
   1. The worker emits `ScanStatus.COMPUTING_FSCORE` (92% progress).
   2. The deterministic scorer evaluates the 4 canonical metrics without LLM invocations. Components are 0–100; **no outer ×100**:
@@ -146,14 +146,14 @@ flowchart TD
   4. If the scorer returns nothing in non-production, `generate_mock_fscore` may fabricate a score — that is **fallback/mock**, not a real audit.
 
 ### Stage 10: Deterministic AI Lighthouse & Crawler Governance Assessment
-- **Components Responsible:** [`backend/app/engines/lighthouse.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/lighthouse.py) (`LighthouseEngine.evaluate()`), [`backend/app/engines/robots_analyzer.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/robots_analyzer.py), [`backend/app/engines/llms_txt_generator.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/llms_txt_generator.py)
+- **Components Responsible:** [`backend/app/engines/lighthouse.py`](../../backend/app/engines/lighthouse.py) (`LighthouseEngine.evaluate()`), [`backend/app/engines/robots_analyzer.py`](../../backend/app/engines/robots_analyzer.py), [`backend/app/engines/llms_txt_generator.py`](../../backend/app/engines/llms_txt_generator.py)
 - **Execution:**
   1. **Zero-LLM Heuristic Assessment:** Computes readiness scores across 4 major search engines (ChatGPT, Gemini, Perplexity, Claude) using tailored weighting formulas.
   2. **Crawler Governance:** Analyzes `robots.txt` rules across 9 known AI user-agents to determine the AI Visibility Index (0-100) and Scraping Risk tier.
   3. **Manifest Synthesis:** Generates Jeremy Howard compliant `/llms.txt` and Pareto-optimal `robots.txt` manifests.
 
 ### Stage 11: Deterministic Patch Proposal & Framework Component Assembly
-- **Components Responsible:** [`backend/app/engines/patch_assembler.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/patch_assembler.py) (`assemble_real_patches()`), [`backend/app/engines/framework_adapter.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/framework_adapter.py) (`synthesize_framework_component()`, `detect_framework_from_repo_tree()`)
+- **Components Responsible:** [`backend/app/engines/patch_assembler.py`](../../backend/app/engines/patch_assembler.py) (`assemble_real_patches()`), [`backend/app/engines/framework_adapter.py`](../../backend/app/engines/framework_adapter.py) (`synthesize_framework_component()`, `detect_framework_from_repo_tree()`)
 - **Execution:**
   1. The worker emits `ScanStatus.GENERATING_PATCHES` (97% progress).
   2. High-priority Schema.org microdata (e.g. `LocalBusiness`, `Organization`, `FAQPage`, `OpeningHoursSpecification`) and HTML structural remediations are assembled.
@@ -162,7 +162,7 @@ flowchart TD
   5. The worker transitions status to `ScanStatus.COMPLETED` (100% progress), persisting all records to database and memory.
 
 ### Stage 11: GitHub PR Engine Execution & Three-Tier Resolution
-- **Components Responsible:** [`backend/app/api/v1/scans.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/api/v1/scans.py) (`apply_scan_patch()`), [`backend/app/github/pr_engine.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/github/pr_engine.py) (`GitHubPRService.create_remediation_pr()`), [`backend/app/engines/framework_adapter.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/framework_adapter.py), [`backend/app/github/client.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/github/client.py)
+- **Components Responsible:** [`backend/app/api/v1/scans.py`](../../backend/app/api/v1/scans.py) (`apply_scan_patch()`), [`backend/app/github/pr_engine.py`](../../backend/app/github/pr_engine.py) (`GitHubPRService.create_remediation_pr()`), [`backend/app/engines/framework_adapter.py`](../../backend/app/engines/framework_adapter.py), [`backend/app/github/client.py`](../../backend/app/github/client.py)
 - **Execution:**
   1. When the user clicks "Create Pull Request", the frontend dispatches `POST /api/v1/scans/{scan_id}/patches/apply`.
   2. **Auth & Repository Validation:** `repo_url` and `GITHUB_TOKEN` are verified. The repository owner and name are parsed.
@@ -202,17 +202,17 @@ flowchart TD
 
 To prevent interface drift between frontend components and backend services, FindableAI implements strict contract layers and interactive inspection modals:
 
-### 1. Dual-Shape Normalization ([`frontend/src/lib/normalize.ts`](file:///c:/Users/LENOVO/Desktop/FindableAI/frontend/src/lib/normalize.ts))
+### 1. Dual-Shape Normalization ([`frontend/src/lib/normalize.ts`](../../frontend/src/lib/normalize.ts))
 The frontend normalizer ingests both legacy synthetic test shapes and strict production API schemas without throwing exceptions:
 - **Intents:** Handles string or array categories, maps diverse status representations (`supported`, `SUPPORTED`, `partial`) to canonical `EntailmentStatus` enums, and ensures evidence citations include valid `dom_path` selectors.
 - **Contradictions:** Normalizes severity strings (`hard_contradiction` vs `HARD_CONTRADICTION`) and ensures fallback arrays for conflicting claims and source URLs.
 - **F-Score Weights:** Converts fractional weights (`0.40`) or integer percentages (`40`) into unified percentage integers for UI gauge display.
 
 ### 2. Interactive Modals
-- **Crawled Pages Modal ([`frontend/src/components/CrawledPagesModal.tsx`](file:///c:/Users/LENOVO/Desktop/FindableAI/frontend/src/components/CrawledPagesModal.tsx)):** Displays the complete list of crawled URLs (`CrawledPageDetail`), HTTP status codes, chunk counts, and content hashes, enabling granular audit verification.
-- **Patch Proposal Modal ([`frontend/src/components/PatchModal.tsx`](file:///c:/Users/LENOVO/Desktop/FindableAI/frontend/src/components/PatchModal.tsx)):** Provides full-screen patch review with framework-specific component tabs (`React / Next.js`, `Vue`, `HTML Script`), unified diff viewers, syntax-highlighted code previews, and direct one-click GitHub PR dispatch.
+- **Crawled Pages Modal ([`frontend/src/components/CrawledPagesModal.tsx`](../../frontend/src/components/CrawledPagesModal.tsx)):** Displays the complete list of crawled URLs (`CrawledPageDetail`), HTTP status codes, chunk counts, and content hashes, enabling granular audit verification.
+- **Patch Proposal Modal ([`frontend/src/components/PatchModal.tsx`](../../frontend/src/components/PatchModal.tsx)):** Provides full-screen patch review with framework-specific component tabs (`React / Next.js`, `Vue`, `HTML Script`), unified diff viewers, syntax-highlighted code previews, and direct one-click GitHub PR dispatch.
 
-### 3. F-Score Metric Adapter ([`backend/app/engines/scorer.py`](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/scorer.py))
+### 3. F-Score Metric Adapter ([`backend/app/engines/scorer.py`](../../backend/app/engines/scorer.py))
 The backend scorer calculates internal `ScoreBreakdown` objects (`s_ans`, `s_con`, `s_str`, `s_acc`) and adapts them via `adapt_score_breakdown_to_api()` into the public `FScoreBreakdown` schema:
 - $S_{\text{ans}} \rightarrow$ `coverage` (Weight: 40%)
 - $S_{\text{con}} \rightarrow$ `contradiction_penalty` (Weight: 30%)

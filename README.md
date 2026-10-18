@@ -36,7 +36,7 @@
 | Resource                  | Link                                                                     |
 | :------------------------ | :----------------------------------------------------------------------- |
 | **Live Demo**             | [findableai.vercel.app](https://findableai.vercel.app/)                  |
-| **Demo Video**            | [Demo Video (add link here)](add link here)                              |                           |
+| **Demo Video**            | *Walkthrough recording in repository artifacts*                              |                           |
 | **Figma Design**          | [Figma UI/UX Prototype](https://www.figma.com/design/WH3T793esaoyj8FNY265xJ/FindableAI?m=auto&t=VhmLDDUFEAgXNS6M-1) |
 | **Architecture Overview** | [System Flow & End-to-End Architecture](docs/engineering/SYSTEM_FLOW.md) |
 
@@ -483,7 +483,7 @@ Test suite sizes and “passed” badges in marketing copy can drift. Re-run the
 
 FindableAI is configured for streamlined cloud deployment with a split architecture:
 
-- **End-to-End Walkthrough:** [docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)
+- **End-to-End Walkthrough:** [docs/engineering/DEPLOYMENT.md](docs/engineering/DEPLOYMENT.md)
 - **Render Blueprint (Backend API, Worker, Redis):** [`render.yaml`](render.yaml)
 - **Vercel Manifest (Next.js 14 Frontend):** [`frontend/vercel.json`](frontend/vercel.json)
 - **Operational Architecture & Env Reference:** [docs/engineering/DEPLOYMENT.md](docs/engineering/DEPLOYMENT.md) & [docs/engineering/ENVIRONMENT.md](docs/engineering/ENVIRONMENT.md)
@@ -497,13 +497,13 @@ This project is architected for seamless execution across three dedicated roles:
 │                               TEAM RESPONSIBILITIES                             │
 ├──────────────────────┬───────────────────────────────┬──────────────────────────┤
 │ Himanshu Raj         │ Shiv Raj Singh                │ Chirag Dwivedi           │
-│ Systems & Data Lead  │ AI/ML & Pipeline Lead         │ Frontend & PR Lead       │
+│ Full-Stack & Systems │ Backend & AI Engine Lead      │ UI Stubs & Release Coord │
 ├──────────────────────┼───────────────────────────────┼──────────────────────────┤
-│ • FastAPI Backend    │ • Synthetic Query Generator   │ • Next.js 14 App         │
-│ • Playwright Crawler │ • NLI Entailment Classifier   │ • SSE Realtime Feed      │
-│ • DOM-Aware Chunker  │ • Findability F-Score Engine  │ • Diff & Patch Viewer    │
-│ • PostgreSQL+pgvector│ • Unified Patch Synthesizer   │ • GitHub PR Integration  │
-│ • Redis & Workers    │ • LLM Evaluation Benchmarks   │ • Demo & Presentation    │
+│ • FastAPI Backend    │ • Synthetic Query Generator   │ • UI Components & Shells │
+│ • Web Crawl & Chunker│ • NLI Entailment & Contradict │ • Client API & Normalizer│
+│ • AI Lighthouse & TXT│ • Findability F-Score Engine  │ • Vitest UI Test Suite   │
+│ • Patch Assembler    │ • Durable Jobs & Queue Leases │ • Assets, SEO & Manifest │
+│ • Landing & Patch UI │ • LLM Budget & Observability  │ • Deployment & PR Config │
 └──────────────────────┴───────────────────────────────┴──────────────────────────┘
 ```
 *For complete task matrices, contract definitions, and milestone checklists, see [docs/04_TEAM_TASK_ALLOCATION.md](docs/04_TEAM_TASK_ALLOCATION.md).*
@@ -523,7 +523,7 @@ We welcome contributions from the community. Please review our [Execution Playbo
 <div align="center">
 
 <p>MIT Licensed</p>
-<p>Designed &amp; Maintained with 💖 by <a href="https://github.com/ErebAsh">Himanshu</a>, <a href="https://github.com/Chirag1724">Chirag</a> and <a href="https://github.com/imuniqueshiv">Shiv</a></p>
+<p>Designed &amp; Maintained with 💖 by <a href="https://github.com/ErebAsh">Himanshu</a>, <a href="https://github.com/imuniqueshiv">Shiv</a> and <a href="https://github.com/Chirag1724">Chirag</a></p>
 
 </div>
 

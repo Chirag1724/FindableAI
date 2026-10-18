@@ -70,9 +70,9 @@ class IntentBatch(BaseModel):
     business_type: str = Field(..., min_length=1, description="Inferred business category")
     queries: list[IntentQuery] = Field(
         ...,
-        min_length=30,
+        min_length=10,
         max_length=30,
-        description="Batch of 30 intent queries (3 per taxonomy category)",
+        description="Batch of 10 to 30 intent queries (10 per active persona across taxonomy categories)",
     )
 
 

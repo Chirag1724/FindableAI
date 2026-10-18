@@ -329,10 +329,14 @@ def validate_intent_batch(
             )
         )
 
+    active_p = [p.lower().strip() for p in personas] if personas else ["cto", "developer", "procurement"]
+    expected_count = len(active_p) * 10
+    expected_per_category = len(active_p)
+
     total = len(normalized_queries)
-    if total != REQUIRED_QUERY_COUNT:
+    if total != expected_count:
         raise IntentGenerationError(
-            f"Expected exactly {REQUIRED_QUERY_COUNT} queries, got {total}",
+            f"Expected exactly {expected_count} queries for {len(active_p)} persona(s), got {total}",
             reason="invalid_query_count",
         )
 
@@ -345,11 +349,11 @@ def validate_intent_batch(
         )
 
     unbalanced = {
-        name: count for name, count in distribution.items() if count != QUERIES_PER_CATEGORY
+        name: count for name, count in distribution.items() if count != expected_per_category
     }
     if unbalanced:
         raise IntentGenerationError(
-            f"Expected exactly {QUERIES_PER_CATEGORY} queries per category; got {unbalanced}",
+            f"Expected exactly {expected_per_category} queries per category; got {unbalanced}",
             reason="invalid_category_distribution",
         )
 
@@ -436,17 +440,11 @@ class IntentGenerator:
                     max_tokens=8192,
                 )
             else:
-                # Production: Parallel 3-Batch Persona Generation (CTO, Developer, Procurement)
+                # Production: Parallel Persona Generation for selected personas only
                 active_personas = [
                     p.lower().strip() for p in (personas or ["cto", "developer", "procurement"])
                 ]
-                for default_p in ("cto", "developer", "procurement"):
-                    if len(active_personas) >= 3:
-                        break
-                    if default_p not in active_personas:
-                        active_personas.append(default_p)
-
-                target_personas = active_personas[:3]
+                target_personas = [p for p in active_personas if p] or ["cto", "developer", "procurement"]
 
                 sub_batches: list[PersonaIntentBatch] = []
                 for p in target_personas:

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { CheckCircle, AlertTriangle, Circle } from "lucide-react";
 import type { ScanStatusEvent, ScanStatus } from "@/types/scan";
 import { PHASES, getPhaseStateWithFallback } from "@/lib/phases";
@@ -9,6 +10,8 @@ interface ScanProgressProps {
   currentStatus: ScanStatus;
   latestEvent: ScanStatusEvent | null;
   lastGoodStatus: ScanStatus | null;
+  isScanCompleted?: boolean;
+  onComplete?: () => void;
 }
 
 function PhaseIndicator({ state, label, id }: { state: PhaseState; label: string; id: string }) {
@@ -67,10 +70,59 @@ export function ScanProgress({
   currentStatus,
   latestEvent,
   lastGoodStatus,
+  isScanCompleted = false,
+  onComplete,
 }: ScanProgressProps) {
-  const progressPercent = latestEvent?.progress_percent ?? 0;
   const currentStep = latestEvent?.current_step ?? "";
   const message = latestEvent?.message ?? "";
+  const isCompleted =
+    isScanCompleted ||
+    currentStatus === "completed" ||
+    latestEvent?.status === "completed";
+
+  // Real backend milestone target (clamped 0-100)
+  const serverTarget = isCompleted
+    ? 100
+    : Math.max(0, Math.min(100, latestEvent?.progress_percent ?? 0));
+
+  // Fluid easing state strictly driven by real backend progress
+  const [displayPercent, setDisplayPercent] = useState<number>(() => serverTarget);
+
+  useEffect(() => {
+    // 35ms fluid continuous progression anchored by real backend events
+    const interval = setInterval(() => {
+      setDisplayPercent((prev) => {
+        if (isCompleted) {
+          if (prev >= 99.8) {
+            onComplete?.();
+            return 100;
+          }
+          return prev + Math.max(0.6, (100 - prev) * 0.18);
+        }
+
+        if (prev < serverTarget) {
+          // Smoothly catch up to the authentic backend milestone
+          const diff = serverTarget - prev;
+          const step = Math.max(0.08, diff * 0.12);
+          return Math.min(serverTarget, prev + step);
+        }
+
+        // When caught up with backend milestone, keep micro-advancing slowly
+        // so the user never sees a frozen/stuck screen while server background work finishes.
+        // Capped strictly below next stage ceiling (serverTarget + 3) and max 98.
+        const stageCeiling = Math.min(98, serverTarget + 3);
+        if (prev < stageCeiling) {
+          return prev + 0.03;
+        }
+
+        return prev;
+      });
+    }, 35);
+
+    return () => clearInterval(interval);
+  }, [serverTarget, isCompleted, onComplete]);
+
+  const roundedPercent = isCompleted && displayPercent >= 99.5 ? 100 : Math.min(99, Math.round(displayPercent));
 
   return (
     <div className="rounded-xl bg-surface shadow-border p-5">
@@ -109,20 +161,27 @@ export function ScanProgress({
       <div className="mt-4">
         <div className="mb-2 flex items-center justify-between">
           <span className="text-xs font-medium text-text-muted">{currentStep}</span>
-          <span className="font-mono text-xs text-text-muted">{progressPercent}%</span>
+          <span className="font-mono text-xs text-text-muted transition-all duration-75">
+            {roundedPercent}%
+          </span>
         </div>
         <div
-          className="h-1.5 w-full overflow-hidden rounded-full bg-surface-secondary shadow-border"
+          className="h-2 w-full overflow-hidden rounded-full bg-surface-secondary shadow-border relative"
           role="progressbar"
-          aria-valuenow={progressPercent}
+          aria-valuenow={roundedPercent}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-label="Scan progress"
         >
           <div
-            className="h-full rounded-full bg-violet-500 transition-all duration-500 ease-out"
-            style={{ width: `${progressPercent}%` }}
-          />
+            className="h-full rounded-full bg-gradient-to-r from-violet-600 via-violet-500 to-indigo-400 transition-all duration-100 ease-out relative"
+            style={{ width: `${Math.min(100, displayPercent)}%` }}
+          >
+            {/* Shimmer pulse highlight during active scan */}
+            {roundedPercent < 100 && (
+              <div className="absolute inset-0 bg-white/20 animate-pulse rounded-full" />
+            )}
+          </div>
         </div>
       </div>
 

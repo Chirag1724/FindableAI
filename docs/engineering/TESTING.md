@@ -28,7 +28,7 @@ FindableAI maintains a comprehensive test suite across the backend and frontend.
    - LLM interactions are isolated via deterministic fixtures, structured Pydantic responses, or mock clients.
 
 2. **In-Memory GitHub Client Simulation (`FakeGitHubClient`):**
-   - Implemented in [backend/tests/test_pr_engine.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/tests/test_pr_engine.py#L30-L115).
+   - Implemented in [backend/tests/test_pr_engine.py](../../backend/tests/test_pr_engine.py#L30-L115).
    - Simulates repository creation, branches, file content trees, pull requests, permissions (`push: True/False`), and forking behavior entirely in memory.
    - Asserts exact GitHub API calls (e.g. `create_pull:acme/repo:branch->main`) and verifies no token leaks occur in log captures.
 
@@ -36,17 +36,17 @@ FindableAI maintains a comprehensive test suite across the backend and frontend.
    - Float assertions in scoring engines utilize floating-point tolerances (`abs(delta - expected) < 1e-9`) to prevent precision mismatches across Python runtime environments.
 
 4. **Security & SSRF Boundaries:**
-   - [backend/tests/test_security.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/tests/test_security.py) executes automated attack vectors covering loopback IPs (`127.0.0.1`), private subnets (`10.0.0.0/8`, `192.168.0.0/16`), AWS cloud metadata endpoints (`169.254.169.254`), and non-HTTP URL schemes (`file://`, `ftp://`).
+   - [backend/tests/test_security.py](../../backend/tests/test_security.py) executes automated attack vectors covering loopback IPs (`127.0.0.1`), private subnets (`10.0.0.0/8`, `192.168.0.0/16`), AWS cloud metadata endpoints (`169.254.169.254`), and non-HTTP URL schemes (`file://`, `ftp://`).
 
 5. **Heuristic Layout Syntax Validation & Edge-Case Fallbacks:**
-   - [backend/tests/test_framework_patch_resolution.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/tests/test_framework_patch_resolution.py) executes 12 unit tests verifying framework layout component synthesis, root layout injection, and heuristic structural validation (handling commented children, string literal props, multiline destructured imports, HOC wrappers, and automatic Tier 3 guidance fallback on unbalanced JSX syntax).
+   - [backend/tests/test_framework_patch_resolution.py](../../backend/tests/test_framework_patch_resolution.py) executes 12 unit tests verifying framework layout component synthesis, root layout injection, and heuristic structural validation (handling commented children, string literal props, multiline destructured imports, HOC wrappers, and automatic Tier 3 guidance fallback on unbalanced JSX syntax).
 
 6. **Motion Isolation in Frontend Tests:**
-   - [frontend/src/lib/motion.ts](file:///c:/Users/LENOVO/Desktop/FindableAI/frontend/src/lib/motion.ts) detects `process.env.NODE_ENV === "test"` and automatically disables heavy CSS animations to ensure fast, deterministic Vitest renders.
+   - [frontend/src/lib/motion.ts](../../frontend/src/lib/motion.ts) detects `process.env.NODE_ENV === "test"` and automatically disables heavy CSS animations to ensure fast, deterministic Vitest renders.
 
 ---
 
-## Backend Test Structure ([backend/tests/](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/tests/))
+## Backend Test Structure ([backend/tests/](../../backend/tests/))
 
 | Test File | Category | Focus Areas |
 | :--- | :--- | :--- |
@@ -80,7 +80,7 @@ FindableAI maintains a comprehensive test suite across the backend and frontend.
 
 ---
 
-## Frontend Test Structure ([frontend/src/](file:///c:/Users/LENOVO/Desktop/FindableAI/frontend/src/))
+## Frontend Test Structure ([frontend/src/](../../frontend/src/))
 
 | Test File | Category | Focus Areas |
 | :--- | :--- | :--- |

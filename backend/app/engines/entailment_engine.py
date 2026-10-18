@@ -835,11 +835,17 @@ class EntailmentEngine:
             else:
                 evidence_paired.append((intent, evidence))
 
-        if progress_callback is not None and zero_evidence_evals:
-            for item in zero_evidence_evals:
-                completed_count += 1
+        if progress_callback is not None:
+            if zero_evidence_evals:
+                for item in zero_evidence_evals:
+                    completed_count += 1
+                    try:
+                        await progress_callback(completed_count, total_count, item)
+                    except Exception:
+                        pass
+            else:
                 try:
-                    await progress_callback(completed_count, total_count, item)
+                    await progress_callback(0, total_count, None)
                 except Exception:
                     pass
 

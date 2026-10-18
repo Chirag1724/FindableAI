@@ -1,6 +1,6 @@
 # Frontend integration contract — scan integrity (P0)
 
-For **Chirag**. Backend now emits additive fields on `ScanResponse`. Minimal UI wiring is in `frontend/src/app/scans/[id]/page.tsx` and `frontend/src/types/scan.ts`; further polish can follow this contract.
+For **Frontend Team (Chirag / Himanshu / Shiv)**. Backend now emits additive fields on `ScanResponse`. Minimal UI wiring is in `frontend/src/app/scans/[id]/page.tsx` and `frontend/src/types/scan.ts`; further polish can follow this contract.
 
 ## Fields to read
 

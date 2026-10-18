@@ -135,10 +135,29 @@ DAILY_QUOTAS: dict[str, DailyQuota] = {
     "openai": DailyQuota(rpd=10000),
 }
 
+KEY_THROTTLES: dict[str, ProviderThrottle] = {}
+
+
+def get_provider_throttle(provider: str, api_key: str | None = None) -> ProviderThrottle | None:
+    """Return a throttle for provider, isolating Groq keys to individual 8K TPM windows."""
+    p = (provider or "").strip().lower()
+    if p == "groq" and api_key:
+        import hashlib
+        key_id = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:12]
+        if key_id not in KEY_THROTTLES:
+            KEY_THROTTLES[key_id] = ProviderThrottle(
+                rpm=int(getattr(settings, "GROQ_RPM_LIMIT", 28)),
+                tpm=int(getattr(settings, "GROQ_TPM_LIMIT", 8000)) or None,
+            )
+        return KEY_THROTTLES[key_id]
+    return PROVIDER_THROTTLES.get(p)
+
+
 __all__ = [
     "DAILY_QUOTAS",
     "PROVIDER_THROTTLES",
     "DailyQuota",
     "ProviderThrottle",
     "estimate_request_tokens",
+    "get_provider_throttle",
 ]

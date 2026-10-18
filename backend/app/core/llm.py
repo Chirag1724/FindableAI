@@ -22,7 +22,12 @@ from pydantic import BaseModel
 
 from app.core.budget import BudgetExhausted, BudgetGuard, LLMBudgetExceededError
 from app.core.config import settings
-from app.core.llm_credentials import credential_for_provider
+from app.core.key_pool import KEY_POOL, _hash_key
+from app.core.llm_credentials import (
+    credential_for_provider,
+    key_matches_provider,
+    provider_api_keys,
+)
 from app.core.llm_errors import (
     Action,
     ClassifiedError,
@@ -31,7 +36,11 @@ from app.core.llm_errors import (
     LLMProviderError,
     classify_provider_error,
 )
-from app.core.provider_throttle import PROVIDER_THROTTLES, estimate_request_tokens
+from app.core.provider_throttle import (
+    PROVIDER_THROTTLES,
+    estimate_request_tokens,
+    get_provider_throttle,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +284,9 @@ class LLMClient:
 
     def _secrets(self) -> tuple[str, ...]:
         secrets = [self._api_key]
+        for k in settings.groq_api_keys_list:
+            if k:
+                secrets.append(k)
         for value in (
             settings.NVIDIA_API_KEY,
             settings.OPENROUTER_API_KEY,
@@ -313,12 +325,17 @@ class LLMClient:
         self,
         provider_name: str,
         preferred_model: str | None = None,
+        key_override: str | None = None,
     ) -> ProviderEndpoint | None:
         import instructor
 
         if provider_name not in _PROVIDER_BASE_URLS:
             return None
-        key = credential_for_provider(provider_name, self._api_key)
+        if key_override:
+            ok, _ = key_matches_provider(provider_name, key_override)
+            key = key_override if ok else None
+        else:
+            key = credential_for_provider(provider_name, self._api_key)
         if not key:
             return None
 
@@ -366,9 +383,34 @@ class LLMClient:
                 preferred = p_model
             elif p == f_provider and f_model:
                 preferred = f_model
-            ep = self._create_endpoint_for_provider(p, preferred_model=preferred)
-            if ep is not None:
-                endpoints.append(ep)
+
+            if p == "groq":
+                keys = provider_api_keys("groq")
+                if (
+                    self._api_key
+                    and self._api_key not in keys
+                    and key_matches_provider("groq", self._api_key)[0]
+                ):
+                    keys = [self._api_key] + keys
+                if keys:
+                    primary_key = KEY_POOL.get_next_key_sync("groq") or keys[0]
+                    if self._api_key and self._api_key != settings.GROQ_API_KEY:
+                        primary_key = self._api_key
+                    ordered_keys = [primary_key] + [k for k in keys if k != primary_key]
+                    for k in ordered_keys:
+                        ep = self._create_endpoint_for_provider(
+                            p, preferred_model=preferred, key_override=k
+                        )
+                        if ep is not None:
+                            endpoints.append(ep)
+                else:
+                    ep = self._create_endpoint_for_provider(p, preferred_model=preferred)
+                    if ep is not None:
+                        endpoints.append(ep)
+            else:
+                ep = self._create_endpoint_for_provider(p, preferred_model=preferred)
+                if ep is not None:
+                    endpoints.append(ep)
 
         # 5. Healthy providers first, tripped ones last (never dropped entirely)
         healthy = [ep for ep in endpoints if not self._is_tripped(ep.name)]
@@ -383,7 +425,8 @@ class LLMClient:
         return chain
 
     def _get_provider_client(self, endpoint: ProviderEndpoint) -> Any:
-        if endpoint.name not in self._provider_clients:
+        client_key = f"{endpoint.name}:{endpoint.api_key}"
+        if client_key not in self._provider_clients:
             import instructor
             from openai import AsyncOpenAI
 
@@ -405,10 +448,10 @@ class LLMClient:
             if endpoint.base_url:
                 client_kwargs["base_url"] = endpoint.base_url
             raw_client = AsyncOpenAI(**client_kwargs)
-            self._provider_clients[endpoint.name] = instructor.from_openai(
+            self._provider_clients[client_key] = instructor.from_openai(
                 raw_client, mode=endpoint.mode
             )
-        return self._provider_clients[endpoint.name]
+        return self._provider_clients[client_key]
 
     # -------------------------------------------------------------- accounting
     async def _reserve_call_slot(self) -> int:
@@ -579,7 +622,7 @@ class LLMClient:
             max_tokens = int(kwargs.get("max_tokens", 4096))
             extra = {k: v for k, v in kwargs.items() if k != "max_tokens"}
             class_retries: dict[ErrorClass, int] = {}
-            throttle = PROVIDER_THROTTLES.get(endpoint.name)
+            throttle = get_provider_throttle(endpoint.name, endpoint.api_key)
 
             attempt = 0
             while attempt < attempts_cap:
@@ -651,6 +694,11 @@ class LLMClient:
                         and ce.retry_after > RATE_LIMIT_MAX_WAIT_SECONDS
                     ):
                         can_retry = False
+                    if ce.error_class is ErrorClass.RATE_LIMIT and KEY_POOL.has_alternative_key(
+                        endpoint.name, endpoint.api_key
+                    ):
+                        # Don't sleep on 429 when another key is ready; trigger instant failover
+                        can_retry = False
                     if can_retry:
                         class_retries[ce.error_class] = used + 1
                         delay = _backoff_seconds(policy.base_backoff, used, ce.retry_after)
@@ -668,6 +716,20 @@ class LLMClient:
                         continue
 
                     action = policy.on_exhausted
+                    if ce.error_class is ErrorClass.RATE_LIMIT and KEY_POOL.has_alternative_key(
+                        endpoint.name, endpoint.api_key
+                    ):
+                        KEY_POOL.mark_rate_limited_sync(
+                            endpoint.name, endpoint.api_key, ce.retry_after or 20.0
+                        )
+                        await self._record_failover()
+                        logger.warning(
+                            "llm_key_failover provider=%s key_id=%s rate_limited, switching to alternative key",
+                            endpoint.name,
+                            _hash_key(endpoint.api_key),
+                        )
+                        break
+
                     if action is Action.FAILOVER and has_fallback:
                         self._trip(endpoint.name, ce.error_class, ce.retry_after)
                         await self._record_failover()

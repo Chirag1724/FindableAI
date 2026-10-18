@@ -109,7 +109,7 @@ from app.orchestration.scan_persistence import (
     observability_from_budget,
     unpack_integrity_from_scan_row,
 )
-from app.orchestration.state import OrchestrationChunk
+from app.orchestration.state import OrchestrationChunk, ScanPhase
 from app.schemas.fscore import FScoreBreakdown, SubScoreMetric
 from app.schemas.github_pr import PREngineRequest
 from app.schemas.intelligence import (
@@ -898,33 +898,6 @@ async def run_scan_pipeline(
                 for i, c in enumerate(extracted_chunks)
             ]
 
-        # Phase 4: SYNTHESIZING_INTENTS
-        await _emit_event(
-            scan_id,
-            ScanStatus.SYNTHESIZING_INTENTS,
-            60,
-            "Synthetic Intent Engine",
-            "Simulating 30 high-intent buyer and researcher queries across 10 taxonomies...",
-        )
-
-        # Phase 5: HYBRID_RETRIEVAL
-        await _emit_event(
-            scan_id,
-            ScanStatus.HYBRID_RETRIEVAL,
-            75,
-            "Evidence Selection",
-            "Query-time dense + lexical retrieval with RRF (falls back to first-k if index unavailable).",
-        )
-
-        # Phase 6: NLI_EVALUATION
-        await _emit_event(
-            scan_id,
-            ScanStatus.NLI_EVALUATION,
-            85,
-            "NLI Entailment Classifier",
-            "Evaluating claim entailment and detecting factual contradictions...",
-        )
-
         async def _persist_batch(batch_evals: list[IntentEvaluation]) -> None:
             """Write a validated persona batch immediately (idempotent on intent_key)."""
             try:
@@ -942,9 +915,47 @@ async def run_scan_pipeline(
                     "batch_persist_failed scan_id=%s size=%s", scan_id, len(batch_evals)
                 )
 
+        async def _on_stage_transition(phase: ScanPhase) -> None:
+            if phase == ScanPhase.PLAN:
+                active_p_list = list(personas) if personas else ["cto", "developer", "procurement"]
+                q_count = len(active_p_list) * 10
+                p_count = len(active_p_list)
+                await _emit_event(
+                    scan_id,
+                    ScanStatus.SYNTHESIZING_INTENTS,
+                    50,
+                    "Synthetic Intent Engine",
+                    f"Simulating {q_count} high-intent buyer and researcher queries across {p_count} persona(s)...",
+                )
+            elif phase == ScanPhase.ACT:
+                await _emit_event(
+                    scan_id,
+                    ScanStatus.HYBRID_RETRIEVAL,
+                    68,
+                    "Evidence Selection",
+                    "Query-time dense + lexical retrieval with RRF (falls back to first-k if index unavailable).",
+                )
+            elif phase == ScanPhase.VERIFY:
+                await _emit_event(
+                    scan_id,
+                    ScanStatus.COMPUTING_FSCORE,
+                    92,
+                    "F-Score Engine",
+                    "Calculating weighted Findability metrics (Coverage, Entailment, Contradiction, Structure)...",
+                )
+            elif phase == ScanPhase.REFLECT:
+                await _emit_event(
+                    scan_id,
+                    ScanStatus.GENERATING_PATCHES,
+                    96,
+                    "Patch Synthesizer",
+                    "Generating Schema.org JSON-LD microdata and DOM code diffs...",
+                )
+
         async def _on_nli_progress(completed: int, total: int, item: Any) -> None:
-            pct = min(90, 80 + int((completed / max(total, 1)) * 10))
-            query_preview = getattr(item, "query", "")[:45]
+            # Monotonically scale 72% -> 91% as individual queries complete in real time
+            pct = min(91, 72 + int((completed / max(total, 1)) * 19))
+            query_preview = getattr(item, "query", "")[:45] if item else "Persona batch verification"
             obs_snap = budget_guard.observability.snapshot()
             batches_done = obs_snap.get("batches_completed")
             batches_total = obs_snap.get("batches_total")
@@ -988,6 +999,7 @@ async def run_scan_pipeline(
             budget_guard=budget_guard,
             progress_callback=_on_nli_progress,
             persist_batch_callback=_persist_batch,
+            stage_callback=_on_stage_transition,
         )
         obs = ObservationInput(
             scan_id=str(scan_uuid),

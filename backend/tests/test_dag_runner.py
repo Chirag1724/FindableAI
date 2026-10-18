@@ -109,13 +109,14 @@ def _score(f: float = 50.0) -> ScoreBreakdown:
 class FakeIntent:
     calls: list[str] = field(default_factory=list)
     fail: bool = False
+    batch: IntentBatch | None = None
 
-    async def generate_intents(self, *, business_context: str) -> IntentBatch:
+    async def generate_intents(self, *, business_context: str, **kwargs: Any) -> IntentBatch:
         self.calls.append("plan")
         if self.fail:
             raise RuntimeError("intent boom")
         assert len(business_context) >= 20
-        return _intent_batch()
+        return self.batch if self.batch is not None else _intent_batch()
 
 
 @dataclass
@@ -482,3 +483,33 @@ async def test_empty_chunks_still_complete():
     result = await dag.run(_observation(chunks=[], html_documents=[]))
     assert result.success
     assert result.final_state is ScanPhase.STOP
+
+
+@pytest.mark.asyncio
+async def test_dag_with_single_persona_ten_queries():
+    def _single_persona_intent_batch() -> IntentBatch:
+        queries = [
+            IntentQuery(
+                intent_id=f"{cat.value}_01",
+                category=cat,
+                persona="cto",
+                query=f"CTO Question about {cat.value}?",
+                difficulty="easy",
+                expected_evidence_type="page text",
+            )
+            for cat in IntentCategory
+        ]
+        return IntentBatch(business_type="API Platform", queries=queries)
+
+    dag = FindableAIDAG(
+        llm_client=LLMClient(max_calls=35, instructor_client=object()),
+        intent_generator=FakeIntent(batch=_single_persona_intent_batch()),  # type: ignore[arg-type]
+        entailment_engine=FakeEntailment(),  # type: ignore[arg-type]
+        contradiction_detector=FakeContradiction(),  # type: ignore[arg-type]
+        scorer=FakeScorer(),  # type: ignore[arg-type]
+        patch_prioritizer=FakePrioritizer(empty=True),  # type: ignore[arg-type]
+    )
+    result = await dag.run(_observation(personas=("cto",)))
+    assert result.success
+    assert result.final_state is ScanPhase.STOP
+    assert len(result.evaluations) == 10

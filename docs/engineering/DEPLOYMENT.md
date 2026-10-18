@@ -32,7 +32,7 @@ FindableAI is composed of four modular services designed for horizontal scalabil
 
 ## Environment Variable Reference Matrix
 
-All configuration is parsed and validated at application startup using Pydantic Settings in [backend/app/core/config.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/core/config.py).
+All configuration is parsed and validated at application startup using Pydantic Settings in [backend/app/core/config.py](../../backend/app/core/config.py).
 
 | Variable | Scope | Required | Default | Purpose & Behavior if Missing |
 | :--- | :--- | :--- | :--- | :--- |
@@ -64,7 +64,7 @@ All configuration is parsed and validated at application startup using Pydantic 
 
 ## Container Build Architecture
 
-### Backend Container ([backend/Dockerfile](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/Dockerfile))
+### Backend Container ([backend/Dockerfile](../../backend/Dockerfile))
 The backend uses a multi-stage `python:3.11-slim` image:
 1. **Builder Stage:** Compiles C-extensions and wheel dependencies into `/install`.
 2. **Runner Stage:** Copies built wheels, installs system runtime libraries (including Playwright system dependencies), creates a non-root `appuser`, and runs `uvicorn` with 4 worker processes.
@@ -82,7 +82,7 @@ docker run -d -p 8000:8000 \
   findable-backend
 ```
 
-### Frontend Container ([frontend/Dockerfile](file:///c:/Users/LENOVO/Desktop/FindableAI/frontend/Dockerfile))
+### Frontend Container ([frontend/Dockerfile](../../frontend/Dockerfile))
 The frontend uses a multi-stage `node:20-alpine` image:
 1. **Deps Stage:** Installs production and build dependencies via `npm ci`.
 2. **Builder Stage:** Executes Next.js standalone compilation (`npm run build`).

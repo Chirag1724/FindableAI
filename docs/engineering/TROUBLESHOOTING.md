@@ -29,7 +29,7 @@ This runbook documents verified solutions for real issues encountered during the
   python -m playwright install --with-deps chromium
   ```
 - **Code Safeguard:**
-  [backend/app/crawler/crawler.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/crawler/crawler.py) catches browser launch failures and automatically degrades to `httpx` + `BeautifulSoup` extraction to prevent scan termination.
+  [backend/app/crawler/crawler.py](../../backend/app/crawler/crawler.py) catches browser launch failures and automatically degrades to `httpx` + `BeautifulSoup` extraction to prevent scan termination.
 
 ---
 
@@ -40,7 +40,7 @@ This runbook documents verified solutions for real issues encountered during the
 - **Root Cause:**
   When a user scanned a repository belonging to their own GitHub account, the PR engine attempted to fork the repository into the authenticated account. GitHub's API explicitly forbids forking a repository into the namespace that already owns it.
 - **Fix:**
-  The engine now checks push permissions via `has_push_access()` in [backend/app/github/pr_engine.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/github/pr_engine.py):
+  The engine now checks push permissions via `has_push_access()` in [backend/app/github/pr_engine.py](../../backend/app/github/pr_engine.py):
   1. If the token owner has write access or owns the target repository, it bypasses forking and pushes the branch directly to the source repository.
   2. PR creation calls use the clean branch name (`head=branch_name`) rather than `owner:branch`.
 
@@ -67,8 +67,8 @@ This runbook documents verified solutions for real issues encountered during the
 - **Root Cause:**
   `build_report_data()` in `pr_engine.py` contained a hard check `raise PREngineError("projections required for PR report")` if `request.projections` was an empty list. When scans were initiated through the REST API, `PREngineRequest` omitted the internal `projections` list.
 - **Fix:**
-  - `build_report_data()` in [backend/app/github/pr_engine.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/github/pr_engine.py#L183-L200) was updated to handle missing projections gracefully by deriving scores from `request.current_score`, `request.projected_score`, or patch deltas.
-  - [backend/app/api/v1/patches.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/api/v1/patches.py) was consolidated to delegate directly to `apply_scan_patch()` in `scans.py`.
+  - `build_report_data()` in [backend/app/github/pr_engine.py](../../backend/app/github/pr_engine.py#L183-L200) was updated to handle missing projections gracefully by deriving scores from `request.current_score`, `request.projected_score`, or patch deltas.
+  - [backend/app/api/v1/patches.py](../../backend/app/api/v1/patches.py) was consolidated to delegate directly to `apply_scan_patch()` in `scans.py`.
 
 ---
 
@@ -79,7 +79,7 @@ This runbook documents verified solutions for real issues encountered during the
 - **Root Cause:**
   High-frequency multi-persona query synthesis exceeded Groq free-tier token burst quotas.
 - **Fix:**
-  - [backend/app/api/v1/scans.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/api/v1/scans.py#L420-L460) catches rate limit exceptions and activates the deterministic fallback engine (`execution_mode = "deterministic_fallback"`), ensuring audits finish with 30 validated queries and accurate F-Scores.
+  - [backend/app/api/v1/scans.py](../../backend/app/api/v1/scans.py#L420-L460) catches rate limit exceptions and activates the deterministic fallback engine (`execution_mode = "deterministic_fallback"`), ensuring audits finish with 30 validated queries and accurate F-Scores.
   - For production environments, upgrade Groq account tiers or configure fallback provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`).
 
 ---
@@ -91,7 +91,7 @@ This runbook documents verified solutions for real issues encountered during the
 - **Root Cause:**
   Alembic runs standalone and does not automatically include the current working directory in Python's `sys.path`.
 - **Fix:**
-  [backend/alembic/env.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/alembic/env.py) explicitly adds the backend directory to `sys.path`:
+  [backend/alembic/env.py](../../backend/alembic/env.py) explicitly adds the backend directory to `sys.path`:
   ```python
   import sys
   from os.path import abspath, dirname

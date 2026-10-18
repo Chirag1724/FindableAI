@@ -120,7 +120,8 @@ export default function ScanDashboardPage() {
 
   const triggerDataFetch =
     (initialScan?.status === "completed") ||
-    (streamCompleted && streamStatus === "completed");
+    (streamCompleted && streamStatus === "completed") ||
+    (latestEvent?.status === "completed");
 
   const { scan, intents, contradictions, patches } = useScanData(
     scanId,
@@ -239,15 +240,11 @@ export default function ScanDashboardPage() {
   // Check if data is fully ready to show completed dashboard
   const isFailed = currentStatus === "failed";
   const isCompleted = currentStatus === "completed";
+  const [progressFinished, setProgressFinished] = useState(false);
 
   const isDataReady = Boolean(
     displayScan &&
-    displayScan.summary &&
-    (displayScan.f_score || scan.data?.f_score) &&
-    !scan.loading &&
-    !intents.loading &&
-    !contradictions.loading &&
-    !patches.loading
+    (displayScan.f_score || scan.data?.f_score || displayScan.summary)
   );
 
   useEffect(() => {
@@ -259,7 +256,7 @@ export default function ScanDashboardPage() {
     }
   }, [isCompleted, isDataReady, dataReadyTimedOut]);
 
-  const showCompletedDashboard = isCompleted && (isDataReady || dataReadyTimedOut);
+  const showCompletedDashboard = isCompleted && progressFinished && (isDataReady || dataReadyTimedOut);
   const remediationEligible = displayScan?.remediation_eligible === true;
   const isRealLlm = displayScan?.execution_mode === "real_llm";
   const scanOutcome = displayScan?.outcome;
@@ -395,10 +392,10 @@ export default function ScanDashboardPage() {
     isCompleted && !showCompletedDashboard
       ? {
           scan_id: scanId ?? "",
-          status: "generating_patches",
-          progress_percent: 98,
-          current_step: "Synthesizing",
-          message: "Assembling audit findings, intent evaluations, and patch remediations...",
+          status: "completed",
+          progress_percent: 100,
+          current_step: "Completed",
+          message: "Audit report ready. Loading dashboard...",
           timestamp: mergedLiveEvent?.timestamp ?? new Date().toISOString(),
         }
       : mergedLiveEvent;
@@ -647,9 +644,11 @@ export default function ScanDashboardPage() {
         {!isFailed && !showCompletedDashboard && (
           <div className="space-y-6 sm:space-y-8">
             <ScanProgress
-              currentStatus={isCompleted ? "generating_patches" : currentStatus}
+              currentStatus={currentStatus}
               latestEvent={activeEvent}
               lastGoodStatus={lastGoodStatus}
+              isScanCompleted={isCompleted}
+              onComplete={() => setProgressFinished(true)}
             />
             <LiveScanConsole
               currentStatus={currentStatus}
