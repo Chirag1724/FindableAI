@@ -124,6 +124,8 @@ class Business(Base):
 
 class Scan(Base):
     __tablename__ = "scans"
+    # Listing keyset: (org_id, created_at, id). PostgreSQL migration 0014 uses DESC ops.
+    __table_args__ = (Index("ix_scans_org_created_id", "org_id", "created_at", "id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     business_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -176,6 +178,7 @@ class Scan(Base):
     llm_tokens_out: Mapped[int | None] = mapped_column(Integer, nullable=True)
     provider_retries: Mapped[int | None] = mapped_column(Integer, nullable=True)
     provider_failovers: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    recovery_requests: Mapped[int | None] = mapped_column(Integer, nullable=True)
     duplicate_requests_joined: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cache_hits: Mapped[int | None] = mapped_column(Integer, nullable=True)
     evaluations_valid: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -189,6 +192,9 @@ class Scan(Base):
     dom_chunks_extracted: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancelled_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     # Durable cross-process progress snapshot (authoritative for poll/SSE)
     progress_stage: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -285,6 +291,7 @@ class ScanJob(Base):
     checkpoint_json: Mapped[dict[str, Any] | None] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=True
     )
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

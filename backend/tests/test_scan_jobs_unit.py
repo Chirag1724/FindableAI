@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -42,6 +42,8 @@ class _Scan(_TestBase):
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="in_progress")
     org_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     llm_calls_made: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    llm_usd_estimated: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -83,6 +85,7 @@ class _ScanJob(_TestBase):
     llm_calls_checkpoint: Mapped[int] = mapped_column(Integer, default=0)
     llm_usd_checkpoint: Mapped[float] = mapped_column(Float, default=0.0)
     checkpoint_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     scan: Mapped[_Scan] = relationship(back_populates="jobs")

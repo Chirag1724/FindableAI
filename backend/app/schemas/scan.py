@@ -18,6 +18,8 @@ class ScanStatus(StrEnum):
     NLI_EVALUATION = "nli_evaluation"
     COMPUTING_FSCORE = "computing_fscore"
     GENERATING_PATCHES = "generating_patches"
+    CANCELLING = "cancelling"
+    CANCELLED = "cancelled"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -93,6 +95,12 @@ class ScanResponse(BaseModel):
         default=None,
         description="Owning organization UUID when created under an org API key; null for admin/legacy",
     )
+    cancel_reason: str | None = Field(
+        default=None, description="Reason recorded when cancel was requested or finalized"
+    )
+    cancelled_by: str | None = Field(
+        default=None, description="Actor that requested cancel (org id or system_admin)"
+    )
     completed_at: datetime | None = None
     f_score: FScoreBreakdown | None = None
     summary: AuditSummary | None = None
@@ -151,6 +159,21 @@ class ScanResponse(BaseModel):
     llm_calls_made: int | None = Field(
         default=0,
         description="Total LLM provider call reservations via BudgetGuard (attempts)",
+    )
+    requests_attempted: int | None = Field(
+        default=None,
+        description="Alias of llm_calls_made — dispatched provider attempts",
+    )
+    requests_succeeded: int | None = Field(
+        default=None, description="Alias of provider_successes"
+    )
+    requests_failed: int | None = Field(
+        default=None, description="Alias of provider_failures"
+    )
+    retries: int | None = Field(default=None, description="Alias of provider_retries")
+    failovers: int | None = Field(default=None, description="Alias of provider_failovers")
+    recovery_requests: int | None = Field(
+        default=None, description="Recovery/split provider requests counted toward budget"
     )
     llm_usd_estimated: float | None = Field(
         default=None,

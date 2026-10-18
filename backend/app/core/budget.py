@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ReserveHook = Callable[[int, float], Awaitable[None]]
+DurableReserveHook = Callable[[int, float], Awaitable[int]]
 
 # Process-scoped completed-response cache so a live rerun of the same prompts
 # can skip budget/provider without depending on a still-alive BudgetGuard.
@@ -129,6 +130,7 @@ class BudgetGuard:
         usd_per_call: float | None = None,
         enforce_usd: bool | None = None,
         on_reserve: ReserveHook | None = None,
+        durable_reserve: DurableReserveHook | None = None,
         observability: ScanObservability | None = None,
     ) -> None:
         from app.core.observability import ScanObservability as _ScanObservability
@@ -153,6 +155,7 @@ class BudgetGuard:
             bool(settings.LLM_ENFORCE_USD_BUDGET) if enforce_usd is None else bool(enforce_usd)
         )
         self._on_reserve = on_reserve
+        self._durable_reserve = durable_reserve
         self.observability = observability or _ScanObservability()
         self._lock = asyncio.Lock()
         # Scan-scoped duplicate-request guard: identical in-flight provider requests
@@ -225,10 +228,37 @@ class BudgetGuard:
     async def reserve(self) -> int:
         """Atomically reserve one provider-call unit (and estimated USD).
 
+        When ``durable_reserve`` is set (worker path), PostgreSQL performs the
+        guarded increment under job fencing — the in-memory counter is synced
+        from the returned value. Otherwise the process-local lock is used.
+
         Returns the 1-based call number after reservation.
         Raises ``LLMBudgetExceededError`` if the scan has no remaining units.
-        The lock is released before durable hooks and provider awaits.
         """
+        if self._durable_reserve is not None:
+            projected_usd = self._usd_used + self._usd_per_call
+            if self._enforce_usd and projected_usd > self._usd_cap + 1e-12:
+                raise LLMBudgetExceededError(
+                    limit=self._limit,
+                    used=self._used,
+                    remaining=self.remaining,
+                    attempted=self._used + 1,
+                    reason="usd_limit",
+                    usd_used=self._usd_used,
+                    usd_cap=self._usd_cap,
+                )
+            call_number = await self._durable_reserve(self._limit, self._usd_per_call)
+            async with self._lock:
+                self._used = max(self._used, int(call_number))
+                self._usd_used = max(self._usd_used, float(call_number) * self._usd_per_call)
+            logger.info(
+                "llm_budget_reserved_durable call=%s/%s remaining=%s",
+                call_number,
+                self._limit,
+                max(0, self._limit - int(call_number)),
+            )
+            return int(call_number)
+
         async with self._lock:
             if self._used >= self._limit:
                 logger.info(

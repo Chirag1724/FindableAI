@@ -584,6 +584,10 @@ class LLMClient:
             attempt = 0
             while attempt < attempts_cap:
                 attempt += 1
+                # Cooperative cancel before any reservation / outbound dispatch.
+                from app.jobs.cancel import cooperative_cancel_checkpoint
+
+                await cooperative_cancel_checkpoint()
                 # Budget first: every outbound attempt counts exactly once.
                 call_number = await self._reserve_call_slot()
                 est_tokens = estimate_request_tokens(messages, max_tokens)
@@ -777,6 +781,9 @@ class LLMClient:
     ) -> T:
         """Test/injection path: one logical provider, bounded retries, no failover."""
         for attempt_index in range(attempts_cap):
+            from app.jobs.cancel import cooperative_cancel_checkpoint
+
+            await cooperative_cancel_checkpoint()
             call_number = await self._reserve_call_slot()
             logger.info(
                 "llm_request_start call=%s/%s provider=injected model=%s attempt=%s/%s response_model=%s",

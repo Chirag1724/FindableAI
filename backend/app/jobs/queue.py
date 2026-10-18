@@ -404,6 +404,7 @@ def _claimable_stmt(now: datetime):
     return (
         select(ScanJob)
         .where(
+            ScanJob.cancel_requested.is_(False),
             or_(
                 and_(
                     ScanJob.status == JobStatus.QUEUED.value,
@@ -556,6 +557,15 @@ async def heartbeat(
             ScanJob.fencing_token == fencing_token,
             ScanJob.claimed_by == worker_id,
             ScanJob.status.in_([JobStatus.CLAIMED.value, JobStatus.RUNNING.value]),
+            ScanJob.cancel_requested.is_(False),
+            ScanJob.status.notin_(
+                [
+                    JobStatus.CANCELLED.value,
+                    JobStatus.SUCCEEDED.value,
+                    JobStatus.FAILED.value,
+                    JobStatus.DEAD_LETTER.value,
+                ]
+            ),
         )
         .values(
             lease_expires_at=now + timedelta(seconds=lease_secs),
@@ -593,6 +603,15 @@ async def complete_job(
             ScanJob.fencing_token == fencing_token,
             ScanJob.claimed_by == worker_id,
             ScanJob.status.in_([JobStatus.CLAIMED.value, JobStatus.RUNNING.value]),
+            ScanJob.cancel_requested.is_(False),
+            ScanJob.status.notin_(
+                [
+                    JobStatus.CANCELLED.value,
+                    JobStatus.SUCCEEDED.value,
+                    JobStatus.FAILED.value,
+                    JobStatus.DEAD_LETTER.value,
+                ]
+            ),
         )
         .values(**values)
     )
@@ -782,12 +801,64 @@ async def queue_depth(session: AsyncSession) -> dict[str, int]:
 
 
 async def recover_expired_leases(session: AsyncSession) -> int:
-    """Requeue jobs whose leases expired (also claimed via claim_next_job)."""
+    """Requeue expired leases; never resurrect cancel-requested / cancelled jobs."""
     now = _utcnow()
+
+    # Cancel-requested jobs with an expired lease finalize as cancelled (absorbing).
+    cancelled_scan_ids = list(
+        await session.scalars(
+            select(ScanJob.scan_id).where(
+                ScanJob.status.in_([JobStatus.CLAIMED.value, JobStatus.RUNNING.value]),
+                ScanJob.cancel_requested.is_(True),
+                ScanJob.lease_expires_at.is_not(None),
+                ScanJob.lease_expires_at < now,
+            )
+        )
+    )
+    if cancelled_scan_ids:
+        await session.execute(
+            update(ScanJob)
+            .where(
+                ScanJob.scan_id.in_(cancelled_scan_ids),
+                ScanJob.status.in_([JobStatus.CLAIMED.value, JobStatus.RUNNING.value]),
+                ScanJob.cancel_requested.is_(True),
+            )
+            .values(
+                status=JobStatus.CANCELLED.value,
+                finished_at=now,
+                updated_at=now,
+                lease_expires_at=None,
+                claimed_by=None,
+                error_code=JobErrorCode.CANCELLED.value,
+                failure_category=FailureCategory.CANCELLED.value,
+                error_detail=redact_error("cancelled during lease recovery"),
+            )
+        )
+    for scan_id in cancelled_scan_ids:
+        await session.execute(
+            update(ScanModel)
+            .where(
+                ScanModel.id == scan_id,
+                ScanModel.status.notin_(["completed", "failed", "cancelled"]),
+            )
+            .values(
+                status="cancelled",
+                cancel_requested=True,
+                completed_at=now,
+                progress_stage="cancelled",
+                progress_message="cancelled during lease recovery",
+                progress_percent=100,
+                progress_updated_at=now,
+            )
+        )
+    if cancelled_scan_ids:
+        metrics.incr("scan_jobs_cancelled_on_recovery", len(cancelled_scan_ids))
+
     result = await session.execute(
         update(ScanJob)
         .where(
             ScanJob.status.in_([JobStatus.CLAIMED.value, JobStatus.RUNNING.value]),
+            ScanJob.cancel_requested.is_(False),
             ScanJob.lease_expires_at.is_not(None),
             ScanJob.lease_expires_at < now,
         )
@@ -807,7 +878,7 @@ async def recover_expired_leases(session: AsyncSession) -> int:
     if count:
         metrics.incr("scan_jobs_lease_recovered", count)
         logger.warning("scan_jobs_bulk_lease_recovery count=%s", count)
-    return count
+    return count + len(cancelled_scan_ids)
 
 
 async def detect_deadline_exceeded(session: AsyncSession) -> int:

@@ -13,6 +13,7 @@ from typing import Any
 
 from app.core.config import settings
 from app.db import AsyncSessionLocal
+from app.jobs.cancel import ScanCancelled, finalize_job_cancelled, job_cancel_requested
 from app.jobs.correlation import bind_correlation_id
 from app.jobs.execution_context import JobExecutionContext, job_execution_context
 from app.jobs.metrics import metrics
@@ -214,6 +215,18 @@ class ScanJobWorker:
                     )
             self._current_job_id = None
             return
+        if prior_outcome == "cancelled":
+            async with AsyncSessionLocal() as session:
+                async with session.begin():
+                    await finalize_job_cancelled(
+                        session,
+                        job_id=claimed.job_id,
+                        fencing_token=claimed.fencing_token,
+                        worker_id=self.worker_id,
+                        reason="scan already cancelled",
+                    )
+            self._current_job_id = None
+            return
         if prior_outcome == "failed":
             # Prior attempt already finalized the scan — do not remutate or
             # mark the job succeeded; record a non-retryable terminal failure.
@@ -230,6 +243,20 @@ class ScanJobWorker:
             self._current_job_id = None
             return
 
+        # Cooperative cancel before launching pipeline work.
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                if await job_cancel_requested(session, claimed.job_id):
+                    await finalize_job_cancelled(
+                        session,
+                        job_id=claimed.job_id,
+                        fencing_token=claimed.fencing_token,
+                        worker_id=self.worker_id,
+                        reason="cancel_requested",
+                    )
+                    self._current_job_id = None
+                    return
+
         llm_checkpoint = claimed.llm_calls_checkpoint
         try:
             with job_execution_context(
@@ -242,17 +269,25 @@ class ScanJobWorker:
                 )
             ):
                 llm_checkpoint = await self._execute_pipeline(claimed)
-            # Pipeline finished successfully — always persist success even if a
-            # shutdown was requested during the run (avoid spurious retries).
+            # Pipeline finished successfully — prefer cancel if requested mid-run.
             async with AsyncSessionLocal() as session:
                 async with session.begin():
-                    await complete_job(
-                        session,
-                        job_id=claimed.job_id,
-                        fencing_token=claimed.fencing_token,
-                        worker_id=self.worker_id,
-                        llm_calls_checkpoint=llm_checkpoint,
-                    )
+                    if await job_cancel_requested(session, claimed.job_id):
+                        await finalize_job_cancelled(
+                            session,
+                            job_id=claimed.job_id,
+                            fencing_token=claimed.fencing_token,
+                            worker_id=self.worker_id,
+                            reason="cancel_requested",
+                        )
+                    else:
+                        await complete_job(
+                            session,
+                            job_id=claimed.job_id,
+                            fencing_token=claimed.fencing_token,
+                            worker_id=self.worker_id,
+                            llm_calls_checkpoint=llm_checkpoint,
+                        )
             duration = (datetime.now(UTC) - started).total_seconds()
             metrics.set_gauge("scan_job_last_duration_seconds", duration)
             logger.info(
@@ -263,6 +298,21 @@ class ScanJobWorker:
                 duration,
                 claimed.correlation_id,
                 llm_checkpoint,
+            )
+        except ScanCancelled:
+            async with AsyncSessionLocal() as session:
+                async with session.begin():
+                    await finalize_job_cancelled(
+                        session,
+                        job_id=claimed.job_id,
+                        fencing_token=claimed.fencing_token,
+                        worker_id=self.worker_id,
+                        reason="cancel_requested",
+                    )
+            logger.info(
+                "scan_job_cancelled_cooperative job_id=%s correlation_id=%s",
+                claimed.job_id,
+                claimed.correlation_id,
             )
         except asyncio.CancelledError as exc:
             async with AsyncSessionLocal() as session:
@@ -297,11 +347,15 @@ class ScanJobWorker:
             self._current_job_id = None
 
     async def _scan_terminal_outcome(self, scan_id: uuid.UUID) -> str | None:
-        """Return ``completed``, ``failed``, or None if the scan is still open."""
+        """Return ``completed``, ``failed``, ``cancelled``, or None if still open."""
         try:
             async with AsyncSessionLocal() as session:
                 scan = await session.get(ScanModel, scan_id)
-                if scan is None or scan.completed_at is None:
+                if scan is None:
+                    return None
+                if scan.status == "cancelled":
+                    return "cancelled"
+                if scan.completed_at is None:
                     return None
                 if scan.status == "completed":
                     return "completed"
@@ -331,6 +385,8 @@ class ScanJobWorker:
 
         stop_hb = asyncio.Event()
 
+        cancel_seen = asyncio.Event()
+
         async def _hb_loop() -> None:
             while not stop_hb.is_set():
                 try:
@@ -339,17 +395,30 @@ class ScanJobWorker:
                     try:
                         async with AsyncSessionLocal() as session:
                             async with session.begin():
-                                await heartbeat(
+                                if await job_cancel_requested(session, claimed.job_id):
+                                    cancel_seen.set()
+                                    return
+                                ok = await heartbeat(
                                     session,
                                     job_id=claimed.job_id,
                                     fencing_token=claimed.fencing_token,
                                     worker_id=self.worker_id,
                                 )
+                                if not ok:
+                                    # Lost fence or cancel_requested flipped — stop launching work.
+                                    cancel_seen.set()
+                                    return
                     except Exception:
                         logger.debug("heartbeat_failed job_id=%s", claimed.job_id, exc_info=True)
 
+        async def _raise_if_cancelled() -> None:
+            async with AsyncSessionLocal() as session:
+                if await job_cancel_requested(session, claimed.job_id) or cancel_seen.is_set():
+                    raise ScanCancelled("cancel_requested")
+
         hb_task = asyncio.create_task(_hb_loop())
         try:
+            await _raise_if_cancelled()
             if self._pipeline is not None:
                 result = await self._pipeline(
                     scan_id,
@@ -360,6 +429,7 @@ class ScanJobWorker:
                     initial_llm_calls=initial_used,
                     initial_llm_usd=initial_usd,
                     resume_checkpoint=claimed.checkpoint_json,
+                    cancel_check=_raise_if_cancelled,
                 )
             else:
                 from app.api.v1.scans import run_scan_pipeline
@@ -373,7 +443,9 @@ class ScanJobWorker:
                     initial_llm_calls=initial_used,
                     initial_llm_usd=initial_usd,
                     resume_checkpoint=claimed.checkpoint_json,
+                    cancel_check=_raise_if_cancelled,
                 )
+            await _raise_if_cancelled()
             if isinstance(result, int):
                 return result
             async with AsyncSessionLocal() as session:

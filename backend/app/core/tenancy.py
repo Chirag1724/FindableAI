@@ -6,17 +6,51 @@ SSE, lighthouse) must be authorized via the parent scan's ``org_id``.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import uuid
+from datetime import datetime
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import TenantContext
 from app.models.database import Scan as ScanModel
 
 _NOT_FOUND = "Scan not found"
+LIST_DEFAULT_LIMIT = 20
+LIST_MAX_LIMIT = 100
+
+
+def clamp_list_limit(limit: int | None) -> int:
+    """Hard-cap list page size (default 20, max 100)."""
+    if limit is None:
+        return LIST_DEFAULT_LIMIT
+    return max(1, min(int(limit), LIST_MAX_LIMIT))
+
+
+def encode_scan_list_cursor(*, created_at: datetime, scan_id: uuid.UUID) -> str:
+    """Opaque keyset cursor: base64(created_at_iso|uuid_hex)."""
+    raw = f"{created_at.isoformat()}|{scan_id.hex}"
+    return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii")
+
+
+def decode_scan_list_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
+    """Parse keyset cursor; raises HTTP 400 on malformed input."""
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
+        ts_part, id_part = raw.split("|", 1)
+        created_at = datetime.fromisoformat(ts_part)
+        scan_id = uuid.UUID(id_part)
+    except (ValueError, binascii.Error, AttributeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid list cursor",
+        ) from exc
+    return created_at, scan_id
+
 
 
 def can_access_scan_org(
@@ -93,15 +127,37 @@ async def list_scans_for_org(
     session: AsyncSession,
     tenant: TenantContext,
     *,
-    limit: int = 100,
+    limit: int = LIST_DEFAULT_LIMIT,
+    cursor: str | None = None,
 ) -> list[ScanModel]:
-    """List recent scans visible to ``tenant`` (SQL-level org filter)."""
-    stmt = select(ScanModel).order_by(ScanModel.created_at.desc()).limit(limit)
+    """List recent scans visible to ``tenant`` (SQL-level org filter only).
+
+    Ordering is ``created_at DESC, id DESC``. Optional keyset ``cursor`` continues
+    after the prior page. Normal org members never see ``org_id IS NULL`` rows.
+    """
+    page_size = clamp_list_limit(limit)
+    stmt = select(ScanModel)
+
     if tenant.is_system_admin:
         pass
     elif tenant.org_id is None:
         return []
     else:
+        # Fail closed: SQL filter only — never fetch-all then filter in Python.
         stmt = stmt.where(ScanModel.org_id == tenant.org_id)
+
+    if cursor:
+        cursor_created_at, cursor_id = decode_scan_list_cursor(cursor)
+        stmt = stmt.where(
+            or_(
+                ScanModel.created_at < cursor_created_at,
+                and_(
+                    ScanModel.created_at == cursor_created_at,
+                    ScanModel.id < cursor_id,
+                ),
+            )
+        )
+
+    stmt = stmt.order_by(ScanModel.created_at.desc(), ScanModel.id.desc()).limit(page_size)
     result = await session.execute(stmt)
     return list(result.scalars().all())
