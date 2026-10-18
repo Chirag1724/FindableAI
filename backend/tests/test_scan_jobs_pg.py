@@ -175,7 +175,7 @@ async def test_pg_migration_head_reachable(pg_url: str):
             assert persona == 1
 
             rev = await conn.scalar(text("SELECT version_num FROM alembic_version"))
-            assert rev == "0011_organizations_and_api_keys"
+            assert rev == "0012_scan_jobs_org_id"
     finally:
         await engine.dispose()
 

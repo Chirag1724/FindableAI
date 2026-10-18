@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.auth import TenantContext
 from app.crawler.search import ephemeral_memory_chunk_id, store_dom_chunks
 from app.orchestration.evidence_persistence import (
     HYDRATE_WARN,
@@ -20,7 +21,6 @@ from app.orchestration.evidence_persistence import (
     is_non_durable_chunk_uuid,
     refine_remediation_eligible,
 )
-from app.core.auth import TenantContext
 from app.schemas.intelligence import (
     EntailmentStatus,
     EvidenceReference,

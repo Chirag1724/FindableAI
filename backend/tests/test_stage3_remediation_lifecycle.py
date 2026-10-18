@@ -22,13 +22,6 @@ from app.orchestration.remediation_budget import (
     budget_guard_from_scan_usage,
     reserve_remediation_llm_call,
 )
-
-
-def _admin_request() -> Request:
-    req = Request({"type": "http", "headers": [], "method": "POST", "path": "/"})
-    req.state.tenant = TenantContext(is_system_admin=True)
-    return req
-
 from app.orchestration.remediation_lifecycle import (
     OUTCOME_FIXED,
     OUTCOME_INCONCLUSIVE,
@@ -52,6 +45,13 @@ from app.orchestration.remediation_lifecycle import (
     persist_verification_run,
     upsert_remediation_run,
 )
+
+
+def _admin_request() -> Request:
+    req = Request({"type": "http", "headers": [], "method": "POST", "path": "/"})
+    req.state.tenant = TenantContext(is_system_admin=True)
+    return req
+
 
 
 def test_lifecycle_transition_graph_allows_happy_path():

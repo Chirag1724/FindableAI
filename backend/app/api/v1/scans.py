@@ -3677,17 +3677,17 @@ async def list_scans(request: Request) -> list[ScanResponse]:
         logger.debug("list_scans_db_unavailable: %s", exc)
 
     # Merge in-memory stubs the tenant can see (same-process create).
-    for s in SCANS_DB.values():
+    for mem_scan in SCANS_DB.values():
         mem_org: uuid.UUID | None = None
-        if getattr(s, "org_id", None):
+        if getattr(mem_scan, "org_id", None):
             try:
-                mem_org = uuid.UUID(str(s.org_id))
+                mem_org = uuid.UUID(str(mem_scan.org_id))
             except ValueError:
                 mem_org = None
         from app.core.tenancy import can_access_scan_org
 
         if can_access_scan_org(scan_org_id=mem_org, tenant=tenant):
-            unique_scans.setdefault(s.scan_id, s)
+            unique_scans.setdefault(mem_scan.scan_id, mem_scan)
     return list(unique_scans.values())
 
 
