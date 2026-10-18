@@ -1,7 +1,7 @@
 """Add nullable org_id to scan_jobs for tenant-scoped durable jobs.
 
-Revision ID: 0012_scan_jobs_org_id
-Revises: 0011_organizations_and_api_keys
+Revision ID: 0013_scan_jobs_org_id
+Revises: 0012_indexes_and_token_ledger
 Create Date: 2026-10-17 22:15:00.000000
 
 """
@@ -13,8 +13,8 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-revision: str = "0012_scan_jobs_org_id"
-down_revision: str | None = "0011_organizations_and_api_keys"
+revision: str = "0013_scan_jobs_org_id"
+down_revision: str | None = "0012_indexes_and_token_ledger"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
