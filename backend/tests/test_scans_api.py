@@ -291,8 +291,28 @@ async def test_apply_patches_validation_scenarios(monkeypatch):
     from app.api.v1.scans import SCANS_DB
     from app.core.config import settings
     from app.github.client import FakeGitHubClient, GitHubClientError
+    from app.orchestration.cache_remediation import EligibilityDecision
 
     monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", False)
+
+    async def _elig_ok(*_a, **_k):
+        return EligibilityDecision(True, None, "ok", evidence_count=1)
+
+    async def _fake_scan_row(_session, scan_uuid, tenant):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            id=scan_uuid,
+            status="completed",
+            outcome="success",
+            remediation_eligible=True,
+            org_id=getattr(tenant, "org_id", None),
+            cancel_requested=False,
+            llm_calls_made=0,
+        )
+
+    monkeypatch.setattr("app.orchestration.cache_remediation.decide_cache_only_for_scan", _elig_ok)
+    monkeypatch.setattr("app.api.v1.scans.get_scan_for_org", _fake_scan_row)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -376,7 +396,7 @@ async def test_apply_patches_validation_scenarios(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_apply_blocked_without_durable_evidence(monkeypatch):
-    """Missing durable evidence citations must block validated PR creation."""
+    """Missing durable evidence / provenance must block via cache-only eligibility SSOT."""
     import uuid
 
     from app.api.v1.scans import SCANS_DB
@@ -395,24 +415,25 @@ async def test_apply_blocked_without_durable_evidence(monkeypatch):
 
     monkeypatch.setattr("app.api.v1.scans.build_pygithub_client_from_token", _boom)
 
-    async def _empty_chunks(_session, _scan_id):
-        return {}
-
-    monkeypatch.setattr("app.api.v1.scans.load_chunk_id_map", _empty_chunks)
-
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(f"/api/v1/scans/{scan_id}/patches/apply")
     SCANS_DB.pop(scan_id, None)
 
-    assert resp.status_code == 400
+    # Phase 3: fail closed at eligibility (422) before GitHub / patch validators.
+    assert resp.status_code in (409, 422)
     detail = resp.json()["detail"]
     assert isinstance(detail, dict)
-    assert detail.get("lifecycle_state") == "validation_failed"
-    checks = detail.get("checks") or []
-    assert any(
-        c.get("name") == "evidence_grounding" and c.get("status") == "failed" for c in checks
-    )
+    assert detail.get("reason") in {
+        "no_validated_evidence",
+        "missing_provenance",
+        "eligibility_unavailable",
+        "remediation_flag_false",
+        "scan_state_ineligible",
+        "stale_evidence",
+        "fingerprint_mismatch",
+        "cross_tenant",
+    }
     assert create_called is False
 
 
@@ -425,12 +446,32 @@ async def test_apply_blocked_when_live_file_validation_fails(monkeypatch):
     from app.api.v1.scans import SCANS_DB
     from app.core.config import settings
     from app.github.client import FakeGitHubClient
+    from app.orchestration.cache_remediation import EligibilityDecision
 
     monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", False)
     chunk_uuid = uuid.uuid4()
     scan_id = f"scan_{uuid.uuid4().hex}"
     _apply_fixture_scan(scan_id=scan_id, with_evidence=True, chunk_id=str(chunk_uuid))
     monkeypatch.setattr(settings, "GITHUB_TOKEN", "ghp_test_token_not_live")
+
+    async def _elig_ok(*_a, **_k):
+        return EligibilityDecision(True, None, "ok", evidence_count=1)
+
+    async def _fake_scan_row(_session, scan_uuid, tenant):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            id=scan_uuid,
+            status="completed",
+            outcome="success",
+            remediation_eligible=True,
+            org_id=getattr(tenant, "org_id", None),
+            cancel_requested=False,
+            llm_calls_made=0,
+        )
+
+    monkeypatch.setattr("app.orchestration.cache_remediation.decide_cache_only_for_scan", _elig_ok)
+    monkeypatch.setattr("app.api.v1.scans.get_scan_for_org", _fake_scan_row)
 
     async def _chunk_map(_session, _scan_id):
         return {chunk_uuid: object()}

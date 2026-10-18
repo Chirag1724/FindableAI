@@ -14,6 +14,28 @@ from app.crawler.search import (
 )
 
 
+def test_rrf_hand_computed_numeric_lock():
+    """Lock the exact RRF formula with hand-computed scores (k=60, 1-based ranks).
+
+    Lists: dense=[A,B,C], lexical=[B,A]
+    - A: 1/(60+1) + 1/(60+2) = 1/61 + 1/62
+    - B: 1/(60+2) + 1/(60+1) = 1/62 + 1/61  (tie with A)
+    - C: 1/(60+3) = 1/63                     (one list only)
+    Tie A vs B broken by str(uuid) ascending. Fixed UUIDs so order is deterministic.
+    """
+    a = uuid.UUID("aaaaaaaa-0000-0000-0000-000000000001")
+    b = uuid.UUID("bbbbbbbb-0000-0000-0000-000000000002")
+    c = uuid.UUID("cccccccc-0000-0000-0000-000000000003")
+    fused = reciprocal_rank_fusion([[a, b, c], [b, a]], rrf_k=60, limit=5)
+    scores = dict(fused)
+    expected_ab = 1.0 / 61 + 1.0 / 62
+    assert scores[a] == pytest.approx(expected_ab)
+    assert scores[b] == pytest.approx(expected_ab)
+    assert scores[c] == pytest.approx(1.0 / 63)
+    # Tie A/B: str(a) < str(b) → A before B; C lowest
+    assert [cid for cid, _ in fused] == [a, b, c]
+
+
 def test_rrf_prefers_items_high_in_both_lists():
     a, b, c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     fused = reciprocal_rank_fusion([[a, b, c], [a, c, b]], rrf_k=60, limit=3)

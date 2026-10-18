@@ -60,9 +60,22 @@ def reciprocal_rank_fusion(
     rrf_k: int | None = None,
     limit: int = 5,
 ) -> list[tuple[uuid.UUID, float]]:
-    """Fuse ranked candidate lists with Reciprocal Rank Fusion.
+    """Fuse ranked candidate lists with Reciprocal Rank Fusion (Cormack et al.).
 
-    score(d) = sum 1/(rrf_k + rank). Ties broken by UUID string for stability.
+    Exact behaviour (authoritative — docs must match this):
+
+    - Formula: ``score(d) = Σ_lists 1 / (k + rank_list(d))`` where ``rank`` is
+      **1-based** (first item in a list has rank 1).
+    - Constant ``k``: argument ``rrf_k``, else ``settings.RETRIEVAL_RRF_K``
+      (default 60). Values ``< 1`` fall back to 60.
+    - Inputs: ordered UUID sequences (typically dense then lexical from
+      ``hybrid_search``). No per-list weights — each list contributes equally.
+    - Within-list dedupe: a UUID appearing twice in one list is scored once at
+      its first rank; later duplicates are ignored (do not inflate the score).
+    - Cross-list: the same UUID accumulates scores from every list it appears in.
+    - Tie-break: descending score, then ascending ``str(uuid)`` for stability.
+    - Cutoff: return at most ``limit`` pairs ``(uuid, score)`` (default 5 at
+      call sites via ``RETRIEVAL_TOP_K``).
     """
     k = int(rrf_k if rrf_k is not None else getattr(settings, "RETRIEVAL_RRF_K", 60))
     if k < 1:
@@ -134,6 +147,8 @@ async def store_dom_chunks(
                     )
                     emb_list = None
                 emb = emb_list
+            from app.orchestration.cache_remediation import content_hash_for_text
+
             db_records.append(
                 DOMChunk(
                     scan_id=scan_id,
@@ -143,6 +158,7 @@ async def store_dom_chunks(
                     tag=chunk.tag,
                     word_count=chunk.word_count,
                     embedding=emb,
+                    content_hash=content_hash_for_text(chunk.content),
                 )
             )
         s.add_all(db_records)

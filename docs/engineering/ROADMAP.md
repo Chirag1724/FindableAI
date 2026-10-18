@@ -32,7 +32,7 @@ This document tracks near-term engineering priorities. For the **authoritative**
 
 1. Honest execution modes + UI (synthetic ≠ real).
 2. Persist `execution_mode`, summary, evidence; fix cold hydrate.
-3. Wire or permanently demote hybrid retrieval (dense query + optional RRF remain **unimplemented**).
+3. Hybrid retrieval + RRF are implemented (`hybrid_search` / `reciprocal_rank_fusion`); keep docs and readiness checks aligned with `RetrievalMeta.mode`.
 4. Intelligence regression fixtures (PROD-5.3) and prompt-injection fixtures (PROD-6.3).
 5. Alembic-on-boot + verified deploy runbook execution (PROD-7.3).
 6. Optional post-PR re-audit (verification loop).

@@ -71,7 +71,7 @@ FindableAI is the first autonomous engine designed to diagnose, score, and remed
               [ Synthetic Intent Engine ] (Persona & Query Generation)
                             │
                             ▼
-           [ Evidence selection ] (default: first-k chunks; FTS helper exists; no RRF)
+           [ Evidence selection ] (hybrid dense+lexical + RRF when index hits; else first-k)
                             │
                             ▼
          [ NLI Entailment & Contradiction Engine ] (LLM-based Entailment Classification)
@@ -94,8 +94,8 @@ FindableAI is the first autonomous engine designed to diagnose, score, and remed
 2. **Synthetic Intent Simulation**
    - Simulates diverse buyer personas (skeptical CTO, procurement officer, developer evaluator) generating realistic high-intent queries that AI search users ask.
 
-3. **Evidence selection for NLI (not full hybrid+RRF today)**
-   - **Live path:** the DAG defaults to the first *k* OBSERVE DOM chunks for entailment. `hybrid_search` provides Postgres full-text (`tsvector`) + keyword fallbacks. Embeddings may be **stored** but are **not queried** at scan time. **RRF is not implemented** in the runtime path. Details: [LIMITATIONS_AND_READINESS.md](docs/engineering/LIMITATIONS_AND_READINESS.md).
+3. **Evidence selection for NLI (hybrid + RRF when available)**
+   - **Live path:** ACT prefers `build_act_retriever` → `hybrid_search` (dense ANN + lexical) fused by Reciprocal Rank Fusion: `score(d)=Σ 1/(k+rank)` with **1-based** ranks, `k=RETRIEVAL_RRF_K` (default 60), equal list weights, UUID-string tie-break, top-N=`RETRIEVAL_TOP_K`. Falls back to first-*k* OBSERVE chunks only when retrieval returns empty. Details: [LIMITATIONS_AND_READINESS.md](docs/engineering/LIMITATIONS_AND_READINESS.md).
 
 4. **Natural Language Inference (NLI) & Contradiction Detection**
    - Assesses retrieved page context against target queries using NLI:
@@ -188,7 +188,7 @@ flowchart TB
     Groq --> IntentGen
     
     DAG --> RET
-    PG & BM25 -->|"Stored embeddings + FTS (RRF not implemented)"| RET
+    PG & BM25 -->|"Dense + lexical → RRF (k=RETRIEVAL_RRF_K)"| RET
     RET -->|"Evidence chunks"| NLI
     NLI -->|"Entailment & Contradictions"| Scorer
     
@@ -262,7 +262,7 @@ sequenceDiagram
 | **Gateway & Security** | Ingestion endpoints, Server-Sent Events broker, Pydantic v2 validation contracts, and SSRF prevention blocking internal IP ranges and cloud metadata endpoints. | FastAPI, Uvicorn, Pydantic v2, `socket` DNS resolution | [`backend/app/main.py`](backend/app/main.py)<br/>[`backend/app/api/v1/scans.py`](backend/app/api/v1/scans.py)<br/>[`backend/app/core/security.py`](backend/app/core/security.py) |
 | **DAG Orchestration** | Asynchronous execution pipeline implementing an Observe-Plan-Act-Verify-Reflect state machine with budget guarding and graceful fallbacks. | Python `asyncio`, FastAPI `BackgroundTasks`, LiteLLM | [`backend/app/orchestration/dag.py`](backend/app/orchestration/dag.py)<br/>[`backend/app/core/budget.py`](backend/app/core/budget.py) |
 | **Crawling & Chunking** | Headless JavaScript rendering, domain-bounded BFS crawling, semantic DOM decomposition, and deterministic CSS selector path calculation. | Playwright (Chromium), BeautifulSoup4, `httpx` | [`backend/app/crawler/crawler.py`](backend/app/crawler/crawler.py)<br/>[`backend/app/crawler/dom_chunker.py`](backend/app/crawler/dom_chunker.py) |
-| **Search & Storage** | Postgres + pgvector store; embeddings written on chunk insert; `hybrid_search` = FTS/keyword (no RRF; embeddings not used at query time). Redis composed but unused by app code. | PostgreSQL 16 + pgvector, SQLAlchemy 2.0, Alembic | [`backend/app/crawler/search.py`](backend/app/crawler/search.py)<br/>[`backend/app/core/embeddings.py`](backend/app/core/embeddings.py)<br/>[`backend/app/models/`](backend/app/models/) |
+| **Search & Storage** | Postgres + pgvector; embeddings written on chunk insert; `hybrid_search` = dense + lexical fused by RRF (`reciprocal_rank_fusion`, 1-based ranks, `k=RETRIEVAL_RRF_K`). Redis composed but unused by app code. | PostgreSQL 16 + pgvector, SQLAlchemy 2.0, Alembic | [`backend/app/crawler/search.py`](backend/app/crawler/search.py)<br/>[`backend/app/core/embeddings.py`](backend/app/core/embeddings.py)<br/>[`backend/app/models/`](backend/app/models/) |
 | **AI / NLI & Scoring** | High-speed synthetic intent generation (30 queries, 10 taxonomies), NLI entailment classification, contradiction detection, and 100% deterministic F-Score calculation. | Groq (Qwen 2.5 72B / Llama 3), Instructor, NumPy | [`backend/app/engines/intent_generator.py`](backend/app/engines/intent_generator.py)<br/>[`backend/app/engines/entailment_engine.py`](backend/app/engines/entailment_engine.py)<br/>[`backend/app/engines/scorer.py`](backend/app/engines/scorer.py) |
 | **Remediation & Git Engine** | Deterministic Schema.org JSON-LD microdata synthesis, unified diff generation, automated repository tree inspection, and 1-click GitHub Pull Request creation. | PyGithub, GitHub REST API, Schema.org specifications | [`backend/app/engines/patch_assembler.py`](backend/app/engines/patch_assembler.py)<br/>[`backend/app/github/pr_engine.py`](backend/app/github/pr_engine.py)<br/>[`backend/app/github/client.py`](backend/app/github/client.py) |
 
@@ -276,7 +276,7 @@ Each audit execution progresses through strict pipeline phases streamed directly
 | `CRAWLING` | 15% | Headless Playwright Chromium BFS crawl fetching DOM snapshots. | Falls back to async `httpx` if headless browser times out. |
 | `EXTRACTING_DOM` | 30%–45% | Semantic element parsing, CSS selector derivation, and vector embedding. | In-memory pseudo-embeddings if external embedding API unreachable. |
 | `SYNTHESIZING_INTENTS` | 60% | Simulating 30 user/evaluator queries across 10 discovery taxonomies. | Rule-based canonical query generation if LLM budget exceeded. |
-| `HYBRID_RETRIEVAL` | 75% | SSE milestone name only; default ACT uses first-*k* OBSERVE chunks. | Optional `hybrid_search` = FTS/token/in-memory keywords (not cosine RRF). |
+| `HYBRID_RETRIEVAL` | 75% | SSE milestone; ACT prefers `hybrid_search` + RRF when index hits. | Fallback to first-*k* OBSERVE when retrieval empty; check `RetrievalMeta.mode`. |
 | `NLI_EVALUATION` | 85% | NLI classification (`SUPPORTED`, `CONTRADICTED`, `UNKNOWN`) and fact checking. | Deterministic substring/lexical entailment heuristics if rate-limited. |
 | `COMPUTING_FSCORE` | 92% | Deterministic calculation of Answerability, Consistency, Structure, Extractability. | Zero LLM calls; guaranteed mathematical determinism. |
 | `GENERATING_PATCHES` | 97% | Schema.org JSON-LD generation, DOM-anchored unified diffs, and score deltas. | High-priority microdata templates (Organization, LocalBusiness, FAQPage). |
@@ -290,7 +290,7 @@ Each audit execution progresses through strict pipeline phases streamed directly
 | **Realtime Stream**         | Server-Sent Events (SSE) via `EventSource`                     | Realtime progress updates during 10-second audits                                                                   |
 | **Backend API**             | FastAPI (Python 3.11), Pydantic v2, Instructor                 | Async API, schema enforcement, structured LLM outputs                                                               |
 | **Crawler & Extraction**    | Playwright (Python async), BeautifulSoup4                      | JavaScript-rendered DOM harvesting with CSS path derivation                                                         |
-| **Database & Vector Store** | PostgreSQL 16 + pgvector, SQLAlchemy 2.0 (async), Alembic      | Relational storage; embeddings column + FTS; query-time dense/RRF hybrid **not** wired                              |
+| **Database & Vector Store** | PostgreSQL 16 + pgvector, SQLAlchemy 2.0 (async), Alembic      | Relational storage; embeddings + FTS; query-time dense + lexical RRF via `hybrid_search`                            |
 | **Job Queue & Cache**       | Redis 7 in `docker-compose` (optional local service)           | Reserved for cache/rate-limit; **scans currently use FastAPI `BackgroundTasks`** (no Celery/ARQ worker in-repo yet) |
 | **AI / LLM Orchestration**  | Groq (Qwen 2.5 72B) via LiteLLM & Instructor                   | Ultra-fast (~500 tps) synthetic intent generation, NLI classification, patch creation                               |
 | **VCS Automation**          | PyGithub / GitHub REST API                                     | Automated branch creation, patch application, and Pull Request opening                                              |

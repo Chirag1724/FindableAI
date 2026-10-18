@@ -14,6 +14,7 @@ from app.api.v1.scans import (
     parse_github_repo_owner_name,
 )
 from app.core.auth import verify_api_key
+from app.core.permissions import OrgAction, assert_permission
 from app.core.rate_limiter import rate_limit_mutating
 from app.core.tenancy import assert_scan_org_access, get_scan_for_org
 from app.db import AsyncSessionLocal
@@ -46,6 +47,7 @@ async def apply_patch_as_pr(
     Checks in-memory cache and falls back to persistent database to resolve scan context.
     """
     tenant = _tenant_from_request(http_request)
+    assert_permission(tenant, OrgAction.RUN_REMEDIATION)
 
     if not body.github_repo_url or not body.github_repo_url.strip():
         raise HTTPException(

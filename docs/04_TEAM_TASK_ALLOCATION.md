@@ -186,7 +186,7 @@ FindableAI/
 | P1-2.2 | SSE Streaming Endpoint | Critical | `GET /api/scans/{id}/stream`: Stream DAG phase transitions to frontend |
 | P1-2.3 | Evidence API | High | `GET /api/scans/{id}/intents`, `GET /api/scans/{id}/contradictions` |
 | P1-2.4 | Patches API | High | `GET /api/scans/{id}/patches`, `POST /api/scans/{id}/patches/apply` |
-| P1-2.5 | Database query helpers | High | `hybrid_search` exists (FTS + keyword; **RRF / dense query not implemented**). Chunk retrieval by IDs as needed. |
+| P1-2.5 | Database query helpers | High | `hybrid_search` = dense + lexical + RRF. Chunk retrieval by IDs as needed. |
 
 #### Phase 5-6: DevOps & Deployment
 
@@ -234,7 +234,7 @@ FindableAI/
 | Task ID | Task | Priority | Details |
 | :--- | :--- | :--- | :--- |
 | P2-2.1 | Intent Generator | Critical | ✅ **DONE** — `intent_generator.py`: **ONE LLM call** → exactly 30 `IntentQuery` across 10 categories (3 each), structured `IntentBatch`, deterministic validation (duplicates, distribution, answer-like rejection). Architecture: `business_context → IntentGenerator → LLMClient → IntentBatch → validation` |
-| P2-2.2 | Hybrid Retrieval | Critical | ⚠️ **DONE (consumer API) / PARTIAL (runtime)** — `EntailmentEngine` *can* call Contract-1 `hybrid_search`. Live `FindableAIDAG` defaults to `_observe_chunks_retriever` (first-*k* chunks). `hybrid_search` itself has **no RRF** and does not query embeddings. See LIMITATIONS_AND_READINESS. |
+| P2-2.2 | Hybrid Retrieval | Critical | ✅ **DONE** — `hybrid_search` dense + lexical + RRF (`reciprocal_rank_fusion`, 1-based, `k=RETRIEVAL_RRF_K`); ACT prefers it, falls back to first-*k* when empty. See LIMITATIONS_AND_READINESS. |
 | P2-2.3 | NLI Entailment Engine | Critical | ✅ **DONE** — `backend/app/engines/entailment_engine.py`. Flow: `Intent → hybrid_search(..., k=5) → top-5 chunks → LLMClient NLI → IntentEvaluation`. Concurrent `evaluate_intents` via `asyncio.gather`; shared `LLMClient` budget preserved. |
 | P2-2.4 | Anti-Hallucination Guardrails | Critical | ✅ **DONE** — evidence-only `NLI_SYSTEM_PROMPT`; zero-chunk → deterministic UNKNOWN (0 LLM calls); non-UNKNOWN must cite retrieved IDs; fabricated IDs rejected; no LLM repair/retry (`max_retries=0`) |
 | P2-2.5 | Contradiction Detector | High | ✅ **DONE** — `backend/app/engines/contradiction.py`. Hybrid: deterministic structured facts first; LLM only for semantic ambiguity. Severities: HARD_CONTRADICTION / SOFT_INCONSISTENCY. Flow: chunks → extract → normalize → compare → optional semantic LLM → deduped `Contradiction`. |
@@ -465,7 +465,7 @@ class DOMChunkDB(SQLModel):
 
 # Himanshu Raj provides this function for Shiv Raj Singh:
 async def hybrid_search(query: str, scan_id: UUID, k: int = 5) -> list[DOMChunkDB]:
-    """Contract-1: returns top-k chunks (current impl: FTS/keyword; RRF not implemented)."""
+    """Contract-1: returns top-k chunks (dense + lexical fused by RRF)."""
     ...
 ```
 
@@ -649,7 +649,7 @@ Chirag Dwivedi should **not wait** for the backend to be complete. Instead:
 | :--- | :--- | :--- |
 | LLM + BudgetGuard + engines + DAG | ✅ Implemented (unit) | `app/core/llm.py`, `budget.py`, `engines/*`, `orchestration/*`, extensive unit tests |
 | Crawler / chunker / SSRF / embeddings | ✅ Largely implemented | `crawler/*`, `security.py`, `embeddings.py`, `demo-site/` |
-| Hybrid search / RRF | ⚠️ Partial / overclaimed historically | `hybrid_search` = FTS + token fallback (**no RRF**, embeddings not queried). Live DAG ACT uses first-*k* OBSERVE chunks by default |
+| Hybrid search / RRF | ✅ Implemented | `hybrid_search` = dense + lexical → RRF (1-based, `k=RETRIEVAL_RRF_K`). ACT prefers hybrid; first-*k* OBSERVE only as empty fallback |
 | Scan API + SSE | ⚠️ Partial | Real crawl→chunk→DAG wiring; synthetic intents + mock F-score/patches still on non-prod / failure paths (`api/v1/scans.py`) |
 | Frontend dashboard | ✅ Largely implemented | ScoreGauge, IntentMatrix, PatchModal, SSE; Fallback Mode honesty still weak |
 | Redis/Celery workers | ❌ Not used in app | Compose has Redis; scans use FastAPI `BackgroundTasks` only |

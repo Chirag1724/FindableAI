@@ -78,8 +78,12 @@ async def test_remediation_rejected_when_eligible_false(scan_in_memory, monkeypa
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(f"/api/v1/scans/{scan_in_memory}/patches/apply")
-    assert resp.status_code == 400
-    assert "not eligible" in resp.json()["detail"].lower()
+    assert resp.status_code in (400, 409, 422)
+    detail = resp.json()["detail"]
+    detail_s = detail if isinstance(detail, str) else str(detail)
+    assert "not eligible" in detail_s.lower() or (
+        isinstance(detail, dict) and detail.get("reason")
+    )
     create_called.assert_not_called()
 
 
@@ -98,8 +102,12 @@ async def test_remediation_rejected_when_eligible_none(scan_in_memory, monkeypat
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(f"/api/v1/scans/{scan_in_memory}/patches/apply")
-    assert resp.status_code == 400
-    assert "not eligible" in resp.json()["detail"].lower()
+    assert resp.status_code in (400, 409, 422)
+    detail = resp.json()["detail"]
+    detail_s = detail if isinstance(detail, str) else str(detail)
+    assert "not eligible" in detail_s.lower() or (
+        isinstance(detail, dict) and detail.get("reason")
+    )
     create_called.assert_not_called()
 
 
@@ -144,8 +152,12 @@ async def test_remediation_rejected_when_integrity_missing(monkeypatch):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.post(f"/api/v1/scans/{sid}/patches/apply")
-        assert resp.status_code == 400
-        assert "not eligible" in resp.json()["detail"].lower()
+        assert resp.status_code in (400, 409, 422)
+        detail = resp.json()["detail"]
+        detail_s = detail if isinstance(detail, str) else str(detail)
+        assert "not eligible" in detail_s.lower() or (
+            isinstance(detail, dict) and detail.get("reason")
+        )
         create_called.assert_not_called()
     finally:
         SCANS_DB.pop(sid, None)

@@ -477,7 +477,7 @@ Modes are set in `backend/app/api/v1/scans.py` after DAG execution. Canonical pr
 | :--- | :--- | :--- |
 | **Crawl Engine** | Playwright (httpx fallback if needed). | Same crawl path — crawl does not require LLM. |
 | **Intent Generation** | `IntentGenerator` → structured `IntentBatch` (30 queries). | `_generate_fallback_evaluations` templates if DAG returns no evaluations. |
-| **Evidence selection** | Default DAG: first-*k* OBSERVE chunks (not dense+RRF). | Same or empty depending on stage failure. |
+| **Evidence selection** | Prefer hybrid dense+lexical+RRF; first-*k* OBSERVE only when empty. | Same or empty depending on stage failure. |
 | **NLI & Contradictions** | LLM entailment + contradiction detector when stages succeed. | Optional `_generate_fallback_contradictions` if DAG error and empty list. |
 | **Scoring Formula** | Deterministic: `0.40*S_ans + 0.30*S_con + 0.20*S_str + 0.10*S_acc` (components 0–100; **no** outer ×100). | Same formula on synthetic inputs, **or** `generate_mock_fscore` in non-prod if scorer returns None. |
 | **Patch Generation** | `assemble_real_patches` when score breakdown exists. | `generate_mock_patches` in non-prod if assembly returns `None`; prod uses `[]`. |

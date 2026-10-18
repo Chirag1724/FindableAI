@@ -31,6 +31,9 @@ async def persist_scan_progress(
     append_event: bool = True,
     event_type: str = "progress",
     event_status: str | None = None,
+    job_id: uuid.UUID | None = None,
+    fencing_token: int | None = None,
+    worker_id: str | None = None,
 ) -> int | None:
     """Update scan progress columns and optionally append a sequenced event.
 
@@ -38,8 +41,33 @@ async def persist_scan_progress(
     completed/failed). ``event_status`` (fine-grained pipeline step) is stored
     on the progress event for SSE/UI; defaults to ``status`` when omitted.
 
+    When ``job_id`` / ``fencing_token`` / ``worker_id`` are provided, the write
+    is fenced: a stale worker affects 0 rows and returns ``None``.
+
     Returns the new event sequence number when an event is appended, else None.
     """
+    if job_id is not None and fencing_token is not None and worker_id is not None:
+        from app.jobs.states import JobStatus
+        from app.models.database import ScanJob
+
+        fence_ok = await session.scalar(
+            select(ScanJob.id).where(
+                ScanJob.id == job_id,
+                ScanJob.fencing_token == fencing_token,
+                ScanJob.claimed_by == worker_id,
+                ScanJob.status.in_([JobStatus.CLAIMED.value, JobStatus.RUNNING.value]),
+            )
+        )
+        if fence_ok is None:
+            logger.warning(
+                "progress_fenced_write_skipped scan_id=%s job_id=%s token=%s worker=%s",
+                scan_id,
+                job_id,
+                fencing_token,
+                worker_id,
+            )
+            return None
+
     now = datetime.now(UTC)
     clamped_percent: int | None = None
     if percent is not None:

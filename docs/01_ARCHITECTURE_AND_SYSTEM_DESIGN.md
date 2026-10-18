@@ -337,30 +337,29 @@ CREATE INDEX idx_chunks_embedding ON dom_chunks USING hnsw (embedding vector_cos
 CREATE INDEX idx_chunks_tsv ON dom_chunks USING gin (content_tsv);
 ```
 
-**Hybrid search — design target vs current implementation:**
+**Hybrid search — current implementation (authoritative):**
 
-> **Status (implementation evidence):** Reciprocal Rank Fusion (RRF) and dense vector *query* search are **not** implemented in the live runtime path. See [docs/engineering/LIMITATIONS_AND_READINESS.md](engineering/LIMITATIONS_AND_READINESS.md) and [`backend/app/crawler/search.py`](../backend/app/crawler/search.py).
+> See [`backend/app/crawler/search.py`](../backend/app/crawler/search.py) and [LIMITATIONS_AND_READINESS.md](engineering/LIMITATIONS_AND_READINESS.md).
 >
-> **What exists today:**
-> - Embeddings may be **written** on chunk store (`store_dom_chunks` + `get_embeddings_batch`).
-> - `hybrid_search` uses PostgreSQL `tsvector` / `ts_rank_cd`, then token/ILIKE scoring, then in-memory keyword fallback — **no** RRF loop, **no** cosine ANN at query time.
-> - Live `FindableAIDAG` ACT defaults to `_observe_chunks_retriever` (first-*k* OBSERVE chunks), not `hybrid_search`.
->
-> **Research note (planned / historical design):** Vector scores and BM25/keyword scores are incomparable; RRF (`RRF(d) = Σ 1/(k + rank(d))`, often `k=60`) is a common fusion approach. The pseudocode below is a **design sketch**, not a transcript of current production code.
+> - Embeddings are written on chunk store (`store_dom_chunks`).
+> - `hybrid_search` runs dense candidate retrieval + lexical (`tsvector` / keyword) then fuses with `reciprocal_rank_fusion`.
+> - RRF formula: `score(d) = Σ 1/(k + rank)` with **1-based** ranks; `k = RETRIEVAL_RRF_K` (default 60); equal list weights; within-list UUID dedupe; tie-break `(-score, str(uuid))`; top-N = `RETRIEVAL_TOP_K`.
+> - ACT prefers `build_act_retriever` → `hybrid_search`; falls back to first-*k* OBSERVE chunks only when retrieval returns empty.
 
 ```python
-# DESIGN SKETCH ONLY — not the current hybrid_search implementation
-async def hybrid_search_rrf_design(query: str, scan_id: str, k: int = 5) -> list[DOMChunk]:
-    query_embedding = await embed(query)
-    semantic_results = await vector_search(query_embedding, scan_id, top_n=20)
-    keyword_results = await bm25_search(query, scan_id, top_n=20)
-    rrf_scores = {}
-    for rank, chunk in enumerate(semantic_results):
-        rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0) + 1 / (60 + rank)
-    for rank, chunk in enumerate(keyword_results):
-        rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0) + 1 / (60 + rank)
-    sorted_ids = sorted(rrf_scores, key=rrf_scores.get, reverse=True)[:k]
-    return await fetch_chunks_by_ids(sorted_ids)
+# Matches reciprocal_rank_fusion (1-based ranks — note design sketches often use 0-based enumerate incorrectly)
+def reciprocal_rank_fusion(ranked_id_lists, *, rrf_k=60, limit=5):
+    scores = {}
+    for ranked in ranked_id_lists:
+        rank = 0
+        seen = set()
+        for cid in ranked:
+            if cid in seen:
+                continue
+            seen.add(cid)
+            rank += 1
+            scores[cid] = scores.get(cid, 0.0) + 1.0 / (rrf_k + rank)
+    return sorted(scores.items(), key=lambda item: (-item[1], str(item[0])))[:limit]
 ```
 
 ---
@@ -661,7 +660,7 @@ OBSERVE ──▶ PLAN ──▶ ACT ──▶ VERIFY ──▶ REFLECT ──�
 | Schema.org LocalBusiness Best Practices | schema.org, Google Rich Results Test |
 | NLI: SNLI / MultiNLI / FEVER Benchmarks | nlpprogress.com |
 | Instructor Library (Pydantic + LLM) | github.com/jxnl/instructor |
-| pgvector (embedding storage; query-time RRF not implemented) | github.com/pgvector/pgvector |
+| pgvector (embedding storage + query-time dense/RRF hybrid) | github.com/pgvector/pgvector |
 | Cross-Encoder NLI Models | Hugging Face sentence-transformers |
 | SSRF Prevention (OWASP) | owasp.org |
 | SSE in Next.js (Route Handlers) | Next.js Documentation |

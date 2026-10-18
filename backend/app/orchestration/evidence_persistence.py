@@ -222,6 +222,11 @@ def build_evidence_rows_for_intent(
         if excerpt is None and chunk.content:
             excerpt = chunk.content if len(chunk.content) <= 280 else f"{chunk.content[:277]}..."
         dom_path = getattr(ref, "dom_path", None) or chunk.dom_path
+        from app.orchestration.cache_remediation import (
+            content_hash_for_text,
+            current_cache_fingerprint,
+        )
+
         result.rows.append(
             EvidenceModel(
                 id=uuid.uuid4(),
@@ -234,6 +239,8 @@ def build_evidence_rows_for_intent(
                 dom_path=dom_path,
                 evidence_role=role,
                 observation_phase=observation_phase,
+                content_hash=content_hash_for_text(excerpt),
+                cache_fingerprint=current_cache_fingerprint(),
             )
         )
     result.persisted_count = len(result.rows)
@@ -414,6 +421,52 @@ async def hydrate_evidence_for_intents(
             )
         )
     return out
+
+
+async def upsert_intent_evaluations_fenced(
+    session: Any,
+    *,
+    scan_id: uuid.UUID,
+    evaluations: Sequence[IntentEvaluation],
+    job_id: uuid.UUID,
+    fencing_token: int,
+    worker_id: str,
+    chunk_map: dict[uuid.UUID, DOMChunkModel] | None = None,
+    skip_keys: Sequence[str] | None = None,
+) -> tuple[list[IntentEvaluation], int]:
+    """Fenced evaluation persist — stale workers insert 0 rows."""
+    import logging
+
+    from sqlalchemy import select
+
+    from app.jobs.states import JobStatus
+    from app.models.database import ScanJob
+
+    _log = logging.getLogger(__name__)
+    fence_ok = await session.scalar(
+        select(ScanJob.id).where(
+            ScanJob.id == job_id,
+            ScanJob.fencing_token == fencing_token,
+            ScanJob.claimed_by == worker_id,
+            ScanJob.status.in_([JobStatus.CLAIMED.value, JobStatus.RUNNING.value]),
+        )
+    )
+    if fence_ok is None:
+        _log.warning(
+            "evaluation_fenced_write_skipped scan_id=%s job_id=%s token=%s worker=%s",
+            scan_id,
+            job_id,
+            fencing_token,
+            worker_id,
+        )
+        return list(evaluations), 0
+    return await upsert_intent_evaluations(
+        session,
+        scan_id=scan_id,
+        evaluations=evaluations,
+        chunk_map=chunk_map,
+        skip_keys=skip_keys,
+    )
 
 
 async def upsert_intent_evaluations(

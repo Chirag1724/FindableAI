@@ -128,6 +128,10 @@ class Settings(BaseSettings):
     RETRIEVAL_RRF_K: int = 60
     RETRIEVAL_TOP_K: int = 5
 
+    # Cache-only remediation: max age of durable evidence (seconds). Default 7 days.
+    # Evidence older than this is rejected with reason stale_evidence (no silent reuse).
+    EVIDENCE_TTL_SECONDS: int = 604800
+
     # Security & Authentication
     API_KEY: str = ""
 
