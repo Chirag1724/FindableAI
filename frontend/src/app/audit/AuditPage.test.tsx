@@ -74,10 +74,19 @@ describe("AuditPage", () => {
     const findableBtn = screen.getByTestId("demo-fill-btn");
     fireEvent.click(findableBtn);
 
-    const urlInput = screen.getByTestId("scan-url-input") as HTMLInputElement;
+    const preview = screen.getByTestId("url-preview");
     const repoInput = screen.getByLabelText(/GitHub Repository/i) as HTMLInputElement;
 
-    expect(urlInput.value).toBe("https://findableai.vercel.app/");
+    expect(preview.textContent).toContain("https://findableai.vercel.app");
     expect(repoInput.value).toBe("https://github.com/Chirag1724/FindableAI");
+  });
+
+  it("builds a canonical https URL from domain + default TLD without typing the protocol", () => {
+    render(<AuditPage />);
+
+    fireEvent.change(screen.getByTestId("scan-url-input"), {
+      target: { value: "example" },
+    });
+    expect(screen.getByTestId("url-preview").textContent).toContain("https://example.com");
   });
 });

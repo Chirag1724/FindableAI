@@ -7,7 +7,6 @@ import Image from "next/image";
 import {
   ArrowLeft,
   ArrowRight,
-  Search,
   Github,
   AlertCircle,
   Check,
@@ -20,6 +19,9 @@ import {
 import { createScan, getHealth } from "@/lib/api";
 import type { ApiError } from "@/types/scan";
 import { gsap, EASING, prefersReducedMotion } from "@/lib/motion";
+import SmartUrlInput from "@/components/SmartUrlInput";
+import { validateScanUrl } from "@/lib/smartUrl";
+import { pushUrlHistory } from "@/lib/urlHistory";
 
 const PERSONAS = [
   {
@@ -157,24 +159,10 @@ export default function AuditPage() {
     });
   };
 
-  const validateUrl = (value: string): string | null => {
-    const trimmed = value.trim();
-    if (!trimmed) return "Please enter a website URL.";
-    try {
-      const parsed = new URL(trimmed);
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        return "URL must start with http:// or https://";
-      }
-    } catch {
-      return "Please enter a valid URL (e.g. https://example.com)";
-    }
-    return null;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedUrl = url.trim();
-    const err = validateUrl(trimmedUrl);
+    const err = validateScanUrl(trimmedUrl);
     if (err) {
       setUrlError(err);
       return;
@@ -197,6 +185,7 @@ export default function AuditPage() {
         },
         ac.signal
       );
+      pushUrlHistory(trimmedUrl);
       router.push(`/scans/${scan.scan_id}`);
     } catch (err) {
       if ((err as { name?: string }).name === "AbortError") return;
@@ -222,7 +211,7 @@ export default function AuditPage() {
 
   const handleUrlChange = (val: string) => {
     setUrl(val);
-    if (urlError) setUrlError(validateUrl(val));
+    if (urlError) setUrlError(validateScanUrl(val));
   };
 
   return (
@@ -343,19 +332,16 @@ export default function AuditPage() {
           <div className="lg:col-span-8 space-y-6">
             {/* Field 1: Target URL */}
             <div
-              className="rounded-xl bg-surface shadow-border p-5 sm:p-7 relative overflow-hidden space-y-4"
+              className="rounded-xl bg-surface shadow-border p-5 sm:p-7 relative space-y-4"
               data-animate-item
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <label
-                    htmlFor="scan-url-input"
-                    className="block text-xs font-mono tracking-wider uppercase text-text-muted font-medium"
-                  >
+                  <span className="block text-xs font-mono tracking-wider uppercase text-text-muted font-medium">
                     Target Website URL <span className="text-rose-400">*</span>
-                  </label>
+                  </span>
                   <p className="text-[11px] text-text-muted mt-0.5">
-                    Enter the domain or landing page URL you wish to crawl and evaluate.
+                    Build a domain with protocol and TLD, or paste a full custom URL.
                   </p>
                 </div>
 
@@ -374,29 +360,14 @@ export default function AuditPage() {
                 </button>
               </div>
 
-              <div
-                className="flex items-center gap-3 rounded-lg bg-surface-secondary shadow-border px-3.5 sm:px-4 py-3 sm:py-3.5 transition-all duration-150 focus-within:ring-2 focus-within:ring-white/30"
-                style={{
-                  boxShadow: urlError
-                    ? "0 0 0 1px #f43f5e"
-                    : undefined,
-                }}
-              >
-                <Search size={16} className="shrink-0 text-text-muted" aria-hidden="true" />
-                <input
-                  id="scan-url-input"
-                  data-testid="scan-url-input"
-                  type="url"
-                  value={url}
-                  onChange={(e) => handleUrlChange(e.target.value)}
-                  placeholder="https://acme.com"
-                  required
-                  aria-label="Target website URL to audit"
-                  aria-describedby={urlError ? "url-error" : undefined}
-                  aria-invalid={!!urlError}
-                  className="w-full bg-transparent text-sm text-white placeholder-text-muted/50 focus:outline-none"
-                />
-              </div>
+              <SmartUrlInput
+                id="scan-url-input"
+                data-testid="scan-url-input"
+                value={url}
+                onChange={handleUrlChange}
+                error={urlError}
+                disabled={submitting}
+              />
 
               {urlError && (
                 <p id="url-error" role="alert" className="text-xs text-rose-400">
