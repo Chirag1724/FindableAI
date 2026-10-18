@@ -825,13 +825,37 @@ async def run_scan_pipeline(
         HTML_DB[str(scan_uuid)] = html_docs
         HTML_DB[scan_uuid.hex] = html_docs
 
-        # Derive business context from extracted chunks
+        # Concurrent background precomputation of static lighthouse analysis
+        static_lh_task: asyncio.Task[Any] | None = None
+        try:
+            lh_precompute_engine = LighthouseEngine(
+                url=url,
+                html_documents=html_docs,
+                chunks=extracted_chunks,
+                robots_txt=robots_txt_content,
+                scan_id=scan_id,
+            )
+            static_lh_task = asyncio.create_task(
+                asyncio.to_thread(lh_precompute_engine.precompute_static)
+            )
+        except Exception as lh_bg_err:
+            logger.debug("Failed to spawn background static lighthouse task: %s", lh_bg_err)
+
+        # Derive business context from informative body chunks across crawled pages
         sample_texts = [
             c.content.strip()
-            for c in extracted_chunks[:15]
-            if c.content and len(c.content.strip()) > 10
+            for c in extracted_chunks
+            if c.content
+            and len(c.content.strip()) > 20
+            and getattr(c, "tag", "") not in ("nav", "header", "footer")
         ]
-        context_body = "\n".join(sample_texts[:8])
+        if not sample_texts:
+            sample_texts = [
+                c.content.strip()
+                for c in extracted_chunks
+                if c.content and len(c.content.strip()) > 10
+            ]
+        context_body = "\n".join(sample_texts[:16])[:3000]
         business_context = (
             f"Business URL: {url}\nPage excerpt:\n{context_body}"
             if context_body
@@ -1200,6 +1224,13 @@ async def run_scan_pipeline(
 
         # Phase 9.5: AI Lighthouse Readiness Scoring & Governance
         try:
+            precomputed = None
+            if static_lh_task is not None:
+                try:
+                    precomputed = await static_lh_task
+                except Exception as task_err:
+                    logger.debug("precomputed_lighthouse_failed: %s", task_err)
+
             lighthouse_engine = LighthouseEngine(
                 url=url,
                 html_documents=html_docs,
@@ -1209,7 +1240,7 @@ async def run_scan_pipeline(
                 robots_txt=robots_txt_content,
                 scan_id=scan_id,
             )
-            lighthouse_resp = lighthouse_engine.evaluate()
+            lighthouse_resp = lighthouse_engine.evaluate(precomputed_static=precomputed)
             LIGHTHOUSE_DB[scan_id] = lighthouse_resp
             LIGHTHOUSE_DB[str(scan_uuid)] = lighthouse_resp
             LIGHTHOUSE_DB[scan_uuid.hex] = lighthouse_resp

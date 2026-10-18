@@ -51,7 +51,10 @@ class Settings(BaseSettings):
                 if k_clean and k_clean not in keys:
                     keys.append(k_clean)
         if not keys and self.GROQ_API_KEY.strip():
-            keys.append(self.GROQ_API_KEY.strip())
+            for k in self.GROQ_API_KEY.split(","):
+                k_clean = k.strip()
+                if k_clean and k_clean not in keys:
+                    keys.append(k_clean)
         return keys
 
     GEMINI_API_KEY: str = ""
@@ -93,6 +96,8 @@ class Settings(BaseSettings):
     EVAL_BATCH_SIZE: int = 10
     # Concurrent evaluation batches. 3 concurrent batches fit within Groq TPM limits.
     EVAL_BATCH_CONCURRENCY: int = 3
+    # Retrieval depth: top-k relevant DOM chunks passed to NLI per intent query.
+    EVAL_TOP_K: int = 3
     # Bounded recovery for a failed batch: retry once, then split into halves
     # (min size EVAL_SPLIT_MIN_BATCH), then per-intent only as the last resort.
     EVAL_BATCH_RETRIES: int = 1
@@ -185,6 +190,7 @@ class Settings(BaseSettings):
         "EVAL_BATCH_SIZE",
         "EVAL_SPLIT_MIN_BATCH",
         "EVAL_MAX_RECOVERY_REQUESTS_PER_BATCH",
+        "EVAL_TOP_K",
     )
     @classmethod
     def _eval_positive(cls, value: int) -> int:

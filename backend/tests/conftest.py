@@ -37,6 +37,7 @@ def isolate_tests_from_real_providers_and_queue(monkeypatch: pytest.MonkeyPatch)
             "OPENROUTER_API_KEY",
             "NVIDIA_API_KEY",
             "ANTHROPIC_API_KEY",
+            "GROQ_API_KEYS",
         ):
             monkeypatch.setattr(settings, name, "")
         monkeypatch.setattr(settings, "GROQ_API_KEY", _PLACEHOLDER_KEY)

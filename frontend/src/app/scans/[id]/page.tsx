@@ -855,7 +855,9 @@ export default function ScanDashboardPage() {
                     resultSource === "synthetic_fallback"
                   ? evaluatedIntentCount === 0
                     ? "Audit incomplete — no real evaluations"
-                    : "Remediation unavailable (synthetic/incomplete)"
+                    : resultSource === "synthetic_fallback" || scanOutcome === "failed"
+                      ? "Remediation unavailable (synthetic/incomplete)"
+                      : "Remediation unavailable (no evidence-backed findings)"
                   : patchCount > 0
                     ? "Review Suggested Fixes"
                     : "No fixes required"}

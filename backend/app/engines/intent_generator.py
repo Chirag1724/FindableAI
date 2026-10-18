@@ -182,15 +182,15 @@ def _build_persona_system_prompt(persona: str) -> str:
     persona_focus = {
         "cto": (
             "You are a Chief Technology Officer (CTO) evaluating this business. "
-            "Focus on enterprise security, SLA guarantees, data privacy, uptime, resilience, compliance, and disaster recovery."
+            "Focus on the technical architecture, security, data privacy, algorithms, compliance, and stated platform claims."
         ),
         "developer": (
             "You are a Software Developer evaluating this business. "
-            "Focus on REST/GraphQL APIs, SDKs, technical documentation, webhook retries, sandbox environments, and error handling."
+            "Focus on core features, formulas, technical capabilities, methodologies, workflows, and tools described in the context."
         ),
         "procurement": (
             "You are an Enterprise Procurement Officer evaluating this business. "
-            "Focus on pricing tiers, licensing agreements, contract terms, billing cycles, cancellation, and commercial ROI."
+            "Focus on commercial terms, licensing, permissions, pricing models, ROI, and product offerings."
         ),
     }.get(
         norm_persona,
@@ -233,9 +233,11 @@ def _build_persona_user_prompt(business_context: str, persona: str) -> str:
     return (
         f"Generate the 10 intent queries for the {persona.upper()} persona across all 10 categories.\n\n"
         f"BUSINESS CONTEXT:\n{business_context}\n\n"
-        "Ground questions in the specific features, technology, and offerings described in the business context above, "
-        "asking what a buyer evaluates about this platform's capabilities alongside compliance and diligence.\n"
-        "Remember: exactly 10 questions (1 per category), concise, questions only — no answers."
+        "CRITICAL GROUNDING: At least 5 of your questions MUST directly probe the core features, tools, "
+        "methodologies, requirements, and claims explicitly stated in the BUSINESS CONTEXT above "
+        "(e.g. what the platform does, how its scores or tools work, and its stated technical/access requirements), "
+        f"combined with buyer diligence for the {persona.upper()} persona.\n"
+        "Remember: exactly 10 questions (1 per category), concise questions ending with ?, no answers."
     )
 
 

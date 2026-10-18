@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 from bs4 import BeautifulSoup, Comment, Tag
 
+from app.crawler.context_compressor import clean_dom_noise
+
 logger = logging.getLogger(__name__)
 
 # Primary semantic HTML tags used for chunking boundaries
@@ -151,7 +153,8 @@ class DOMChunker:
                     continue
 
             text = element.get_text(separator=" ", strip=True)
-            words = text.split()
+            cleaned_text = clean_dom_noise(text)
+            words = cleaned_text.split()
             word_count = len(words)
 
             if word_count < self.min_word_count:

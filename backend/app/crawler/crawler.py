@@ -343,7 +343,12 @@ class AsyncCrawler:
 
         concurrency_limit = max(1, getattr(self, "concurrency", 5))
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        limits = httpx.Limits(
+            max_keepalive_connections=20,
+            max_connections=50,
+            keepalive_expiry=30.0,
+        )
+        async with httpx.AsyncClient(timeout=self.timeout, limits=limits) as client:
             robots_txt = await self.fetch_robots_txt(client, canonical_start)
 
             while queue and len(results) < self.max_pages:

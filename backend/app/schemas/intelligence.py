@@ -90,7 +90,7 @@ class EvidenceReference(BaseModel):
     """Citation to a retrieved DOM chunk used during entailment judging."""
 
     chunk_id: str = Field(..., min_length=1)
-    dom_path: str = Field(..., min_length=1)
+    dom_path: str = Field(default="", description="DOM path anchor")
     url: str | None = None
     rank: int | None = Field(default=None, ge=1)
     rrf_score: float | None = Field(default=None, ge=0.0)

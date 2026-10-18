@@ -563,7 +563,18 @@ class LighthouseEngine:
 
     # --- Public Orchestration ---
 
-    def evaluate(self) -> LighthouseResponse:
+    def precompute_static(self) -> dict[str, Any]:
+        """Precompute static analysis passes that don't depend on NLI or contradictions."""
+        return {
+            "schema_data": self.analyze_schema_org(),
+            "headings_data": self.analyze_headings(),
+            "anchors_data": self.analyze_anchors(),
+            "entities_data": self.analyze_entities(),
+            "policies_data": self.analyze_policy_pages(),
+            "chunks_data": self.analyze_chunks_quality(),
+        }
+
+    def evaluate(self, precomputed_static: dict[str, Any] | None = None) -> LighthouseResponse:
         """Run complete AI Lighthouse evaluation and return standardized response."""
         # Answerability from NLI evaluations
         if self.evaluations:
@@ -578,13 +589,21 @@ class LighthouseEngine:
         contradiction_count = len(self.contradictions)
         consistency = max(0, 100 - contradiction_count * 25)
 
-        # Static analysis passes
-        schema_data = self.analyze_schema_org()
-        headings_data = self.analyze_headings()
-        anchors_data = self.analyze_anchors()
-        entities_data = self.analyze_entities()
-        policies_data = self.analyze_policy_pages()
-        chunks_data = self.analyze_chunks_quality()
+        # Static analysis passes (use precomputed if available)
+        if precomputed_static is not None:
+            schema_data = precomputed_static["schema_data"]
+            headings_data = precomputed_static["headings_data"]
+            anchors_data = precomputed_static["anchors_data"]
+            entities_data = precomputed_static["entities_data"]
+            policies_data = precomputed_static["policies_data"]
+            chunks_data = precomputed_static["chunks_data"]
+        else:
+            schema_data = self.analyze_schema_org()
+            headings_data = self.analyze_headings()
+            anchors_data = self.analyze_anchors()
+            entities_data = self.analyze_entities()
+            policies_data = self.analyze_policy_pages()
+            chunks_data = self.analyze_chunks_quality()
 
         # Compute per-engine scores
         chatgpt_score = self.score_chatgpt(schema_data, headings_data, answerability, consistency)

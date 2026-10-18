@@ -459,6 +459,7 @@ class FindableAIDAG:
         self._entailment = EntailmentEngine(
             llm_client=self._fast_llm,
             retriever=retriever,
+            top_k=max(1, int(settings.EVAL_TOP_K)),
             batch_size=max(1, int(settings.EVAL_BATCH_SIZE)),
             concurrency=max(1, min(3, int(settings.EVAL_BATCH_CONCURRENCY))),
         )

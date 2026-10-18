@@ -1,3 +1,7 @@
+---
+trigger: manual
+---
+
 # Ponytail: Minimalist & Senior Engineering Guidelines
 
 > "He says nothing. He writes one line. It works."

@@ -182,7 +182,7 @@ async def test_top_five_retrieval_requested_and_ids_in_prompt():
 
     handler = AsyncMock(side_effect=create_side_effect)
     retriever = AsyncMock(return_value=chunks)
-    engine = EntailmentEngine(llm_client=_llm(handler), retriever=retriever)
+    engine = EntailmentEngine(llm_client=_llm(handler), retriever=retriever, top_k=5)
 
     await engine.evaluate_intent(intent=_intent(), scan_id=uuid.uuid4())
 

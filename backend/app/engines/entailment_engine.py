@@ -34,7 +34,7 @@ from app.schemas.intelligence import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TOP_K = 5
+DEFAULT_TOP_K = int(getattr(settings, "EVAL_TOP_K", 3))
 # Success-path default: 30 intents → 3 persona batches of 10. Overridable via
 # EVAL_BATCH_SIZE / EntailmentEngine(batch_size=...).
 DEFAULT_BATCH_SIZE = 10
@@ -585,7 +585,7 @@ class EntailmentEngine:
                     {"role": "user", "content": user_prompt},
                 ],
                 max_retries=0,
-                max_tokens=min(2048, 160 * n + 200),
+                max_tokens=min(4096, 350 * n + 300),
             )
         except BudgetExhausted:
             raise
