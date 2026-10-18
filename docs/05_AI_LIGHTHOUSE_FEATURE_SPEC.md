@@ -2,7 +2,7 @@
 
 > **Document Version:** 1.0  
 > **Classification:** Internal Engineering Spec + Task Allocation  
-> **Authors:** Chirag Dwivedi, Himanshu Raj  
+> **Authors:** Himanshu Raj (Backend & Core Logic), Chirag Dwivedi (UI Stubs)  
 > **Last Updated:** October 2026  
 > **Status:** Approved Architecture Specification — High Priority
 
@@ -29,7 +29,7 @@
    - [The `llms.txt` Standard](#61-the-llmstxt-standard)
    - [Implementation](#62-implementation)
 7. [Integration with Existing DAG Pipeline](#7-integration-with-existing-dag-pipeline)
-8. [Task Allocation: Chirag vs Himanshu](#8-task-allocation-chirag-vs-himanshu)
+8. [Task Allocation: Himanshu vs Chirag](#8-task-allocation-himanshu-vs-chirag)
 9. [File & Directory Map](#9-file--directory-map)
 10. [Testing Strategy](#10-testing-strategy)
 
@@ -605,21 +605,23 @@ OBSERVE ──► PLAN ──► ACT ──► VERIFY ──► REFLECT ──�
 
 ---
 
-## 8. Task Allocation: Chirag vs Himanshu
+## 8. Task Allocation: Himanshu vs Chirag
 
 ### Ownership Summary
 
+> **Real contribution note:** Himanshu authored all backend Lighthouse engines, ML analyzers, and generators. Chirag contributed frontend UI component stubs (layout shells, not full logic). See [04_TEAM_TASK_ALLOCATION.md](04_TEAM_TASK_ALLOCATION.md) for calibrated work percentages.
+
 | Domain | Owner | Support |
 | :--- | :--- | :--- |
-| **Backend: Lighthouse Scoring Engine** | Himanshu | Chirag (API contract review) |
+| **Backend: Lighthouse Scoring Engine** | Himanshu | — |
 | **Backend: ML `robots.txt` Analyzer** | Himanshu | — |
 | **Backend: `llms.txt` Generator** | Himanshu | — |
 | **Backend: API Endpoint** | Himanshu | — |
-| **Frontend: Lighthouse Tab UI** | Chirag | Himanshu (data mocking) |
-| **Frontend: Circular Score Gauges** | Chirag | — |
-| **Frontend: Crawler Governance Panel** | Chirag | — |
-| **Frontend: Audit Checklist** | Chirag | — |
-| **Integration & Demo Polish** | Chirag + Himanshu | — |
+| **Frontend: Lighthouse Tab UI** | Himanshu (core logic) | Chirag (layout stub) |
+| **Frontend: Circular Score Gauges** | Himanshu (51%) | Chirag (49% stub) |
+| **Frontend: Crawler Governance Panel** | Chirag (stub) | — |
+| **Frontend: Audit Checklist** | Chirag (stub) | — |
+| **Integration & Demo Polish** | Himanshu | Chirag (minor) |
 
 ---
 
@@ -821,5 +823,5 @@ FindableAI/
 ---
 
 > **Document End**  
-> Ready to implement. Chirag and Himanshu can begin parallel tracks immediately.
+> Himanshu owns all backend Lighthouse engines. Chirag contributed frontend UI stubs. See calibrated work distribution in [04_TEAM_TASK_ALLOCATION.md](04_TEAM_TASK_ALLOCATION.md).
 

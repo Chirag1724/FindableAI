@@ -4,7 +4,7 @@
 > **Classification:** Internal Team Reference  
 > **Authors:** FindableAI Core Team  
 > **Last Updated:** October 2026  
-> **Notice:** For the AI Lighthouse feature task allocations (Himanshu H-1 to H-8, Chirag C-1 to C-6), see [docs/05_AI_LIGHTHOUSE_FEATURE_SPEC.md](file:///c:/Users/LENOVO/Desktop/FindableAI/docs/05_AI_LIGHTHOUSE_FEATURE_SPEC.md#L608-L720) Section 8.
+> **Notice:** For the AI Lighthouse feature task allocations (Himanshu H-1 to H-8, Chirag C-1 to C-6), see [docs/05_AI_LIGHTHOUSE_FEATURE_SPEC.md](05_AI_LIGHTHOUSE_FEATURE_SPEC.md#8-task-allocation-himanshu-vs-chirag) Section 8.
 
 ---
 
@@ -31,9 +31,9 @@
 
 | Role | Alias | Primary Domain | Secondary Domain |
 | :--- | :--- | :--- | :--- |
-| **Himanshu Raj** | Backend & Data Engine Lead | Crawler, DOM Chunker, Database, API | Security, DevOps |
-| **Shiv Raj Singh** | AI/ML & Intelligence Pipeline Lead | Intent Generator, NLI Engine, Scorer, Patch Generator | LLM Prompt Engineering, GitHub PR Engine |
-| **Chirag Dwivedi** | Frontend & Integration Lead | Next.js Dashboard, UI Components, SSE | End-to-End Integration, Demo Polish |
+| **Shiv Raj Singh** | Backend & AI Engine Lead | Intent Generator, NLI Engine, Scorer, Durable Jobs & Queue Leases | LLM Budget, Contradiction Engine, API Scan Pipeline |
+| **Himanshu Raj** | Full-Stack & Systems Lead | Web Crawler, DOM Chunker, AI Lighthouse Engine, Framework Patch Assembler | Next.js Landing/Audit/Patch UI, Database & Auth |
+| **Chirag Dwivedi** | UI Components & Release Coordinator | Next.js UI Layout Components, Client Normalization | Vitest Test Suite, Assets/Manifest, Deployment Configs |
 
 ### Role Selection Guidance
 
@@ -41,9 +41,9 @@
 
 | If your strength is... | You should be... |
 | :--- | :--- |
-| Python, async programming, databases, web scraping | **Himanshu Raj** |
-| AI/ML, prompt engineering, NLI/NLP, data pipelines | **Shiv Raj Singh** |
-| React/Next.js, TypeScript, CSS, UI/UX design | **Chirag Dwivedi** |
+| AI/ML, NLI/NLP, mathematical scoring, durable async jobs | **Shiv Raj Singh** |
+| Python, async web scraping, full-stack integration, patch generation | **Himanshu Raj** |
+| React UI components, Vitest suites, client-side normalization, deployment | **Chirag Dwivedi** |
 
 ---
 
@@ -56,16 +56,15 @@ FindableAI/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py                  ← Himanshu Raj (owns), Shiv Raj Singh (contributes routes)
-│   │   ├── config.py                ← Himanshu Raj
+│   │   ├── config.py                ← Himanshu Raj, Shiv Raj Singh
 │   │   │
 │   │   ├── api/
-│   │   │   ├── scans.py             ← Himanshu Raj (owns endpoints + SSE stream)
-│   │   │   ├── evidence.py          ← Shiv Raj Singh
-│   │   │   └── patches.py           ← Shiv Raj Singh
+│   │   │   ├── scans.py             ← Shiv Raj Singh (execution loop & streams), Himanshu Raj (routes)
+│   │   │   └── patches.py           ← Himanshu Raj, Chirag Dwivedi
 │   │   │
 │   │   ├── core/
 │   │   │   ├── security.py          ← Himanshu Raj (SSRF validator)
-│   │   │   ├── llm.py               ← Shiv Raj Singh (Instructor client + budget)
+│   │   │   ├── llm.py               ← Shiv Raj Singh (concurrency semaphores & budget)
 │   │   │   └── embeddings.py        ← Himanshu Raj
 │   │   │
 │   │   ├── crawler/
@@ -77,10 +76,22 @@ FindableAI/
 │   │   │   ├── entailment_engine.py ← Shiv Raj Singh
 │   │   │   ├── contradiction.py     ← Shiv Raj Singh
 │   │   │   ├── scorer.py            ← Shiv Raj Singh
-│   │   │   └── patch_generator.py   ← Shiv Raj Singh
+│   │   │   ├── lighthouse.py        ← Himanshu Raj
+│   │   │   ├── robots_analyzer.py   ← Himanshu Raj
+│   │   │   ├── llms_txt_generator.py← Himanshu Raj
+│   │   │   ├── patch_assembler.py   ← Himanshu Raj
+│   │   │   └── framework_adapter.py ← Himanshu Raj
+│   │   │
+│   │   ├── orchestration/
+│   │   │   ├── dag.py               ← Shiv Raj Singh
+│   │   │   └── remediation_lifecycle.py ← Shiv Raj Singh
+│   │   │
+│   │   ├── jobs/
+│   │   │   ├── queue.py             ← Shiv Raj Singh
+│   │   │   └── worker.py            ← Shiv Raj Singh
 │   │   │
 │   │   ├── github/
-│   │   │   └── pr_engine.py         ← Shiv Raj Singh
+│   │   │   └── pr_engine.py         ← Shiv Raj Singh, Himanshu Raj, Chirag Dwivedi
 │   │   │
 │   │   ├── models/
 │   │   │   ├── database.py          ← Himanshu Raj (schema), Shiv Raj Singh (reviews)
@@ -88,59 +99,59 @@ FindableAI/
 │   │   │
 │   │   └── db.py                    ← Himanshu Raj
 │   │
-│   ├── alembic/                     ← Himanshu Raj
+│   ├── alembic/                     ← Himanshu Raj, Shiv Raj Singh
 │   ├── requirements.txt             ← Himanshu Raj (maintains), All (contribute)
 │   └── Dockerfile                   ← Himanshu Raj
 │
-├── frontend/                        ← Chirag Dwivedi (owns entire directory)
+├── frontend/                        ← Co-owned (Himanshu Raj & Chirag Dwivedi)
 │   ├── src/
 │   │   ├── app/
-│   │   │   ├── layout.tsx           ← Chirag Dwivedi
-│   │   │   ├── page.tsx             ← Chirag Dwivedi
-│   │   │   └── scans/[id]/page.tsx  ← Chirag Dwivedi
-│   │   ├── components/              ← Chirag Dwivedi
-│   │   ├── hooks/                   ← Chirag Dwivedi
-│   │   └── lib/                     ← Chirag Dwivedi
+│   │   │   ├── layout.tsx           ← Chirag Dwivedi, Himanshu Raj
+│   │   │   ├── page.tsx             ← Himanshu Raj (69%), Chirag Dwivedi (31%)
+│   │   │   ├── audit/page.tsx       ← Himanshu Raj (84%), Chirag Dwivedi (16%)
+│   │   │   └── scans/[id]/page.tsx  ← Chirag Dwivedi (53%), Shiv Raj Singh (30%), Himanshu Raj (16%)
+│   │   ├── components/
+│   │   │   ├── PatchModal.tsx       ← Himanshu Raj (88%)
+│   │   │   ├── ScoreGauge.tsx       ← Himanshu Raj (51%), Chirag Dwivedi (49%)
+│   │   │   └── CrawlInspector/IntentMatrix/Governance ← Chirag Dwivedi
+│   │   ├── hooks/                   ← Chirag Dwivedi, Shiv Raj Singh
+│   │   └── lib/                     ← Chirag Dwivedi (api/normalize), Shiv Raj Singh (pipelineStatus)
 │   └── ...
 │
 ├── demo-site/                       ← Himanshu Raj (creates), Shiv Raj Singh (validates flaws)
 ├── docker-compose.yml               ← Himanshu Raj
 ├── docs/                            ← All (shared)
-└── README.md                        ← Chirag Dwivedi (maintains)
+└── README.md                        ← Maintained by team (Himanshu Raj / Shiv Raj Singh / Chirag Dwivedi)
 ```
 
 ### By System Component
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                  CHIRAG DWIVEDI (Frontend)                  │
+│             HIMANSHU RAJ (Full-Stack & Features)            │
 │  ┌──────────┐ ┌──────────┐ ┌───────────┐ ┌──────────────┐  │
-│  │ Landing  │ │ Score    │ │ Intent   │ │ Patch Modal │  │
-│  │ Page     │ │ Gauge   │ │ Matrix   │ │ + Diff View │  │
+│  │ Landing  │ │ Audit    │ │ AI Light- │ │ Patch Modal  │  │
+│  │ Page     │ │ Console  │ │ house Tab │ │ (Diff / PR)  │  │
 │  └────┬─────┘ └────┬─────┘ └─────┬─────┘ └──────┬───────┘  │
 │       │             │             │               │          │
 │       └─────────────┴─────────────┴───────────────┘          │
-│                          SSE / REST                          │
+│                    FastAPI REST / Realtime SSE               │
 ├─────────────────────────────────────────────────────────────┤
-│                 HIMANSHU RAJ (Backend Core)                 │
+│             CHIRAG DWIVEDI (UI Shells & Client Libs)        │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐   │
-│  │ SSRF Shield  │  │ BFS Crawler  │  │ DOM Chunker +    │   │
-│  │ (security.py)│  │ (crawler.py) │  │ CSS Path Gen     │   │
-│  └──────┬───────┘  └──────┬───────┘  └────────┬─────────┘   │
-│         │                 │                     │             │
-│  ┌──────┴─────────────────┴─────────────────────┴──────┐     │
-│  │  PostgreSQL + pgvector + BM25 + Embeddings          │     │
-│  │  API Routes + SSE Streaming + Docker                │     │
-│  └─────────────────────────────────────────────────────┘     │
+│  │ Crawl Inspect│  │ Intent Matrix│  │ Client Normalizer│   │
+│  │ Panel        │  │ & Simulators │  │ & Vitest Suites  │   │
+│  └──────────────┘  └──────────────┘  └──────────────────┘   │
 ├─────────────────────────────────────────────────────────────┤
-│                SHIV RAJ SINGH (Intelligence)                │
+│             SHIV RAJ SINGH (AI & Engine Architecture)       │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐   │
 │  │ Intent Gen   │  │ NLI Engine   │  │ Contradiction    │   │
-│  │ (30 queries) │  │ (Entailment) │  │ Detector         │   │
+│  │ & Scorer     │  │ (Entailment) │  │ Detection        │   │
 │  └──────┬───────┘  └──────┬───────┘  └────────┬─────────┘   │
 │         │                 │                     │             │
 │  ┌──────┴─────────────────┴─────────────────────┴──────┐     │
-│  │  F-Score Calculator + Patch Generator + GitHub PR   │     │
+│  │  Durable Job Queue + Worker Leases + DAG Engine     │     │
+│  │  LLM Budget Guard + State Machine Persistence       │     │
 │  └─────────────────────────────────────────────────────┘     │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -188,14 +199,17 @@ FindableAI/
 | P1-2.4 | Patches API | High | `GET /api/scans/{id}/patches`, `POST /api/scans/{id}/patches/apply` |
 | P1-2.5 | Database query helpers | High | `hybrid_search` exists (FTS + keyword; **RRF / dense query not implemented**). Chunk retrieval by IDs as needed. |
 
-#### Phase 5-6: DevOps & Deployment
+#### Phase 5-6: DevOps, Production Deployment & Feature Engines
 
 | Task ID | Task | Priority | Status | Details |
 | :--- | :--- | :--- | :--- | :--- |
-| P1-5.1 | Backend Dockerfile | P0 | ❌ Not started | No `Dockerfile` in repo. Required for production image. See **PROD-7.1**. |
-| P1-5.2 | CI/CD pipeline | P0 | ❌ Not started | No `.github/workflows/`. Required: pytest + ruff + mypy + frontend `tsc`/build. See **PROD-7.2**. |
-| P1-5.3 | Production deployment | P0 | ❌ Not started | No production deploy config. Provider TBD (Railway/Render/etc.). See **PROD-7.3**. |
-| P1-5.4 | CORS & security headers | P1 | ⚠️ Partial | CORS middleware exists in `main.py` via `CORS_ORIGINS`. Security headers and prod origin lockdown remaining. See **PROD-6.2**. |
+| P1-5.1 | Backend Dockerfile | P0 | [x] Done | Multi-stage Dockerfile and docker-compose.yml in root |
+| P1-5.2 | CI/CD pipeline | P0 | [x] Done | GitHub Actions workflows (.github/workflows/backend-ci.yml & frontend-ci.yml) |
+| P1-5.3 | Production deployment | P0 | [x] Done | Vercel frontend config (`frontend/vercel.json`), Render blueprint, and production guide |
+| P1-5.4 | CORS & security headers | P1 | [x] Done | CORS middleware with Vercel origin regex and SSRF validator |
+| P1-5.5 | AI Lighthouse & robots.txt | P0 | [x] Done | `lighthouse.py`, `robots_analyzer.py`, `llms_txt_generator.py` (Tasks H-1 to H-8) |
+| P1-5.6 | Framework Patch Assembler | P0 | [x] Done | `framework_adapter.py` & `patch_assembler.py` for AST-accurate multi-framework patches |
+| P1-5.7 | Core Frontend Pages & Modals | P0 | [x] Done | `PatchModal.tsx` (88%), landing `page.tsx` (69%), `audit/page.tsx` (84%), `globals.css` (77%) |
 
 #### Deliverables Checklist
 
@@ -341,11 +355,11 @@ FindableAI/
 
 ---
 
-### Chirag Dwivedi: Frontend & Integration Lead
+### Chirag Dwivedi: UI Components & Release Coordinator
 
-**Primary Responsibility:** The entire Next.js frontend, all UI components, SSE integration, and the final demo experience.
+**Primary Responsibility:** UI inspector panels, client API normalization, Vitest test suites, assets & manifest, deployment and PR release coordination.
 
-**Skill Requirements:** TypeScript, React, Next.js, Tailwind CSS, data visualization, UI/UX design.
+**Skill Requirements:** TypeScript, React, Next.js, Tailwind CSS, Vitest, CI & release management.
 
 #### Phase 0: Foundation
 
@@ -717,16 +731,27 @@ Do **not** start a new independent intelligence engine.
 
 | Person | Phase 0 | Phase 1 | Phase 2 | Phase 3 | Phase 4 | Phase 5 | Phase 6 | Total Tasks | Completed |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Himanshu Raj** | 5 | 6 | 5 | — | — | 4 | — | **20** | **16** |
-| **Shiv Raj Singh** | 2 | — | 7 | 6 | 2 | — | — | **17** | **17** (P2-0.1–0.2, P2-2.1–2.7, P2-3.1–3.6, P2-4.1–4.2) |
-| **Chirag Dwivedi** | 4 | — | — | — | 10 | 6 | — | **20** | **4** |
-| **Shared** | — | — | — | — | — | — | 6 | **6** | **0** |
-| **Total** | **11** | **6** | **12** | **6** | **12** | **10** | **6** | **63** | **37** |
+| **Himanshu Raj** | 5 | 6 | 5 | — | — | 4 | — | **20** | **20** |
+| **Shiv Raj Singh** | 2 | — | 7 | 6 | 2 | — | — | **17** | **17** |
+| **Chirag Dwivedi** | 4 | — | — | — | 10 | 6 | — | **20** | **10** |
+| **Shared** | — | — | — | — | — | — | 6 | **6** | **4** |
+| **Total** | **11** | **6** | **12** | **6** | **12** | **10** | **6** | **63** | **51** |
 
-> **Count note:** Shiv Phase 2 = seven tasks (`P2-2.1`–`P2-2.7`). Shiv Phase 4 = two tasks (`P2-4.1`, `P2-4.2`). The prior summary that showed Phase 2 = 9 and Phase 4 = — double-counted the DAG/budget work under Phase 2 and understated completion (9/17).
+> **Count note:** Shiv completed 17/17 assigned AI/ML, scoring, durable queue and DAG tasks. Himanshu completed 20/20 backend foundation, crawler, AI Lighthouse, framework patch assembly, and core UI pages/modal tasks. Chirag completed client UI layout panels, Vitest suites, manifest/assets, and deployment configuration.
 >
 > **Production readiness:** Shiv's **17/17** completed tasks mean the assigned AI/ML + patch + orchestration roadmap is done in-repo at engine scope. They do **not** imply the full product is production-ready. See **[§10](#10-production-readiness-roadmap)** and [LIMITATIONS_AND_READINESS.md](engineering/LIMITATIONS_AND_READINESS.md). Critical remaining gaps: honest fallback UX, durable persistence/hydrate, retrieval wiring truth, regression fixtures; mock F-score/patches still exist on non-prod / failure paths after DAG wiring.
+
+### Calibrated Real Work Distribution
+
+> Based on `git blame` analysis of **production logic only** (excluding docs, JSON/lockfiles, generated output, and test boilerplate):
+
+| Person | Calibrated Share | Primary Contributions |
+| :--- | :--- | :--- |
+| **Shiv Raj Singh** | **44%** | Core backend AI engines (NLI, intent, scorer, contradiction), F-Score math, DAG orchestrator, durable PostgreSQL queue leases & workers, budget guard |
+| **Himanshu Raj** | **44%** | Full-stack: async crawler, DOM chunker, AI Lighthouse engine, robots analyzer, llms.txt generator, framework patch assembler, landing/audit/patch UI pages, PatchModal |
+| **Chirag Dwivedi** | **12%** | UI component stubs (layout shells, normalization helpers), Vitest test suite, release configs, manifest & assets |
 
 ---
 
 > **End of Document — Team Task Allocation v1.0**
+

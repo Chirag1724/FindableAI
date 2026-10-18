@@ -2,7 +2,7 @@
 
 This guide walks through configuring, running, and testing FindableAI locally from a clean clone.
 
-**Also read:** [ENVIRONMENT.md](ENVIRONMENT.md) (canonical env vars) · [LIMITATIONS_AND_READINESS.md](LIMITATIONS_AND_READINESS.md) (what “working” means) · [LOCAL_SMOKE.md](LOCAL_SMOKE.md) (one real read-only scan).
+**Also read:** [ENVIRONMENT.md](ENVIRONMENT.md) (canonical env vars) · [LIMITATIONS_AND_READINESS.md](LIMITATIONS_AND_READINESS.md) (what “working” means) · [TESTING.md](TESTING.md) (test suites & smoke runs).
 
 **Port pitfall:** `backend/app/core/config.py` defaults `DATABASE_URL` to port **5433**, while `.env.example` / Compose typically use **5432**. Set `DATABASE_URL` explicitly after copying `.env.example`.
 
@@ -158,7 +158,7 @@ npm run build
 ## Local Development Tips
 
 ### Testing Scans Against Local Websites
-When `ENVIRONMENT` is set to `development` (the default), the SSRF validator in [backend/app/core/security.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/core/security.py) allows scans against `http://localhost:*` and `http://127.0.0.1:*` (e.g. testing against the bundled `demo-site/` folder).
+When `ENVIRONMENT` is set to `development` (the default), the SSRF validator in [backend/app/core/security.py](../../backend/app/core/security.py) allows scans against `http://localhost:*` and `http://127.0.0.1:*` (e.g. testing against the bundled `demo-site/` folder).
 
 ### Serving the Bundled Demo Site
 To run the included Bistro demo site locally for crawl testing:

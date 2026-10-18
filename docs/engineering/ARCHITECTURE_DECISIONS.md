@@ -55,7 +55,7 @@ Letter grades: `derive_grade` in `scorer.py` (e.g. S ≥ 95 with zero contradict
 ### ADR-002: Direct-Push-First with Fork Fallback for GitHub PRs
 
 - **Status:** Accepted
-- **Code Evidence:** [backend/app/github/pr_engine.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/github/pr_engine.py#L380-L425), [backend/app/github/client.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/github/client.py#L180-L205).
+- **Code Evidence:** [backend/app/github/pr_engine.py](../../backend/app/github/pr_engine.py#L380-L425), [backend/app/github/client.py](../../backend/app/github/client.py#L180-L205).
 
 #### Context
 Initial implementations assumed all automated PRs must fork the target repository. When users audited repositories they owned or had push access to, GitHub's API rejected attempts to fork a repository into the same account that already owns it (`422 Unprocessable Entity`). Furthermore, organizations frequently disable repository forking on private repositories.
@@ -76,7 +76,7 @@ Implement a permission-aware strategy in `GitHubPRService.create_remediation_pr(
 ### ADR-003: Framework Route Detection & Safe Guidance PRs
 
 - **Status:** Accepted (Updated with Heuristic Structural Validation)
-- **Code Evidence:** [backend/app/engines/framework_adapter.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/framework_adapter.py), [backend/app/github/pr_engine.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/github/pr_engine.py).
+- **Code Evidence:** [backend/app/engines/framework_adapter.py](../../backend/app/engines/framework_adapter.py), [backend/app/github/pr_engine.py](../../backend/app/github/pr_engine.py).
 
 #### Context
 Crawled URL paths (e.g. `/about`) do not map 1:1 to filesystem paths in modern component frameworks (Next.js App Router `app/about/page.tsx`, Pages Router `pages/_app.tsx`, React Router `src/App.tsx`, Vue `src/App.vue`, Astro `src/layouts/Layout.astro`). Direct string injection into JSX/TSX layout files without structural checks risks corrupting component syntax, breaking imports, or failing target repository build pipelines.
@@ -101,7 +101,7 @@ Implement a three-tier safe remediation resolution strategy:
 ### ADR-004: DAG State Machine Pipeline Orchestration
 
 - **Status:** Accepted
-- **Code Evidence:** [backend/app/orchestration/dag.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/orchestration/dag.py), [backend/app/orchestration/state.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/orchestration/state.py).
+- **Code Evidence:** [backend/app/orchestration/dag.py](../../backend/app/orchestration/dag.py), [backend/app/orchestration/state.py](../../backend/app/orchestration/state.py).
 
 #### Context
 A linear procedural script for crawling, query synthesis, NLI evaluation, contradiction detection, and patch generation is difficult to test, resume, or debug when intermediate stages encounter network timeouts or provider failures.
@@ -121,7 +121,7 @@ Encapsulate the intelligence workflow in a Directed Acyclic Graph (`FindableAIDA
 ### ADR-005: BudgetGuard & Deterministic Heuristic Fallback
 
 - **Status:** Accepted
-- **Code Evidence:** [backend/app/core/budget.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/core/budget.py), [backend/app/core/llm.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/core/llm.py), [backend/app/api/v1/scans.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/api/v1/scans.py#L87-L145).
+- **Code Evidence:** [backend/app/core/budget.py](../../backend/app/core/budget.py), [backend/app/core/llm.py](../../backend/app/core/llm.py), [backend/app/api/v1/scans.py](../../backend/app/api/v1/scans.py#L87-L145).
 
 #### Context
 LLM API calls can become expensive or encounter provider rate limits (e.g. Groq Output Tokens Per Minute limits). Unbounded LLM calls create operational reliability risks during high-concurrency audits.
@@ -139,7 +139,7 @@ LLM API calls can become expensive or encounter provider rate limits (e.g. Groq 
 ### ADR-006: Consolidation of Patch PR Endpoints
 
 - **Status:** Accepted (Unified in October 2026)
-- **Code Evidence:** [backend/app/api/v1/patches.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/api/v1/patches.py), [backend/app/api/v1/scans.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/api/v1/scans.py#L1103-L1258).
+- **Code Evidence:** [backend/app/api/v1/patches.py](../../backend/app/api/v1/patches.py), [backend/app/api/v1/scans.py](../../backend/app/api/v1/scans.py#L1103-L1258).
 
 #### Context
 `patches.py` (`POST /api/v1/patches/apply-pr`) and `scans.py` (`POST /api/v1/scans/{scan_id}/patches/apply`) maintained separate, drifting implementations of the PR creation workflow, leading to duplicated bugs around missing projection data and hardcoded fallback placeholders.
@@ -154,7 +154,7 @@ Consolidate `patches.py` to delegate 100% directly to `scans.py`'s `apply_scan_p
 ### ADR-007: Zero-LLM Deterministic AI Lighthouse & Crawler Governance
 
 - **Status:** Accepted (October 2026)
-- **Code Evidence:** [backend/app/engines/lighthouse.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/lighthouse.py), [backend/app/engines/robots_analyzer.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/robots_analyzer.py), [backend/app/engines/llms_txt_generator.py](file:///c:/Users/LENOVO/Desktop/FindableAI/backend/app/engines/llms_txt_generator.py).
+- **Code Evidence:** [backend/app/engines/lighthouse.py](../../backend/app/engines/lighthouse.py), [backend/app/engines/robots_analyzer.py](../../backend/app/engines/robots_analyzer.py), [backend/app/engines/llms_txt_generator.py](../../backend/app/engines/llms_txt_generator.py).
 
 #### Context
 Evaluating search engine readiness across 4 distinct AI search engines (ChatGPT, Gemini, Perplexity, Claude) and auditing crawler governance could introduce latency, token expense, and non-deterministic scoring if driven by prompt-based LLM queries.

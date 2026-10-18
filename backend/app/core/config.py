@@ -40,6 +40,20 @@ class Settings(BaseSettings):
     NVIDIA_API_KEY: str = ""
     OPENROUTER_API_KEY: str = ""
     GROQ_API_KEY: str = ""
+    GROQ_API_KEYS: str = ""
+
+    @property
+    def groq_api_keys_list(self) -> list[str]:
+        keys: list[str] = []
+        if self.GROQ_API_KEYS:
+            for k in self.GROQ_API_KEYS.split(","):
+                k_clean = k.strip()
+                if k_clean and k_clean not in keys:
+                    keys.append(k_clean)
+        if not keys and self.GROQ_API_KEY.strip():
+            keys.append(self.GROQ_API_KEY.strip())
+        return keys
+
     GEMINI_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
@@ -77,8 +91,8 @@ class Settings(BaseSettings):
     # Evaluation (ACT) batching: 30 intents -> 3 batches of 10, one persona per batch.
     # Each batch is one provider request on the success path.
     EVAL_BATCH_SIZE: int = 10
-    # Concurrent evaluation batches. Keep low on free tiers (Groq: 8K TPM per model).
-    EVAL_BATCH_CONCURRENCY: int = 1
+    # Concurrent evaluation batches. 3 concurrent batches fit within Groq TPM limits.
+    EVAL_BATCH_CONCURRENCY: int = 3
     # Bounded recovery for a failed batch: retry once, then split into halves
     # (min size EVAL_SPLIT_MIN_BATCH), then per-intent only as the last resort.
     EVAL_BATCH_RETRIES: int = 1

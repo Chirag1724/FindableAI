@@ -70,11 +70,22 @@ def key_matches_provider(provider: str, key: str | None) -> tuple[bool, str]:
     return False, f"key_prefix_belongs_to_{issuer}"
 
 
+def provider_api_keys(provider: str) -> list[str]:
+    """Return all configured and valid API keys for a provider."""
+    p = (provider or "").strip().lower()
+    if p == "groq":
+        keys = settings.groq_api_keys_list
+        return [k for k in keys if key_matches_provider("groq", k)[0]]
+    single = credential_for_provider(p)
+    return [single] if single else []
+
+
 def provider_api_key(provider: str) -> str:
     """Raw configured key for a provider (unvalidated). Never log the return value."""
     p = (provider or "").strip().lower()
+    groq_primary = settings.groq_api_keys_list[0] if settings.groq_api_keys_list else settings.GROQ_API_KEY
     mapping = {
-        "groq": settings.GROQ_API_KEY,
+        "groq": groq_primary,
         "gemini": settings.GEMINI_API_KEY,
         "openai": settings.OPENAI_API_KEY,
         "openrouter": settings.OPENROUTER_API_KEY,

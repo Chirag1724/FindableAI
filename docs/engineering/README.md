@@ -14,11 +14,13 @@ Welcome to the FindableAI engineering documentation hub. This directory contains
 | [SYSTEM_FLOW.md](SYSTEM_FLOW.md) | End-to-end architecture flow and lifecycle from URL submission through scoring and optional GitHub PR (with incomplete stages labeled). |
 | [API_REFERENCE.md](API_REFERENCE.md) | REST and SSE endpoints, schemas, authentication, rate limits, and execution-mode notes. |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Docker/Compose, env matrix, and deployment guidance. Existence of Dockerfiles ≠ verified production deploy. |
-| [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md) | Local onboarding for Python, Node, PostgreSQL/pgvector, and dev servers. |
+| [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md) | Local onboarding for Python, Node, PostgreSQL/pgvector, dev servers, and smoke testing. |
 | [ARCHITECTURE_DECISIONS.md](ARCHITECTURE_DECISIONS.md) | ADRs (F-Score, Git push strategy, framework patches, DAG, BudgetGuard). |
+| [DURABLE_JOBS.md](DURABLE_JOBS.md) | Durable scan job queue, lease semantics, and worker lifecycle. |
 | [TESTING.md](TESTING.md) | Test philosophy, suite catalogs, and commands. Do not treat listed counts as a live CI certificate unless re-run. |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common failure modes (Playwright, Alembic, Groq limits, GitHub PAT). |
-| [ROADMAP.md](ROADMAP.md) | Near-term engineering priorities; read alongside LIMITATIONS_AND_READINESS (ROADMAP “delivered” rows can lag code truth). |
+| [REMEDIATION_LIFECYCLE.md](REMEDIATION_LIFECYCLE.md) | Evidence-grounded remediation path, trust boundaries, and lifecycle states. |
+| [ROADMAP.md](ROADMAP.md) | Near-term engineering priorities; read alongside LIMITATIONS_AND_READINESS (ROADMAP "delivered" rows can lag code truth). |
 
 ---
 

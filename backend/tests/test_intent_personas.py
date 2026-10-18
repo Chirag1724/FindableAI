@@ -67,3 +67,39 @@ def test_fallback_evaluations_have_persona():
     assigned = [resolve_query_persona(cat, personas) for cat in IntentCategory]
     assert len(assigned) == len(IntentCategory)
     assert all(p in personas for p in assigned)
+
+
+def test_validate_intent_batch_single_persona():
+    queries = [_make_dummy_query(cat, idx) for idx, cat in enumerate(IntentCategory, start=1)]
+    batch = IntentBatch(business_type="DevOps API", queries=queries)
+    validated = validate_intent_batch(batch, personas=["cto"])
+
+    assert len(validated.queries) == 10
+    assert all(q.persona == "cto" for q in validated.queries)
+
+
+def test_validate_intent_batch_two_personas():
+    queries = []
+    idx = 1
+    for cat in IntentCategory:
+        for _ in range(2):
+            queries.append(_make_dummy_query(cat, idx))
+            idx += 1
+
+    batch = IntentBatch(business_type="DevOps API", queries=queries)
+    validated = validate_intent_batch(batch, personas=["cto", "developer"])
+
+    assert len(validated.queries) == 20
+    assert all(q.persona in ("cto", "developer") for q in validated.queries)
+
+
+def test_validate_intent_batch_rejects_count_mismatch():
+    import pytest
+    from app.engines.intent_generator import IntentGenerationError
+
+    queries = [_make_dummy_query(cat, idx) for idx, cat in enumerate(IntentCategory, start=1)]
+    batch = IntentBatch(business_type="DevOps API", queries=queries)
+
+    # 10 queries provided but 2 personas expected (needs 20)
+    with pytest.raises(IntentGenerationError, match="Expected exactly 20 queries for 2 persona"):
+        validate_intent_batch(batch, personas=["cto", "developer"])

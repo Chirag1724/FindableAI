@@ -249,9 +249,11 @@ class FindableAIDAG:
         markdown_generator: Callable[[PRReportData], str] | None = None,
         progress_callback: Callable[[int, int, Any], Awaitable[None]] | None = None,
         persist_batch_callback: Callable[[list[Any]], Awaitable[None]] | None = None,
+        stage_callback: Callable[[ScanPhase], Awaitable[None]] | None = None,
     ) -> None:
         self._progress_callback = progress_callback
         self._persist_batch_callback = persist_batch_callback
+        self._stage_callback = stage_callback
         # One scan-scoped BudgetGuard shared by every LLM consumer in this DAG.
         if llm_client is not None and budget_guard is not None:
             if llm_client.budget_guard is not budget_guard:
@@ -309,18 +311,28 @@ class FindableAIDAG:
         try:
             await self._run_observe(ctx, observation)
             ctx.advance(ScanPhase.PLAN)
+            if self._stage_callback is not None:
+                await self._stage_callback(ScanPhase.PLAN)
 
             await self._run_plan(ctx)
             ctx.advance(ScanPhase.ACT)
+            if self._stage_callback is not None:
+                await self._stage_callback(ScanPhase.ACT)
 
             await self._run_act(ctx)
             ctx.advance(ScanPhase.VERIFY)
+            if self._stage_callback is not None:
+                await self._stage_callback(ScanPhase.VERIFY)
 
             await self._run_verify(ctx)
             ctx.advance(ScanPhase.REFLECT)
+            if self._stage_callback is not None:
+                await self._stage_callback(ScanPhase.REFLECT)
 
             await self._run_reflect(ctx)
             ctx.advance(ScanPhase.STOP)
+            if self._stage_callback is not None:
+                await self._stage_callback(ScanPhase.STOP)
             ctx.completed_stages.append("stop")
             ctx.stage_trace.append("stop")
 
@@ -420,9 +432,10 @@ class FindableAIDAG:
                 stage="plan",
                 reason="intent_generation_failed",
             ) from exc
-        if batch is None or len(batch.queries) != 30:
+        expected_queries = len(ctx.personas) * 10
+        if batch is None or len(batch.queries) != expected_queries:
             raise StageExecutionError(
-                "PLAN expected IntentBatch with exactly 30 queries",
+                f"PLAN expected IntentBatch with exactly {expected_queries} queries for {len(ctx.personas)} persona(s)",
                 stage="plan",
                 reason="invalid_intent_batch",
             )
