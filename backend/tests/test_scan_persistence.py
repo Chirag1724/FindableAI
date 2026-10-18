@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import JSON, Boolean, Integer, String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
+from app.core.auth import TenantContext
 from app.orchestration.scan_persistence import (
     INTEGRITY_VERSION,
     LEGACY_WARNING,
@@ -354,7 +355,7 @@ async def test_get_scan_cold_hydration_uses_persisted_integrity(monkeypatch):
     monkeypatch.setattr(scans_mod, "AsyncSessionLocal", _SessionFactory())
     monkeypatch.setattr(scans_mod, "hydrate_evidence_for_intents", _hydrate_ok)
 
-    resp = await scans_mod.get_scan(scan_id)
+    resp = await scans_mod.get_scan_for_tenant(scan_id, TenantContext(is_system_admin=True))
     assert resp.execution_mode == "real_llm"
     assert resp.result_source == "real_pipeline"
     assert resp.outcome == "success"
@@ -422,7 +423,7 @@ async def test_get_scan_legacy_row_not_presented_as_real(monkeypatch):
 
     monkeypatch.setattr(scans_mod, "AsyncSessionLocal", _SessionFactory())
 
-    resp = await scans_mod.get_scan(scan_id)
+    resp = await scans_mod.get_scan_for_tenant(scan_id, TenantContext(is_system_admin=True))
     assert resp.execution_mode == "unknown"
     assert resp.result_source == "inconclusive"
     assert resp.outcome == "inconclusive"

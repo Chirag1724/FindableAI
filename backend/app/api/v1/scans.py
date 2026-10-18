@@ -13,12 +13,17 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from app.core.auth import verify_api_key
+from app.core.auth import TenantContext, verify_api_key
 from app.core.budget import BudgetGuard
 from app.core.config import settings
 from app.core.llm import LLMClient
 from app.core.rate_limiter import rate_limit_mutating, rate_limit_scans
 from app.core.security import SSRFSecurityException, validate_target_url
+from app.core.tenancy import (
+    assert_scan_org_access,
+    get_scan_for_org,
+    list_scans_for_org,
+)
 from app.crawler.crawler import AsyncCrawler
 from app.crawler.dom_chunker import ChunkData, DOMChunker
 from app.crawler.search import store_dom_chunks
@@ -125,10 +130,61 @@ from app.schemas.scan import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+# Fail closed: every scan route requires auth. Newly added routes inherit this.
+router = APIRouter(dependencies=[Depends(verify_api_key)])
 
 # In-memory store for caching, local development, and resilient fallbacks
 SCANS_DB: dict[str, ScanResponse] = {}
+
+
+def _tenant_from_request(request: Request) -> TenantContext:
+    """Read TenantContext attached by verify_api_key (router dependency)."""
+    tenant = getattr(request.state, "tenant", None)
+    if isinstance(tenant, TenantContext):
+        return tenant
+    # Fail closed if dependency did not run / attach context.
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Missing API Key. Provide via 'X-API-Key' header or 'Authorization: Bearer <key>'.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _org_id_str(org_id: uuid.UUID | None) -> str | None:
+    return str(org_id) if org_id is not None else None
+
+
+async def _authorize_scan_ref(scan_id: str, tenant: TenantContext) -> uuid.UUID | None:
+    """Authorize access to a scan by public id. Returns UUID when durable row exists.
+
+    In-memory-only stubs (no DB row yet) are authorized against the stamped
+    ``ScanResponse.org_id``. Missing scans raise 404.
+    """
+    scan_uuid = resolve_scan_uuid(scan_id)
+    if scan_uuid is not None:
+        try:
+            async with AsyncSessionLocal() as s:
+                await get_scan_for_org(s, scan_uuid, tenant)
+                return scan_uuid
+        except HTTPException:
+            raise
+        except Exception:
+            # DB unavailable: fall through to in-memory auth for local/dev.
+            pass
+
+    record = SCANS_DB.get(scan_id)
+    if record is None and scan_uuid is not None:
+        record = SCANS_DB.get(str(scan_uuid)) or SCANS_DB.get(f"scan_{scan_uuid.hex}")
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
+    mem_org: uuid.UUID | None = None
+    if getattr(record, "org_id", None):
+        try:
+            mem_org = uuid.UUID(str(record.org_id))
+        except ValueError:
+            mem_org = None
+    assert_scan_org_access(scan_org_id=mem_org, tenant=tenant)
+    return scan_uuid
 CHUNKS_DB: dict[str, list[ChunkData]] = {}
 LIGHTHOUSE_DB: dict[str, LighthouseResponse] = {}
 ROBOTS_DB: dict[str, str] = {}
@@ -1319,7 +1375,7 @@ async def run_scan_pipeline(
     "",
     response_model=ScanResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(verify_api_key), Depends(rate_limit_scans)],
+    dependencies=[Depends(rate_limit_scans)],
 )
 async def create_scan(
     request: ScanRequest,
@@ -1368,6 +1424,10 @@ async def create_scan(
     )
     from app.jobs.worker import process_job_inline
 
+    tenant = _tenant_from_request(http_request)
+    # org_id comes only from the authenticated principal — never from the body.
+    stamp_org_id = tenant.org_id
+
     client_idem = http_request.headers.get("Idempotency-Key")
     correlation_id = (
         http_request.headers.get("X-Correlation-ID")
@@ -1402,6 +1462,7 @@ async def create_scan(
                         idempotency_key=idem_key,
                         fingerprint=fingerprint,
                         correlation_id=correlation_id,
+                        org_id=stamp_org_id,
                     )
                     if result.conflict:
                         raise HTTPException(
@@ -1417,7 +1478,11 @@ async def create_scan(
                     correlation_id = result.job.correlation_id
                     durable_ok = True
                     if not result.created:
-                        # Return existing scan representation
+                        # Idempotent hit: still enforce tenant isolation (404 if cross-org).
+                        assert_scan_org_access(
+                            scan_org_id=getattr(result.scan, "org_id", None),
+                            tenant=tenant,
+                        )
                         existing_id = f"scan_{result.scan.id.hex}"
                         if existing_id in SCANS_DB:
                             return SCANS_DB[existing_id]
@@ -1430,6 +1495,7 @@ async def create_scan(
                             if result.scan.status in {s.value for s in ScanStatus}
                             else ScanStatus.PENDING,
                             created_at=result.scan.created_at or datetime.now(UTC),
+                            org_id=_org_id_str(getattr(result.scan, "org_id", None)),
                             repo_url=result.scan.repo_url,
                             github_repo_url=result.scan.repo_url,
                         )
@@ -1459,6 +1525,7 @@ async def create_scan(
         target_url=str(request.url),
         status=ScanStatus.PENDING,
         created_at=datetime.now(UTC),
+        org_id=_org_id_str(stamp_org_id),
         repo_url=request.repo_url,
         github_repo_url=request.repo_url,
     )
@@ -1491,6 +1558,7 @@ async def create_scan(
                         url=str(request.url),
                         repo_url=str(request.repo_url) if request.repo_url else None,
                         status="in_progress",
+                        org_id=stamp_org_id,
                     )
                     s.add(db_scan)
         except Exception as db_err:
@@ -1652,9 +1720,21 @@ async def _attach_job_observability(scan_resp: ScanResponse, scan_uuid: uuid.UUI
         logger.debug("job_observability_attach_skipped: %s", exc)
 
 
+async def get_scan_for_tenant(scan_id: str, tenant: TenantContext) -> ScanResponse:
+    """Authorize then load scan response (shared by routes and internal callers)."""
+    await _authorize_scan_ref(scan_id, tenant)
+    return await _load_scan_response(scan_id)
+
+
 @router.get("/{scan_id}", response_model=ScanResponse)
-async def get_scan(scan_id: str) -> ScanResponse:
-    """Fetches status and results of a scan."""
+async def get_scan(scan_id: str, request: Request) -> ScanResponse:
+    """Fetches status and results of a scan (tenant-scoped)."""
+    tenant = _tenant_from_request(request)
+    return await get_scan_for_tenant(scan_id, tenant)
+
+
+async def _load_scan_response(scan_id: str) -> ScanResponse:
+    """Hydrate ScanResponse from memory or Postgres (caller must authorize)."""
     scan_uuid = resolve_scan_uuid(scan_id)
 
     if scan_id in SCANS_DB:
@@ -1890,6 +1970,7 @@ async def get_scan(scan_id: str) -> ScanResponse:
                         target_url=db_scan.url,
                         status=scan_status,
                         created_at=db_scan.created_at,
+                        org_id=_org_id_str(getattr(db_scan, "org_id", None)),
                         completed_at=getattr(db_scan, "completed_at", None),
                         f_score=f_score_obj,
                         summary=summary,
@@ -1953,15 +2034,13 @@ async def get_scan(scan_id: str) -> ScanResponse:
 @router.get(
     "/{scan_id}/job",
     response_model=ScanJobStatusResponse,
-    dependencies=[Depends(verify_api_key)],
 )
-async def get_scan_job_status(scan_id: str) -> ScanJobStatusResponse:
+async def get_scan_job_status(scan_id: str, request: Request) -> ScanJobStatusResponse:
     """Durable job + progress/observability snapshot for an authorized scan."""
-    scan_uuid = resolve_scan_uuid(scan_id)
-    if scan_uuid is None and scan_id not in SCANS_DB:
-        raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+    tenant = _tenant_from_request(request)
+    scan_uuid = await _authorize_scan_ref(scan_id, tenant)
     if scan_uuid is None:
-        raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+        raise HTTPException(status_code=404, detail="Scan not found")
 
     from sqlalchemy import select as sa_select
 
@@ -1969,9 +2048,7 @@ async def get_scan_job_status(scan_id: str) -> ScanJobStatusResponse:
 
     try:
         async with AsyncSessionLocal() as s:
-            db_scan = await s.get(ScanModel, scan_uuid)
-            if db_scan is None and scan_id not in SCANS_DB:
-                raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+            db_scan = await get_scan_for_org(s, scan_uuid, tenant)
 
             job_row = (
                 await s.execute(
@@ -2055,25 +2132,17 @@ async def stream_scan_progress(
 ):
     """SSE progress stream with durable DB replay (cross-process safe).
 
+    Auth is required before the stream opens (router ``verify_api_key``).
+    Browsers must use a fetch-based stream that sends ``X-API-Key`` /
+    ``Authorization`` headers — native EventSource cannot. Each reconnect is a
+    new HTTP request, so auth is re-validated automatically.
+
     Prefer ``Last-Event-ID`` header or ``last_event_id`` query for reconnect.
     Process-local EVENT_* is best-effort only; PostgreSQL events/snapshot are
     authoritative. Polling GET /scans/{id} remains the reliable fallback.
     """
-    scan_uuid = resolve_scan_uuid(scan_id)
-    if scan_uuid is None and scan_id not in SCANS_DB:
-        raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
-
-    if scan_uuid is not None:
-        try:
-            async with AsyncSessionLocal() as s:
-                db_scan = await s.get(ScanModel, scan_uuid)
-                if db_scan is None and scan_id not in SCANS_DB:
-                    raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
-        except HTTPException:
-            raise
-        except Exception:
-            if scan_id not in SCANS_DB:
-                raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found") from None
+    tenant = _tenant_from_request(request)
+    scan_uuid = await _authorize_scan_ref(scan_id, tenant)
 
     header_leid = request.headers.get("last-event-id") or request.headers.get("Last-Event-ID")
     after_seq = int(last_event_id or 0)
@@ -2233,8 +2302,10 @@ async def stream_scan_progress(
 
 
 @router.get("/{scan_id}/chunks")
-async def get_scan_chunks(scan_id: str) -> list[dict[str, Any]]:
-    """Returns all extracted DOM chunks for this scan."""
+async def get_scan_chunks(scan_id: str, request: Request) -> list[dict[str, Any]]:
+    """Returns all extracted DOM chunks for this scan (parent-scan org scoped)."""
+    tenant = _tenant_from_request(request)
+    scan_uuid = await _authorize_scan_ref(scan_id, tenant)
     if scan_id in CHUNKS_DB:
         return [
             {
@@ -2247,11 +2318,19 @@ async def get_scan_chunks(scan_id: str) -> list[dict[str, Any]]:
             for c in CHUNKS_DB[scan_id]
         ]
 
-    scan_uuid = resolve_scan_uuid(scan_id)
     if scan_uuid:
         try:
             async with AsyncSessionLocal() as s:
-                stmt = select(DOMChunkModel).where(DOMChunkModel.scan_id == scan_uuid)
+                await get_scan_for_org(s, scan_uuid, tenant)
+                stmt = (
+                    select(DOMChunkModel)
+                    .join(ScanModel, DOMChunkModel.scan_id == ScanModel.id)
+                    .where(DOMChunkModel.scan_id == scan_uuid)
+                )
+                if not tenant.is_system_admin:
+                    if tenant.org_id is None:
+                        return []
+                    stmt = stmt.where(ScanModel.org_id == tenant.org_id)
                 result = await s.execute(stmt)
                 db_chunks = result.scalars().all()
                 if db_chunks:
@@ -2266,6 +2345,8 @@ async def get_scan_chunks(scan_id: str) -> list[dict[str, Any]]:
                         }
                         for c in db_chunks
                     ]
+        except HTTPException:
+            raise
         except Exception as e:
             logger.debug("DB chunks lookup bypassed: %s", e)
 
@@ -2273,8 +2354,10 @@ async def get_scan_chunks(scan_id: str) -> list[dict[str, Any]]:
 
 
 @router.get("/{scan_id}/intents")
-async def get_scan_intents(scan_id: str) -> list[dict[str, Any]]:
+async def get_scan_intents(scan_id: str, request: Request) -> list[dict[str, Any]]:
     """Returns intent evaluations for this scan (cold-path hydrates durable evidence)."""
+    tenant = _tenant_from_request(request)
+    await _authorize_scan_ref(scan_id, tenant)
     if scan_id in SCANS_DB and SCANS_DB[scan_id].intents:
         return [eval_item.model_dump(mode="json") for eval_item in SCANS_DB[scan_id].intents]
 
@@ -2282,7 +2365,16 @@ async def get_scan_intents(scan_id: str) -> list[dict[str, Any]]:
     if scan_uuid:
         try:
             async with AsyncSessionLocal() as s:
-                stmt = select(IntentModel).where(IntentModel.scan_id == scan_uuid)
+                await get_scan_for_org(s, scan_uuid, tenant)
+                stmt = (
+                    select(IntentModel)
+                    .join(ScanModel, IntentModel.scan_id == ScanModel.id)
+                    .where(IntentModel.scan_id == scan_uuid)
+                )
+                if not tenant.is_system_admin:
+                    if tenant.org_id is None:
+                        return []
+                    stmt = stmt.where(ScanModel.org_id == tenant.org_id)
                 result = await s.execute(stmt)
                 db_intents = result.scalars().all()
                 if db_intents:
@@ -2323,6 +2415,8 @@ async def get_scan_intents(scan_id: str) -> list[dict[str, Any]]:
                         converted, hydrate_failed=hydrate_failed
                     )
                     return [item.model_dump(mode="json") for item in converted]
+        except HTTPException:
+            raise
         except Exception as e:
             logger.debug("DB intents lookup error: %s", e)
 
@@ -2330,8 +2424,10 @@ async def get_scan_intents(scan_id: str) -> list[dict[str, Any]]:
 
 
 @router.get("/{scan_id}/contradictions")
-async def get_scan_contradictions(scan_id: str) -> list[dict[str, Any]]:
+async def get_scan_contradictions(scan_id: str, request: Request) -> list[dict[str, Any]]:
     """Returns detected factual contradictions across crawled pages."""
+    tenant = _tenant_from_request(request)
+    await _authorize_scan_ref(scan_id, tenant)
     if scan_id in SCANS_DB and SCANS_DB[scan_id].contradictions:
         return [con.model_dump(mode="json") for con in SCANS_DB[scan_id].contradictions]
 
@@ -2339,7 +2435,16 @@ async def get_scan_contradictions(scan_id: str) -> list[dict[str, Any]]:
     if scan_uuid:
         try:
             async with AsyncSessionLocal() as s:
-                stmt = select(ContradictionModel).where(ContradictionModel.scan_id == scan_uuid)
+                await get_scan_for_org(s, scan_uuid, tenant)
+                stmt = (
+                    select(ContradictionModel)
+                    .join(ScanModel, ContradictionModel.scan_id == ScanModel.id)
+                    .where(ContradictionModel.scan_id == scan_uuid)
+                )
+                if not tenant.is_system_admin:
+                    if tenant.org_id is None:
+                        return []
+                    stmt = stmt.where(ScanModel.org_id == tenant.org_id)
                 result = await s.execute(stmt)
                 db_cons = result.scalars().all()
                 if db_cons:
@@ -2355,6 +2460,8 @@ async def get_scan_contradictions(scan_id: str) -> list[dict[str, Any]]:
                         }
                         for c in db_cons
                     ]
+        except HTTPException:
+            raise
         except Exception as e:
             logger.debug("DB contradictions lookup error: %s", e)
 
@@ -2364,10 +2471,10 @@ async def get_scan_contradictions(scan_id: str) -> list[dict[str, Any]]:
 @router.get(
     "/{scan_id}/patches",
     response_model=list[PatchProposal],
-    dependencies=[Depends(verify_api_key)],
 )
 async def get_scan_patches(
     scan_id: str,
+    request: Request,
     repo_url: str | None = Query(
         default=None, description="GitHub repository URL for framework-native diffs"
     ),
@@ -2378,6 +2485,8 @@ async def get_scan_patches(
     with framework-native code diffs so the UI preview matches the GitHub PR exactly.
     Auth follows the same fail-closed contract as other remediation reads.
     """
+    tenant = _tenant_from_request(request)
+    await _authorize_scan_ref(scan_id, tenant)
     patches: list[PatchProposal] = []
     scan_repo_url: str | None = repo_url if isinstance(repo_url, str) else None
 
@@ -2392,18 +2501,24 @@ async def get_scan_patches(
     if not scan_repo_url and scan_uuid:
         try:
             async with AsyncSessionLocal() as s:
-                scan_stmt = select(ScanModel).where(ScanModel.id == scan_uuid)
-                scan_result = await s.execute(scan_stmt)
-                db_scan = scan_result.scalar_one_or_none()
-                if db_scan:
-                    scan_repo_url = db_scan.repo_url
+                db_scan = await get_scan_for_org(s, scan_uuid, tenant)
+                scan_repo_url = db_scan.repo_url
+        except HTTPException:
+            raise
         except Exception as e:
             logger.debug("DB scan repo_url lookup error: %s", e)
 
     if not patches and scan_uuid:
         try:
             async with AsyncSessionLocal() as s:
-                stmt = select(PatchModel).where(PatchModel.scan_id == scan_uuid)
+                await get_scan_for_org(s, scan_uuid, tenant)
+                stmt = (
+                    select(PatchModel)
+                    .join(ScanModel, PatchModel.scan_id == ScanModel.id)
+                    .where(PatchModel.scan_id == scan_uuid)
+                )
+                if not tenant.is_system_admin and tenant.org_id is not None:
+                    stmt = stmt.where(ScanModel.org_id == tenant.org_id)
                 result = await s.execute(stmt)
                 db_patches = result.scalars().all()
                 if db_patches:
@@ -2553,17 +2668,20 @@ async def _reconcile_github_pr_after_timeout(
 @router.post(
     "/{scan_id}/patches/apply",
     response_model=PullRequestResult,
-    dependencies=[Depends(verify_api_key), Depends(rate_limit_mutating)],
+    dependencies=[Depends(rate_limit_mutating)],
 )
 async def apply_scan_patch(
     scan_id: str,
+    request: Request,
     payload: ApplyScanPatchRequest | None = None,
 ) -> PullRequestResult:
     """Triggers autonomous GitHub PR creation for this scan's proposed patches (Task P1-2.4)."""
+    tenant = _tenant_from_request(request)
+    await _authorize_scan_ref(scan_id, tenant)
     scan = SCANS_DB.get(scan_id)
     if not scan:
         try:
-            scan = await get_scan(scan_id)
+            scan = await get_scan_for_tenant(scan_id, tenant)
             SCANS_DB[scan_id] = scan
         except HTTPException:
             raise
@@ -3092,13 +3210,15 @@ async def apply_scan_patch(
 @router.post(
     "/{scan_id}/patches/validate",
     response_model=PatchValidationResponse,
-    dependencies=[Depends(verify_api_key), Depends(rate_limit_mutating)],
+    dependencies=[Depends(rate_limit_mutating)],
 )
-async def validate_scan_patches(scan_id: str) -> PatchValidationResponse:
+async def validate_scan_patches(scan_id: str, request: Request) -> PatchValidationResponse:
     """Run deterministic patch validators without mutating GitHub."""
+    tenant = _tenant_from_request(request)
+    await _authorize_scan_ref(scan_id, tenant)
     scan = SCANS_DB.get(scan_id)
     if not scan:
-        scan = await get_scan(scan_id)
+        scan = await get_scan_for_tenant(scan_id, tenant)
 
     if scan.remediation_eligible is not True:
         raise HTTPException(
@@ -3149,15 +3269,16 @@ async def validate_scan_patches(scan_id: str) -> PatchValidationResponse:
 @router.get(
     "/{scan_id}/remediation",
     response_model=list[RemediationRunOut],
-    dependencies=[Depends(verify_api_key)],
 )
-async def list_scan_remediation_runs(scan_id: str) -> list[RemediationRunOut]:
+async def list_scan_remediation_runs(scan_id: str, request: Request) -> list[RemediationRunOut]:
     """Return persisted PR lifecycle rows for a scan (fresh DB read)."""
-    scan_uuid = resolve_scan_uuid(scan_id)
+    tenant = _tenant_from_request(request)
+    scan_uuid = await _authorize_scan_ref(scan_id, tenant)
     if not scan_uuid:
-        raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+        raise HTTPException(status_code=404, detail="Scan not found")
     try:
         async with AsyncSessionLocal() as s:
+            await get_scan_for_org(s, scan_uuid, tenant)
             runs = await get_runs_for_scan(s, scan_uuid)
             return [
                 RemediationRunOut(
@@ -3189,19 +3310,21 @@ async def list_scan_remediation_runs(scan_id: str) -> list[RemediationRunOut]:
 @router.post(
     "/{scan_id}/remediation/verify",
     response_model=VerificationRunOut,
-    dependencies=[Depends(verify_api_key), Depends(rate_limit_mutating)],
+    dependencies=[Depends(rate_limit_mutating)],
 )
 async def verify_scan_remediation(
     scan_id: str,
+    request: Request,
     payload: VerifyRemediationRequest | None = None,
 ) -> VerificationRunOut:
     """Post-PR verification against the PR head revision using fresh file content."""
+    tenant = _tenant_from_request(request)
+    scan_uuid = await _authorize_scan_ref(scan_id, tenant)
     scan = SCANS_DB.get(scan_id)
     if not scan:
-        scan = await get_scan(scan_id)
-    scan_uuid = resolve_scan_uuid(scan_id)
+        scan = await get_scan_for_tenant(scan_id, tenant)
     if not scan_uuid:
-        raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+        raise HTTPException(status_code=404, detail="Scan not found")
 
     token = settings.GITHUB_TOKEN.strip() if settings.GITHUB_TOKEN else ""
     if not token:
@@ -3420,14 +3543,15 @@ async def verify_scan_remediation(
 @router.get(
     "/{scan_id}/remediation/verifications",
     response_model=list[VerificationRunOut],
-    dependencies=[Depends(verify_api_key)],
 )
-async def list_scan_verifications(scan_id: str) -> list[VerificationRunOut]:
-    scan_uuid = resolve_scan_uuid(scan_id)
+async def list_scan_verifications(scan_id: str, request: Request) -> list[VerificationRunOut]:
+    tenant = _tenant_from_request(request)
+    scan_uuid = await _authorize_scan_ref(scan_id, tenant)
     if not scan_uuid:
-        raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found")
+        raise HTTPException(status_code=404, detail="Scan not found")
     try:
         async with AsyncSessionLocal() as s:
+            await get_scan_for_org(s, scan_uuid, tenant)
             rows = await list_verifications_for_scan(s, scan_uuid)
             return [
                 VerificationRunOut(
@@ -3452,11 +3576,13 @@ async def list_scan_verifications(scan_id: str) -> list[VerificationRunOut]:
 
 
 @router.get("/{scan_id}/lighthouse", response_model=LighthouseResponse)
-async def get_scan_lighthouse(scan_id: str) -> LighthouseResponse:
+async def get_scan_lighthouse(scan_id: str, request: Request) -> LighthouseResponse:
     """
     Fetches deterministic AI Lighthouse per-engine readiness scores and crawler governance.
     Evaluates site readiness for ChatGPT, Gemini, Perplexity, and Claude per Doc 5 §4.4.
     """
+    tenant = _tenant_from_request(request)
+    scan_uuid = await _authorize_scan_ref(scan_id, tenant)
     # 1. Check in-memory store
     if scan_id in LIGHTHOUSE_DB:
         return LIGHTHOUSE_DB[scan_id]
@@ -3504,30 +3630,64 @@ async def get_scan_lighthouse(scan_id: str) -> LighthouseResponse:
     if scan_uuid:
         try:
             async with AsyncSessionLocal() as s:
-                db_scan = await s.get(ScanModel, scan_uuid)
-                if db_scan:
-                    engine = LighthouseEngine(
-                        url=db_scan.url,
-                        scan_id=scan_id,
-                    )
-                    resp = engine.evaluate()
-                    LIGHTHOUSE_DB[scan_id] = resp
-                    return resp
+                db_scan = await get_scan_for_org(s, scan_uuid, tenant)
+                engine = LighthouseEngine(
+                    url=db_scan.url,
+                    scan_id=scan_id,
+                )
+                resp = engine.evaluate()
+                LIGHTHOUSE_DB[scan_id] = resp
+                return resp
+        except HTTPException:
+            raise
         except Exception as db_err:
             logger.debug("Database lookup skipped for scan %s: %s", scan_id, db_err)
 
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
-        detail=f"Scan '{scan_id}' not found.",
+        detail="Scan not found",
     )
 
 
 @router.get("", response_model=list[ScanResponse])
-async def list_scans() -> list[ScanResponse]:
-    """Fetches list of active and recent scans."""
+async def list_scans(request: Request) -> list[ScanResponse]:
+    """Fetches list of active and recent scans visible to the authenticated tenant."""
+    tenant = _tenant_from_request(request)
     unique_scans: dict[str, ScanResponse] = {}
-    for s in SCANS_DB.values():
-        unique_scans[s.scan_id] = s
+
+    # Prefer durable Postgres listing with SQL org filter.
+    try:
+        async with AsyncSessionLocal() as s:
+            rows = await list_scans_for_org(s, tenant, limit=100)
+            for db_scan in rows:
+                sid = f"scan_{db_scan.id.hex}"
+                unique_scans[sid] = ScanResponse(
+                    scan_id=sid,
+                    target_url=db_scan.url,
+                    status=ScanStatus(db_scan.status)
+                    if db_scan.status in {e.value for e in ScanStatus}
+                    else ScanStatus.PENDING,
+                    created_at=db_scan.created_at or datetime.now(UTC),
+                    org_id=_org_id_str(db_scan.org_id),
+                    repo_url=db_scan.repo_url,
+                    github_repo_url=db_scan.repo_url,
+                    completed_at=db_scan.completed_at,
+                )
+    except Exception as exc:
+        logger.debug("list_scans_db_unavailable: %s", exc)
+
+    # Merge in-memory stubs the tenant can see (same-process create).
+    for mem_scan in SCANS_DB.values():
+        mem_org: uuid.UUID | None = None
+        if getattr(mem_scan, "org_id", None):
+            try:
+                mem_org = uuid.UUID(str(mem_scan.org_id))
+            except ValueError:
+                mem_org = None
+        from app.core.tenancy import can_access_scan_org
+
+        if can_access_scan_org(scan_org_id=mem_org, tenant=tenant):
+            unique_scans.setdefault(mem_scan.scan_id, mem_scan)
     return list(unique_scans.values())
 
 
@@ -3604,25 +3764,27 @@ async def run_stage_remediate(
     "/{scan_id}/evaluate",
     response_model=ScanResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(verify_api_key), Depends(rate_limit_scans)],
+    dependencies=[Depends(rate_limit_scans)],
 )
 async def evaluate_scan(
     scan_id: str,
     background_tasks: BackgroundTasks,
+    request: Request,
     payload: EvaluateScanRequest | None = None,
 ) -> ScanResponse:
-    scan_uuid = resolve_scan_uuid(scan_id)
+    tenant = _tenant_from_request(request)
+    scan_uuid = await _authorize_scan_ref(scan_id, tenant)
     if not scan_uuid:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Scan '{scan_id}' not found.",
+            detail="Scan not found",
         )
 
     record = SCANS_DB.get(scan_id) or SCANS_DB.get(str(scan_uuid))
     if not record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Scan '{scan_id}' not found in active memory.",
+            detail="Scan not found",
         )
 
     personas = payload.personas if payload and payload.personas else None
@@ -3642,15 +3804,17 @@ async def evaluate_scan(
     "/{scan_id}/remediate",
     response_model=list[PatchProposal],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(verify_api_key), Depends(rate_limit_mutating)],
+    dependencies=[Depends(rate_limit_mutating)],
 )
 async def remediate_scan(
     scan_id: str,
+    request: Request,
 ) -> list[PatchProposal]:
-    scan_uuid = resolve_scan_uuid(scan_id)
+    tenant = _tenant_from_request(request)
+    scan_uuid = await _authorize_scan_ref(scan_id, tenant)
     if not scan_uuid:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Scan '{scan_id}' not found.",
+            detail="Scan not found",
         )
     return await run_stage_remediate(scan_id=scan_id, scan_uuid=scan_uuid)

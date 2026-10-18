@@ -8,6 +8,7 @@ import type {
   ApiError,
 } from "@/types/scan";
 import type { LighthouseResponse } from "@/types/lighthouse";
+import { getAuthHeaders } from "@/lib/authHeaders";
 
 // Internal request body for createScan (mirrors backend ScanRequest schema)
 interface CreateScanBody {
@@ -29,6 +30,7 @@ async function request<T>(
       ...options,
       headers: {
         "Content-Type": "application/json",
+        ...getAuthHeaders(),
         ...(options?.headers ?? {}),
       },
     });

@@ -40,6 +40,7 @@ class _Scan(_TestBase):
     url: Mapped[str] = mapped_column(String(1024), nullable=False)
     repo_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="in_progress")
+    org_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     llm_calls_made: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -53,6 +54,7 @@ class _ScanJob(_TestBase):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     scan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("scans.id", ondelete="CASCADE"))
+    org_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     job_type: Mapped[str] = mapped_column(String(50), default="scan_pipeline")
     status: Mapped[str] = mapped_column(String(50), default="queued")
     idempotency_key: Mapped[str] = mapped_column(String(512), unique=True)

@@ -175,6 +175,33 @@ class ScanJobWorker:
             self._current_job_id = None
             return
 
+        # Tenant integrity: job.org_id must match scan.org_id (deny cross-tenant writes).
+        async with AsyncSessionLocal() as session:
+            job_row = await session.get(ScanJob, claimed.job_id)
+            scan_row = await session.get(ScanModel, claimed.scan_id)
+            if job_row is not None and scan_row is not None:
+                job_org = getattr(job_row, "org_id", None)
+                scan_org = getattr(scan_row, "org_id", None)
+                if job_org != scan_org:
+                    logger.error(
+                        "scan_job_org_mismatch job_id=%s scan_id=%s; refusing execution",
+                        claimed.job_id,
+                        claimed.scan_id,
+                    )
+                    async with AsyncSessionLocal() as s2:
+                        async with s2.begin():
+                            await fail_or_retry_job(
+                                s2,
+                                job_id=claimed.job_id,
+                                fencing_token=claimed.fencing_token,
+                                worker_id=self.worker_id,
+                                exc=RuntimeError(
+                                    "already failed: job/scan org_id mismatch"
+                                ),
+                            )
+                    self._current_job_id = None
+                    return
+
         prior_outcome = await self._scan_terminal_outcome(claimed.scan_id)
         if prior_outcome == "completed":
             async with AsyncSessionLocal() as session:

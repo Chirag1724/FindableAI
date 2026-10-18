@@ -136,8 +136,13 @@ async def enqueue_scan_job(
     idempotency_key: str,
     fingerprint: str,
     correlation_id: str | None = None,
+    org_id: uuid.UUID | None = None,
 ) -> EnqueueResult:
-    """Persist scan + job atomically. Caller must commit/begin the transaction."""
+    """Persist scan + job atomically. Caller must commit/begin the transaction.
+
+    ``org_id`` is stamped from the authenticated principal only (never from the
+    request body). Legacy NULL is allowed for system-admin creates.
+    """
     existing = await session.scalar(
         select(ScanJob).where(ScanJob.idempotency_key == idempotency_key)
     )
@@ -185,10 +190,12 @@ async def enqueue_scan_job(
                 url=url,
                 repo_url=repo_url,
                 status="in_progress",
+                org_id=org_id,
             )
             job = ScanJob(
                 id=uuid.uuid4(),
                 scan_id=scan_uuid,
+                org_id=org_id,
                 job_type="scan_pipeline",
                 status=JobStatus.QUEUED.value,
                 idempotency_key=idempotency_key,
@@ -199,6 +206,7 @@ async def enqueue_scan_job(
                     "max_pages": max_pages,
                     "personas": personas or ["cto", "developer", "procurement"],
                     "repo_url": repo_url,
+                    "org_id": str(org_id) if org_id else None,
                 },
                 attempt_count=0,
                 max_attempts=int(settings.SCAN_JOB_MAX_ATTEMPTS),
@@ -277,10 +285,12 @@ async def enqueue_scan_job(
                 url=url,
                 repo_url=repo_url,
                 status="in_progress",
+                org_id=org_id,
             )
             job = ScanJob(
                 id=uuid.uuid4(),
                 scan_id=scan_uuid,
+                org_id=org_id,
                 job_type="scan_pipeline",
                 status=JobStatus.QUEUED.value,
                 idempotency_key=idempotency_key,
@@ -291,6 +301,7 @@ async def enqueue_scan_job(
                     "max_pages": max_pages,
                     "personas": personas or ["cto", "developer", "procurement"],
                     "repo_url": repo_url,
+                    "org_id": str(org_id) if org_id else None,
                 },
                 attempt_count=0,
                 max_attempts=int(settings.SCAN_JOB_MAX_ATTEMPTS),
@@ -325,10 +336,12 @@ async def enqueue_scan_job(
         url=url,
         repo_url=repo_url,
         status="in_progress",
+        org_id=org_id,
     )
     job = ScanJob(
         id=uuid.uuid4(),
         scan_id=scan_uuid,
+        org_id=org_id,
         job_type="scan_pipeline",
         status=JobStatus.QUEUED.value,
         idempotency_key=idempotency_key,
@@ -339,6 +352,7 @@ async def enqueue_scan_job(
             "max_pages": max_pages,
             "personas": personas or ["cto", "developer", "procurement"],
             "repo_url": repo_url,
+            "org_id": str(org_id) if org_id else None,
         },
         attempt_count=0,
         max_attempts=int(settings.SCAN_JOB_MAX_ATTEMPTS),

@@ -108,6 +108,8 @@ class Settings(BaseSettings):
     SCAN_JOB_BACKOFF_MAX_SECONDS: float = 300.0
     SCAN_JOB_EXECUTION_DEADLINE_SECONDS: int = 3600
     SCAN_JOB_IDEMPOTENCY_TTL_SECONDS: int = 86400
+    # Readiness: degrade when a queued job is older than this and no recent worker HB.
+    SCAN_JOB_QUEUE_STALE_SECONDS: int = 120
     SCAN_WORKER_ID: str = ""
     # Provider HTTP timeouts (LiteLLM / instructor)
     LLM_CONNECT_TIMEOUT_SECONDS: float = 10.0

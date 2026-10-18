@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.auth import TenantContext
 from app.crawler.search import ephemeral_memory_chunk_id, store_dom_chunks
 from app.orchestration.evidence_persistence import (
     HYDRATE_WARN,
@@ -316,6 +317,8 @@ async def test_run_scan_pipeline_persistence_failure_downgrades_and_disables_rem
 
 @pytest.mark.asyncio
 async def test_get_intents_cold_hydrate_and_hydrate_failure(monkeypatch):
+    from starlette.requests import Request
+
     from app.api.v1 import scans as scans_module
 
     scan_uuid = uuid.uuid4()
@@ -335,6 +338,7 @@ async def test_get_intents_cold_hydrate_and_hydrate_failure(monkeypatch):
         reasoning="Supported by chunk.",
         confidence=0.9,
     )
+    db_scan = SimpleNamespace(id=scan_uuid, org_id=None, url="https://example.com")
 
     class _Scalars:
         def __init__(self, rows):
@@ -351,6 +355,9 @@ async def test_get_intents_cold_hydrate_and_hydrate_failure(monkeypatch):
             return _Scalars(self._rows)
 
     class _Session:
+        async def get(self, _model, _id):
+            return db_scan
+
         async def execute(self, _stmt):
             return _Result([intent_row])
 
@@ -367,6 +374,9 @@ async def test_get_intents_cold_hydrate_and_hydrate_failure(monkeypatch):
     monkeypatch.setattr(scans_module, "AsyncSessionLocal", _SessionFactory())
     monkeypatch.setattr(scans_module, "resolve_scan_uuid", lambda _sid: scan_uuid)
 
+    req = Request({"type": "http", "headers": [], "method": "GET", "path": "/"})
+    req.state.tenant = TenantContext(is_system_admin=True)
+
     # Successful hydrate
     async def _hydrate_ok(_session, _rows):
         return {
@@ -382,7 +392,7 @@ async def test_get_intents_cold_hydrate_and_hydrate_failure(monkeypatch):
         }
 
     monkeypatch.setattr(scans_module, "hydrate_evidence_for_intents", _hydrate_ok)
-    ok = await scans_module.get_scan_intents(scan_id)
+    ok = await scans_module.get_scan_intents(scan_id, req)
     assert len(ok) == 1
     assert ok[0]["status"] == "SUPPORTED"
     assert len(ok[0]["evidence"]) == 1
@@ -393,7 +403,7 @@ async def test_get_intents_cold_hydrate_and_hydrate_failure(monkeypatch):
         raise RuntimeError("hydrate exploded")
 
     monkeypatch.setattr(scans_module, "hydrate_evidence_for_intents", _hydrate_boom)
-    failed = await scans_module.get_scan_intents(scan_id)
+    failed = await scans_module.get_scan_intents(scan_id, req)
     assert len(failed) == 1
     assert failed[0]["status"] == "UNKNOWN"
     assert failed[0]["evidence"] == []
@@ -528,7 +538,7 @@ async def test_get_scan_hydration_failure_clears_remediation_eligible(monkeypatc
         lambda patches, _repo: patches,
     )
 
-    resp = await scans_module.get_scan(scan_id)
+    resp = await scans_module.get_scan_for_tenant(scan_id, TenantContext(is_system_admin=True))
     assert resp.remediation_eligible is False
     assert HYDRATE_WARN in (resp.intelligence_warnings or [])
     assert len(resp.intents) == 1
@@ -657,7 +667,7 @@ async def test_get_scan_clears_remediation_when_evidence_missing_after_hydrate(m
         lambda patches, _repo: patches,
     )
 
-    resp = await scans_module.get_scan(scan_id)
+    resp = await scans_module.get_scan_for_tenant(scan_id, TenantContext(is_system_admin=True))
     assert resp.intents[0].status is EntailmentStatus.UNKNOWN
     assert resp.intents[0].evidence == []
     assert resp.remediation_eligible is False
@@ -794,7 +804,7 @@ async def test_get_scan_keeps_remediation_when_evidence_hydrates(monkeypatch):
         lambda patches, _repo: patches,
     )
 
-    resp = await scans_module.get_scan(scan_id)
+    resp = await scans_module.get_scan_for_tenant(scan_id, TenantContext(is_system_admin=True))
     assert resp.intents[0].status is EntailmentStatus.SUPPORTED
     assert len(resp.intents[0].evidence) == 1
     assert resp.remediation_eligible is True

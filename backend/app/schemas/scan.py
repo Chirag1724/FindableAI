@@ -89,6 +89,10 @@ class ScanResponse(BaseModel):
     target_url: str
     status: ScanStatus
     created_at: datetime
+    org_id: str | None = Field(
+        default=None,
+        description="Owning organization UUID when created under an org API key; null for admin/legacy",
+    )
     completed_at: datetime | None = None
     f_score: FScoreBreakdown | None = None
     summary: AuditSummary | None = None
