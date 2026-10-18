@@ -8,7 +8,16 @@ from typing import Any
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -21,6 +30,8 @@ from app.core.rate_limiter import rate_limit_mutating, rate_limit_scans
 from app.core.security import SSRFSecurityException, validate_target_url
 from app.core.tenancy import (
     assert_scan_org_access,
+    clamp_list_limit,
+    encode_scan_list_cursor,
     get_scan_for_org,
     list_scans_for_org,
 )
@@ -384,6 +395,10 @@ def _db_status_to_scan_status(status_raw: str | None, *, stage: str | None = Non
         return ScanStatus.COMPLETED
     if status_raw == "failed":
         return ScanStatus.FAILED
+    if status_raw == "cancelled":
+        return ScanStatus.CANCELLED
+    if status_raw == "cancelling":
+        return ScanStatus.CANCELLING
     # Coarse in_progress/pending rows: recover fine-grained UI status from stage.
     staged = _stage_to_scan_status(stage)
     if staged is not None:
@@ -425,6 +440,10 @@ async def _emit_event(
                 db_status = "completed"
             elif status_val == ScanStatus.FAILED:
                 db_status = "failed"
+            elif status_val == ScanStatus.CANCELLED:
+                db_status = "cancelled"
+            elif status_val == ScanStatus.CANCELLING:
+                db_status = "cancelling"
             elif status_val == ScanStatus.PENDING:
                 db_status = "pending"
             else:
@@ -574,6 +593,7 @@ async def run_scan_pipeline(
     initial_llm_calls: int = 0,
     initial_llm_usd: float = 0.0,
     resume_checkpoint: dict[str, Any] | None = None,
+    cancel_check: Any | None = None,
 ) -> int:
     """
     Autonomous scan worker pipeline:
@@ -588,6 +608,7 @@ async def run_scan_pipeline(
     persisted DOMChunks are reloaded. LLM budget is restored from durable
     checkpoints and re-checkpointed after each reservation.
     """
+    from app.jobs.cancel import reset_cancel_check, set_cancel_check
     from app.jobs.checkpoints import (
         best_effort_save_checkpoint,
         checkpoint_compatible,
@@ -610,6 +631,11 @@ async def run_scan_pipeline(
         else empty_checkpoint(fingerprint=stage_fp)
     )
     job_ctx = get_job_execution_context()
+    _cancel_token = set_cancel_check(cancel_check) if cancel_check is not None else None
+
+    async def _checkpoint_cancel() -> None:
+        if cancel_check is not None:
+            await cancel_check()
 
     async def _durable_budget_hook(used: int, usd: float) -> None:
         if job_ctx is None:
@@ -641,6 +667,7 @@ async def run_scan_pipeline(
         )
 
     try:
+        await _checkpoint_cancel()
         skip_crawl = False
         persisted_chunks = None
         extracted_chunks: list[ChunkData] = []
@@ -695,6 +722,7 @@ async def run_scan_pipeline(
                 skip_crawl = False
 
         if not skip_crawl:
+            await _checkpoint_cancel()
             # Phase 1: OBSERVE / Crawling
             await _emit_event(
                 scan_id,
@@ -811,11 +839,32 @@ async def run_scan_pipeline(
 
         # Dual-tier LLM clients sharing single scan-scoped BudgetGuard — restore
         # checkpoint so job retries never reset the per-scan completion-call budget.
+        # Worker path: PostgreSQL fenced increment is the source of truth.
+        durable_reserve = None
+        if job_ctx is not None:
+            from app.jobs.budget_reserve import reserve_scan_llm_call
+
+            async def _pg_reserve(limit: int, usd_delta: float) -> int:
+                async with AsyncSessionLocal() as session:
+                    async with session.begin():
+                        return await reserve_scan_llm_call(
+                            session,
+                            scan_id=scan_uuid,
+                            job_id=job_ctx.job_id,
+                            fencing_token=job_ctx.fencing_token,
+                            worker_id=job_ctx.worker_id,
+                            limit=limit,
+                            usd_delta=usd_delta,
+                        )
+
+            durable_reserve = _pg_reserve
+
         budget_guard = BudgetGuard(
             limit=settings.MAX_LLM_CALLS_PER_SCAN,
             initial_used=max(0, int(initial_llm_calls or 0)),
             initial_usd=max(0.0, float(initial_llm_usd or 0.0)),
-            on_reserve=_durable_budget_hook,
+            on_reserve=_durable_budget_hook if durable_reserve is None else None,
+            durable_reserve=durable_reserve,
         )
         heavy_llm = LLMClient(model=settings.HEAVY_LLM_MODEL, budget_guard=budget_guard)
         fast_llm = LLMClient(model=settings.FAST_LLM_MODEL, budget_guard=budget_guard)
@@ -1361,11 +1410,18 @@ async def run_scan_pipeline(
             )
 
     except Exception as e:
+        from app.jobs.cancel import ScanCancelled
+
+        if isinstance(e, ScanCancelled):
+            # Preserve validated partial results; worker finalizes cancelled.
+            raise
         logger.exception("Scan pipeline failed for %s: %s", scan_id, e)
         await _finalize_hard_failure(scan_id, scan_uuid, e)
         # Re-raise so the durable worker can classify retry vs permanent failure.
         raise
     finally:
+        if _cancel_token is not None:
+            reset_cancel_check(_cancel_token)
         for q in EVENT_QUEUES.get(scan_id, []):
             await q.put(None)
     return calls_made
@@ -1733,6 +1789,77 @@ async def get_scan(scan_id: str, request: Request) -> ScanResponse:
     return await get_scan_for_tenant(scan_id, tenant)
 
 
+class CancelScanRequest(BaseModel):
+    reason: str | None = None
+
+
+@router.post(
+    "/{scan_id}/cancel",
+    dependencies=[Depends(rate_limit_mutating)],
+)
+async def cancel_scan(
+    scan_id: str,
+    request: Request,
+    body: CancelScanRequest | None = None,
+) -> dict[str, Any]:
+    """Cancel a queued or running scan (idempotent; terminal conflict → 409).
+
+    Authorization uses the central tenant helper. Any authenticated org principal
+    that can access the scan may cancel (no separate viewer role exists yet).
+    """
+    from app.jobs.cancel import cancel_result_payload, request_scan_cancel
+
+    tenant = _tenant_from_request(request)
+    scan_uuid = await _authorize_scan_ref(scan_id, tenant)
+    if scan_uuid is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
+
+    actor = (
+        f"org:{tenant.org_id}"
+        if tenant.org_id is not None
+        else ("system_admin" if tenant.is_system_admin else "unknown")
+    )
+    reason = (body.reason if body else None) or "cancelled_by_user"
+
+    try:
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                result = await request_scan_cancel(
+                    session,
+                    scan_id=scan_uuid,
+                    actor=actor,
+                    reason=reason,
+                )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found"
+        ) from exc
+    except Exception as exc:
+        logger.warning("cancel_scan_failed scan_id=%s: %s", scan_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Cancel unavailable",
+        ) from exc
+
+    if result.conflict:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=cancel_result_payload(result),
+        )
+
+    # Keep process-local cache consistent for same-process pollers.
+    mem = SCANS_DB.get(scan_id)
+    if mem is not None:
+        mem.status = (
+            ScanStatus.CANCELLED
+            if result.scan_status == "cancelled"
+            else ScanStatus.CANCELLING
+        )
+        mem.error = reason
+
+    return cancel_result_payload(result)
+
+
 async def _load_scan_response(scan_id: str) -> ScanResponse:
     """Hydrate ScanResponse from memory or Postgres (caller must authorize)."""
     scan_uuid = resolve_scan_uuid(scan_id)
@@ -1746,7 +1873,11 @@ async def _load_scan_response(scan_id: str) -> ScanResponse:
         # holds a pending stub, fall through to durable hydration instead of returning
         # a stale in-memory snapshot (missing intents / wrong status).
         prefer_db = False
-        if scan_uuid and record.status not in (ScanStatus.COMPLETED, ScanStatus.FAILED):
+        if scan_uuid and record.status not in (
+            ScanStatus.COMPLETED,
+            ScanStatus.FAILED,
+            ScanStatus.CANCELLED,
+        ):
             try:
                 async with AsyncSessionLocal() as s:
                     db_probe = await s.get(ScanModel, scan_uuid)
@@ -1911,12 +2042,8 @@ async def _load_scan_response(scan_id: str) -> ScanResponse:
                         elif NO_DURABLE_EVIDENCE_REMEDIATION_WARN not in response_warnings:
                             response_warnings.append(NO_DURABLE_EVIDENCE_REMEDIATION_WARN)
 
-                    scan_status = (
-                        ScanStatus(db_scan.status)
-                        if db_scan.status in [e.value for e in ScanStatus]
-                        else ScanStatus.PENDING
-                        if db_scan.status == "in_progress"
-                        else ScanStatus.COMPLETED
+                    scan_status = _db_status_to_scan_status(
+                        db_scan.status, stage=getattr(db_scan, "progress_stage", None)
                     )
                     pages_crawled = integrity.pages_crawled
                     if pages_crawled is None:
@@ -1963,7 +2090,11 @@ async def _load_scan_response(scan_id: str) -> ScanResponse:
                         progress_seq = None
                     # Prefer durable progress for in-flight scans; terminal scans use 100.
                     durable_percent = getattr(db_scan, "progress_percent", None)
-                    if scan_status in (ScanStatus.COMPLETED, ScanStatus.FAILED):
+                    if scan_status in (
+                        ScanStatus.COMPLETED,
+                        ScanStatus.FAILED,
+                        ScanStatus.CANCELLED,
+                    ):
                         durable_percent = 100 if durable_percent is None else durable_percent
                     scan_resp = ScanResponse(
                         scan_id=scan_id,
@@ -1971,6 +2102,8 @@ async def _load_scan_response(scan_id: str) -> ScanResponse:
                         status=scan_status,
                         created_at=db_scan.created_at,
                         org_id=_org_id_str(getattr(db_scan, "org_id", None)),
+                        cancel_reason=getattr(db_scan, "cancel_reason", None),
+                        cancelled_by=getattr(db_scan, "cancelled_by", None),
                         completed_at=getattr(db_scan, "completed_at", None),
                         f_score=f_score_obj,
                         summary=summary,
@@ -1988,6 +2121,12 @@ async def _load_scan_response(scan_id: str) -> ScanResponse:
                         remediation_eligible=response_remediation_eligible,
                         intelligence_warnings=response_warnings,
                         llm_calls_made=integrity.llm_calls_made,
+                        requests_attempted=integrity.llm_calls_made,
+                        requests_succeeded=getattr(db_scan, "provider_successes", None),
+                        requests_failed=getattr(db_scan, "provider_failures", None),
+                        retries=getattr(db_scan, "provider_retries", None),
+                        failovers=getattr(db_scan, "provider_failovers", None),
+                        recovery_requests=getattr(db_scan, "recovery_requests", None),
                         llm_usd_estimated=getattr(db_scan, "llm_usd_estimated", None),
                         llm_usd_provider_reported=None,
                         cost_basis=(
@@ -2188,7 +2327,7 @@ async def stream_scan_progress(
                         if synth.seq:
                             yield f"id: {synth.seq}\n"
                         yield f"data: {json.dumps(synth.model_dump(mode='json'))}\n\n"
-                        if status_enum in (ScanStatus.COMPLETED, ScanStatus.FAILED):
+                        if status_enum in (ScanStatus.COMPLETED, ScanStatus.FAILED, ScanStatus.CANCELLED):
                             return
                     for row in rows:
                         st = _db_status_to_scan_status(row.status, stage=row.stage)
@@ -2206,7 +2345,7 @@ async def stream_scan_progress(
                         cursor = max(cursor, int(row.seq))
                         yield f"id: {row.seq}\n"
                         yield f"data: {json.dumps(ev.model_dump(mode='json'))}\n\n"
-                        if st in (ScanStatus.COMPLETED, ScanStatus.FAILED):
+                        if st in (ScanStatus.COMPLETED, ScanStatus.FAILED, ScanStatus.CANCELLED):
                             return
                 except Exception as exc:
                     logger.warning("sse_durable_replay_failed scan_id=%s: %s", scan_id, exc)
@@ -2224,7 +2363,7 @@ async def stream_scan_progress(
                         cursor = max(cursor, int(event.seq))
                     yield f"data: {json.dumps(event.model_dump(mode='json'))}\n\n"
                     delivered = True
-                    if event.status in (ScanStatus.COMPLETED, ScanStatus.FAILED):
+                    if event.status in (ScanStatus.COMPLETED, ScanStatus.FAILED, ScanStatus.CANCELLED):
                         return
                 except TimeoutError:
                     pass
@@ -2253,7 +2392,7 @@ async def stream_scan_progress(
                             yield f"id: {row.seq}\n"
                             yield f"data: {json.dumps(ev.model_dump(mode='json'))}\n\n"
                             delivered = True
-                            if st in (ScanStatus.COMPLETED, ScanStatus.FAILED):
+                            if st in (ScanStatus.COMPLETED, ScanStatus.FAILED, ScanStatus.CANCELLED):
                                 return
                         if snap and (snap.get("status") in ("completed", "failed")) and not rows:
                             st = _db_status_to_scan_status(
@@ -3650,45 +3789,80 @@ async def get_scan_lighthouse(scan_id: str, request: Request) -> LighthouseRespo
 
 
 @router.get("", response_model=list[ScanResponse])
-async def list_scans(request: Request) -> list[ScanResponse]:
-    """Fetches list of active and recent scans visible to the authenticated tenant."""
-    tenant = _tenant_from_request(request)
-    unique_scans: dict[str, ScanResponse] = {}
+async def list_scans(
+    request: Request,
+    response: Response,
+    limit: int | None = Query(
+        default=None,
+        ge=1,
+        le=100,
+        description="Page size (default 20, max 100)",
+    ),
+    cursor: str | None = Query(
+        default=None,
+        description="Opaque keyset cursor from X-Next-Cursor of the prior page",
+    ),
+) -> list[ScanResponse]:
+    """List scans from PostgreSQL only (SQL org filter + keyset pagination).
 
-    # Prefer durable Postgres listing with SQL org filter.
+    Does not merge process-local ``SCANS_DB``. Legacy ``org_id IS NULL`` rows stay
+    hidden from non-admin tenants. Response bodies are list-appropriate fields only.
+    When another page exists, ``X-Next-Cursor`` is set.
+    """
+    tenant = _tenant_from_request(request)
+    page_size = clamp_list_limit(limit)
+
     try:
         async with AsyncSessionLocal() as s:
-            rows = await list_scans_for_org(s, tenant, limit=100)
-            for db_scan in rows:
-                sid = f"scan_{db_scan.id.hex}"
-                unique_scans[sid] = ScanResponse(
-                    scan_id=sid,
-                    target_url=db_scan.url,
-                    status=ScanStatus(db_scan.status)
-                    if db_scan.status in {e.value for e in ScanStatus}
-                    else ScanStatus.PENDING,
-                    created_at=db_scan.created_at or datetime.now(UTC),
-                    org_id=_org_id_str(db_scan.org_id),
-                    repo_url=db_scan.repo_url,
-                    github_repo_url=db_scan.repo_url,
-                    completed_at=db_scan.completed_at,
-                )
+            rows = await list_scans_for_org(
+                s, tenant, limit=page_size, cursor=cursor
+            )
+    except HTTPException:
+        raise
     except Exception as exc:
-        logger.debug("list_scans_db_unavailable: %s", exc)
+        logger.warning("list_scans_db_unavailable: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Scan listing unavailable",
+        ) from exc
 
-    # Merge in-memory stubs the tenant can see (same-process create).
-    for mem_scan in SCANS_DB.values():
-        mem_org: uuid.UUID | None = None
-        if getattr(mem_scan, "org_id", None):
-            try:
-                mem_org = uuid.UUID(str(mem_scan.org_id))
-            except ValueError:
-                mem_org = None
-        from app.core.tenancy import can_access_scan_org
+    items: list[ScanResponse] = []
+    for db_scan in rows:
+        sid = f"scan_{db_scan.id.hex}"
+        status_raw = str(db_scan.status or "")
+        if status_raw in {e.value for e in ScanStatus}:
+            mapped_status = ScanStatus(status_raw)
+        else:
+            mapped_status = _db_status_to_scan_status(status_raw)
+        items.append(
+            ScanResponse(
+                scan_id=sid,
+                target_url=db_scan.url,
+                status=mapped_status,
+                created_at=db_scan.created_at or datetime.now(UTC),
+                org_id=_org_id_str(db_scan.org_id),
+                repo_url=db_scan.repo_url,
+                github_repo_url=db_scan.repo_url,
+                completed_at=db_scan.completed_at,
+                error=db_scan.error,
+                f_score=None,
+                summary=None,
+                intents=[],
+                contradictions=[],
+                patches=[],
+                crawled_pages=[],
+            )
+        )
 
-        if can_access_scan_org(scan_org_id=mem_org, tenant=tenant):
-            unique_scans.setdefault(mem_scan.scan_id, mem_scan)
-    return list(unique_scans.values())
+    # Full page ⇒ another page may exist; emit keyset cursor for the next request.
+    if len(rows) == page_size and rows:
+        last = rows[-1]
+        if last.created_at is not None:
+            response.headers["X-Next-Cursor"] = encode_scan_list_cursor(
+                created_at=last.created_at,
+                scan_id=last.id,
+            )
+    return items
 
 
 class EvaluateScanRequest(BaseModel):

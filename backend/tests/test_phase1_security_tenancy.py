@@ -31,6 +31,7 @@ SCAN_ROUTES: list[tuple[str, str]] = [
     ("GET", "/api/v1/scans/scan_deadbeefdeadbeefdeadbeefdeadbeef/remediation"),
     ("GET", "/api/v1/scans/scan_deadbeefdeadbeefdeadbeefdeadbeef/remediation/verifications"),
     ("POST", "/api/v1/scans"),
+    ("POST", "/api/v1/scans/scan_deadbeefdeadbeefdeadbeefdeadbeef/cancel"),
     ("POST", "/api/v1/scans/scan_deadbeefdeadbeefdeadbeefdeadbeef/evaluate"),
     ("POST", "/api/v1/scans/scan_deadbeefdeadbeefdeadbeefdeadbeef/remediate"),
     ("POST", "/api/v1/scans/scan_deadbeefdeadbeefdeadbeefdeadbeef/patches/apply"),
@@ -80,7 +81,22 @@ def test_health_and_ready_remain_anonymous(client: TestClient) -> None:
     assert client.get("/api/v1/ready").status_code == 200
 
 
-def test_system_key_can_list_scans(client: TestClient) -> None:
+def test_system_key_can_list_scans(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.api.v1 import scans as scans_mod
+
+    async def _empty(*_a, **_k):
+        return []
+
+    monkeypatch.setattr(scans_mod, "list_scans_for_org", _empty)
+    session = MagicMock()
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=None)
+    monkeypatch.setattr(scans_mod, "AsyncSessionLocal", MagicMock(return_value=session))
+
     resp = client.get("/api/v1/scans", headers={"X-API-Key": "phase1-system-secret"})
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
