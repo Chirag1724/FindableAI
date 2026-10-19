@@ -53,6 +53,16 @@ describe("composeFromBuilder", () => {
     ).toBe("https://example.com");
   });
 
+  it("composes .vercel.app from the selector", () => {
+    expect(
+      composeFromBuilder({
+        ...DEFAULT_BUILDER,
+        domain: "findableai",
+        tld: ".vercel.app",
+      })
+    ).toBe("https://findableai.vercel.app");
+  });
+
   it("preserves path, port, and query from the domain field", () => {
     expect(
       composeFromBuilder({

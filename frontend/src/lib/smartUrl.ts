@@ -16,6 +16,7 @@ export const URL_TLD_OPTIONS = [
   ".dev",
   ".ai",
   ".co",
+  ".vercel.app",
 ] as const;
 
 export type UrlTldOption = (typeof URL_TLD_OPTIONS)[number] | "other";
@@ -42,7 +43,6 @@ const KNOWN_TLD_SUFFIXES: readonly string[] = [
   ".cloud",
   ".shop",
   ".blog",
-  ".vercel.app",
   ".netlify.app",
   ".github.io",
   ".co.uk",
