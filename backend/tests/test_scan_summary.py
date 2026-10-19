@@ -8,6 +8,7 @@ from dataclasses import replace as dc_replace
 
 import pytest
 
+from app.core.llm_errors import ErrorClass, LLMProviderError
 from app.orchestration import remediation_lifecycle as rl
 from app.orchestration import scan_summary as scan_summary_mod
 from app.orchestration.scan_summary import (
@@ -21,7 +22,6 @@ from app.orchestration.scan_summary import (
     serialize_scan_snapshot,
     validate_summary_payload,
 )
-from app.core.llm_errors import ErrorClass, LLMProviderError
 from app.schemas.summary import (
     LlmFactStatement,
     LlmNextStep,
@@ -205,7 +205,7 @@ def test_validate_drops_unknown_fact_id() -> None:
     )
     raw = _valid_payload()
     raw.what_the_scan_found[0].fact_ids = ["phantom_id", "F_dom_chunks"]
-    cleaned, errors = validate_summary_payload(
+    cleaned, _errors = validate_summary_payload(
         raw,
         allowed_fact_ids=snap.allowed_fact_ids,
         snapshot_numbers=snap.snapshot_numbers,

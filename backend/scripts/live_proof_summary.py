@@ -19,19 +19,24 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
 
-# Ensure backend root on path
+# Ensure backend root on path (must precede local package imports).
 _BACKEND = Path(__file__).resolve().parents[1]
 if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from fastapi import HTTPException  # noqa: E402
+from sqlalchemy import func, select  # noqa: E402
+from sqlalchemy.ext.asyncio import (  # noqa: E402
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
-from app.core.auth import TenantContext
-from app.core.config import settings
-from app.core.llm import LLMClient
-from app.core.tenancy import get_scan_for_org
-from app.models.database import (
+from app.core.auth import TenantContext  # noqa: E402
+from app.core.config import settings  # noqa: E402
+from app.core.llm import LLMClient  # noqa: E402
+from app.core.tenancy import get_scan_for_org  # noqa: E402
+from app.models.database import (  # noqa: E402
     DOMChunk,
     Evidence,
     Intent,
@@ -39,9 +44,12 @@ from app.models.database import (
     Scan,
     ScanSummary,
 )
-from app.orchestration.scan_summary import generate_summary, get_summary
-from app.schemas.summary import LlmSummaryItem, LlmSummaryPayload, SummaryPriority
-from fastapi import HTTPException
+from app.orchestration.scan_summary import generate_summary  # noqa: E402
+from app.schemas.summary import (  # noqa: E402
+    LlmSummaryItem,
+    LlmSummaryPayload,
+    SummaryPriority,
+)
 
 
 class _FakeCompletions:
@@ -170,7 +178,7 @@ async def main() -> int:
 
     async with factory() as session:
         async with session.begin():
-            org_a, org_b, scan_id = await _seed(session, with_finding=True)
+            _org_a, org_b, scan_id = await _seed(session, with_finding=True)
 
     # (a) first generation
     async with factory() as session:

@@ -220,7 +220,7 @@ def _collect_numbers_from_value(value: Any, out: set[str]) -> None:
             out.add(str(int(value)))
         out.add(str(value))
         if abs(value) >= 10:
-            out.add(str(int(round(value))))
+            out.add(str(round(value)))
         return
     if isinstance(value, str):
         for m in _NUMBER_RE.findall(value):
@@ -422,28 +422,28 @@ async def build_scan_snapshot(session: AsyncSession, scan: Scan) -> ScanSnapshot
                 .order_by(Evidence.intent_id.asc(), Evidence.rank.asc(), Evidence.id.asc())
             )
         ).all()
-        for row in ev_rows:
-            bucket = excerpts_by_intent.setdefault(row.intent_id, [])
+        for ev_row in ev_rows:
+            bucket = excerpts_by_intent.setdefault(ev_row.intent_id, [])
             if len(bucket) >= _MAX_EVIDENCE_EXCERPTS_PER_INTENT:
                 continue
-            excerpt = _truncate(row.excerpt, _TRUNC_EXCERPT)
+            excerpt = _truncate(ev_row.excerpt, _TRUNC_EXCERPT)
             if not excerpt:
                 continue
             entry = {
                 "excerpt": excerpt,
-                "source_url": str(row.source_url or "").strip(),
+                "source_url": str(ev_row.source_url or "").strip(),
             }
             if entry not in bucket:
                 bucket.append(entry)
 
-    contradiction_rows = (
-        await session.execute(select(Contradiction).where(Contradiction.scan_id == scan_id))
-    ).scalars().all()
-    contradiction_rows.sort(
-        key=lambda row: (
-            _CONTRADICTION_SEVERITY_ORDER.get(str(row.severity or ""), 99),
-            str(row.id),
-        )
+    contradiction_rows = sorted(
+        (await session.execute(select(Contradiction).where(Contradiction.scan_id == scan_id)))
+        .scalars()
+        .all(),
+        key=lambda c: (
+            _CONTRADICTION_SEVERITY_ORDER.get(str(c.severity or ""), 99),
+            str(c.id),
+        ),
     )
     contradiction_total = len(contradiction_rows)
     listed_contradictions = contradiction_rows[:_MAX_CONTRADICTIONS_LISTED]
@@ -1011,7 +1011,7 @@ def _numbers_in_text_allowed(text: str, allowed: frozenset[str]) -> list[str]:
         except ValueError:
             continue
         if val >= 10 or "." in num:
-            if num not in allowed and str(int(round(val))) not in allowed:
+            if num not in allowed and str(round(val)) not in allowed:
                 errors.append(f"number {num} not in snapshot")
     return errors
 
@@ -2011,8 +2011,9 @@ async def generate_summary(
                     snapshot.verdict == SummaryVerdict.INSUFFICIENT_EVIDENCE
                     and not validated.evidence_gaps
                 ):
-                    validation_errors = list(validation_errors) + [
-                        "evidence_gaps must be non-empty for insufficient_evidence verdict"
+                    validation_errors = [
+                        *validation_errors,
+                        "evidence_gaps must be non-empty for insufficient_evidence verdict",
                     ]
                     validated = None
             if validated is None and not validation_repaired:
@@ -2238,8 +2239,8 @@ async def generate_summary(
 
 
 __all__ = [
-    "PROMPT_VERSION",
     "CONTEXT_SCHEMA_VERSION",
+    "PROMPT_VERSION",
     "ScanSnapshot",
     "SummaryEligibility",
     "build_scan_snapshot",
