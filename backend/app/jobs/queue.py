@@ -117,6 +117,36 @@ def resolve_idempotency_key(
     return f"auto:{fingerprint}"
 
 
+def scan_is_incomplete_audit(scan: ScanModel) -> bool:
+    """Return True when a succeeded job must not block a fresh scan of the same URL.
+
+    Durable jobs mark ``SUCCEEDED`` when the pipeline finishes without a crash —
+    including inconclusive / synthetic-fallback audits (0 chunks, PLAN LLM
+    failure, no real evaluations). Returning that row forever made the UI look
+    stuck on "Fallback / Incomplete" after code fixes. Only real LLM success or
+    partial success stays idempotent.
+    """
+    outcome = (getattr(scan, "outcome", None) or "").strip().lower()
+    result_source = (getattr(scan, "result_source", None) or "").strip().lower()
+    execution_mode = (getattr(scan, "execution_mode", None) or "").strip().lower()
+
+    if outcome in {"success", "partial"} and execution_mode == "real_llm":
+        return False
+    if outcome in {"inconclusive", "failed"}:
+        return True
+    if result_source in {"inconclusive", "synthetic_fallback"}:
+        return True
+    if execution_mode in {"synthetic_fallback", "deterministic"}:
+        return True
+    # Legacy completed rows without integrity columns: allow retry rather than
+    # permanently pinning an opaque historical result.
+    if outcome == "" and result_source == "" and execution_mode == "":
+        status = (getattr(scan, "status", None) or "").strip().lower()
+        if status in {"completed", "failed"}:
+            return True
+    return False
+
+
 def compute_backoff_seconds(attempt_count: int) -> float:
     base = float(settings.SCAN_JOB_BACKOFF_BASE_SECONDS)
     cap = float(settings.SCAN_JOB_BACKOFF_MAX_SECONDS)
@@ -166,19 +196,29 @@ async def enqueue_scan_job(
         )
         is_term = is_terminal(existing.status)
 
-        if is_term and existing.status in (
+        supersede_terminal = is_term and existing.status in (
             JobStatus.FAILED.value,
             JobStatus.DEAD_LETTER.value,
             JobStatus.CANCELLED.value,
-        ):
+        )
+        # Succeeded-but-inconclusive audits must not pin the auto idempotency key
+        # forever (see scan_is_incomplete_audit).
+        supersede_incomplete = (
+            is_term
+            and existing.status == JobStatus.SUCCEEDED.value
+            and scan_is_incomplete_audit(scan)
+        )
+        if supersede_terminal or supersede_incomplete:
             metrics.incr("scan_jobs_terminal_superseded")
             logger.info(
                 "scan_job_terminal_superseded job_id=%s old_scan_id=%s new_scan_id=%s "
-                "status=%s correlation_id=%s",
+                "status=%s outcome=%s result_source=%s correlation_id=%s",
                 existing.id,
                 existing.scan_id,
                 scan_uuid,
                 existing.status,
+                getattr(scan, "outcome", None),
+                getattr(scan, "result_source", None),
                 existing.correlation_id,
             )
             existing.idempotency_key = f"{existing.idempotency_key}:done:{existing.id.hex}"

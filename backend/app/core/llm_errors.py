@@ -204,6 +204,10 @@ def classify_provider_error(
             "expecting value",
             "field required",
             "instructorretryexception",
+            "json_validate_failed",
+            "failed to generate json",
+            "failed to validate json",
+            "failed_generation",
         )
     ):
         return ClassifiedError(ErrorClass.INVALID_OUTPUT, None, code, msg)

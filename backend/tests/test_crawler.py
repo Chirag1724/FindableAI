@@ -74,6 +74,20 @@ def test_spa_detection():
     assert crawler.detect_spa(SAMPLE_INDEX_HTML) is False
 
 
+def test_promote_noscript_html_for_empty_spa_shell():
+    html = """
+    <html><body>
+      <div id="root"></div>
+      <noscript><main><p>SEO mirror content for crawlers and audits.</p></main></noscript>
+    </body></html>
+    """
+    promoted = AsyncCrawler.promote_noscript_html(html)
+    assert "<noscript" not in promoted.lower()
+    assert "SEO mirror content" in promoted
+    # Still detected as SPA shell (empty root) but content is now chunkable.
+    assert "SEO mirror content" in promoted
+
+
 @pytest.mark.asyncio
 async def test_crawler_blocks_ssrf_start_url():
     crawler = AsyncCrawler(allow_private=False)
