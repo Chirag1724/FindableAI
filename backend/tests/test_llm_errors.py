@@ -64,3 +64,21 @@ def test_credit_exhausted_is_terminal_for_provider() -> None:
     ce = classify_provider_error(_HttpErr("You can only afford 0 tokens", 402))
     assert ce.error_class is ErrorClass.CREDIT
     assert ce.policy.max_retries == 0
+
+
+def test_groq_json_validate_failed_is_invalid_output() -> None:
+    msg = (
+        "Error code: 400 - {'error': {'message': \"Failed to generate JSON. "
+        "Please adjust your prompt. See 'failed_generation' for more details.\", "
+        "'type': 'invalid_request_error', 'code': 'json_validate_failed'}}"
+    )
+    ce = classify_provider_error(RuntimeError(msg), msg)
+    assert ce.error_class is ErrorClass.INVALID_OUTPUT
+    assert ce.policy.max_retries == 1
+
+
+def test_connection_error_is_server_class() -> None:
+    ce = classify_provider_error(RuntimeError("Connection error."))
+    assert ce.error_class is ErrorClass.SERVER
+    assert ce.policy.max_retries == 1
+    assert ce.policy.on_exhausted is Action.FAILOVER

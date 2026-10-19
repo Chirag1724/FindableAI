@@ -28,8 +28,11 @@ SEMANTIC_CHUNK_TAGS = {
     "p",
 }
 
-# Elements to strip completely before extracting content
-IGNORE_TAGS = {"script", "style", "svg", "noscript", "iframe", "canvas"}
+# Elements to strip completely before extracting content.
+# NOTE: ``noscript`` is intentionally NOT listed — many SPA shells put the only
+# crawlable SEO copy inside ``<noscript>`` while ``#root`` / ``#app`` stay empty.
+# Those nodes are promoted (unwrap) before noise stripping; see ``_promote_noscript_content``.
+IGNORE_TAGS = {"script", "style", "svg", "iframe", "canvas"}
 
 
 @dataclass
@@ -51,11 +54,57 @@ class DOMChunker:
         self.min_word_count = min_word_count
         self.max_word_count = max_word_count
 
+    @staticmethod
+    def _promote_noscript_content(soup: BeautifulSoup) -> int:
+        """Unwrap ``<noscript>`` SEO bodies when the hydrated shell has no text.
+
+        Modern marketing SPAs often ship an empty ``#root``/``#app`` plus a rich
+        ``<noscript>`` mirror for crawlers. Decomposing noscript (legacy behavior)
+        discarded that mirror and produced zero DOM chunks despite a 200 HTML
+        response — exactly the production failure mode on sites like
+        worthfinding.tech when Playwright is unavailable.
+        """
+        root = soup.find(id="root") or soup.find(id="app")
+        root_words = 0
+        if root is not None and hasattr(root, "get_text"):
+            root_words = len(root.get_text(" ", strip=True).split())
+
+        noscripts = [el for el in soup.find_all("noscript") if isinstance(el, Tag)]
+        if not noscripts:
+            return 0
+
+        # Promote when the interactive shell is empty/nearly empty, or when
+        # noscript is the only place semantic tags exist.
+        semantic_outside = 0
+        for el in soup.find_all(SEMANTIC_CHUNK_TAGS):
+            if any(p.name == "noscript" for p in el.parents if isinstance(p, Tag)):
+                continue
+            semantic_outside += 1
+
+        if root_words >= 3 and semantic_outside > 0:
+            # Hydrated (or statically rendered) page already has body content —
+            # drop noscript mirrors to avoid duplicate chunks.
+            for el in noscripts:
+                el.decompose()
+            return 0
+
+        promoted = 0
+        for el in noscripts:
+            el.unwrap()
+            promoted += 1
+        return promoted
+
     def clean_soup(self, soup: BeautifulSoup) -> None:
         """Strip non-content elements and comments from DOM tree in-place."""
+        self._promote_noscript_content(soup)
+
         for tag_name in IGNORE_TAGS:
             for el in soup.find_all(tag_name):
                 el.decompose()
+
+        # Any noscript left after promotion (shouldn't happen) is noise.
+        for el in soup.find_all("noscript"):
+            el.decompose()
 
         for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
             comment.extract()

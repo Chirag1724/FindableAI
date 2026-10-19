@@ -400,13 +400,17 @@ class IntentGenerator:
         persona: str,
         cleaned_context: str,
     ) -> PersonaIntentBatch:
+        # Bounded transport/provider retries (SERVER/TIMEOUT). Do not use 0 here:
+        # max_retries=0 collapses LLMClient attempts_cap to 1 and a single
+        # transient "Connection error" after HTTP 200 aborts the whole PLAN stage.
+        # Evidence-repair remains max_retries=0 in the entailment engine only.
         return await self._llm.create(
             PersonaIntentBatch,
             messages=[
                 {"role": "system", "content": _build_persona_system_prompt(persona)},
                 {"role": "user", "content": _build_persona_user_prompt(cleaned_context, persona)},
             ],
-            max_retries=0,
+            max_retries=2,
             max_tokens=4096,
         )
 
@@ -438,7 +442,7 @@ class IntentGenerator:
                         {"role": "system", "content": _build_system_prompt(personas=personas)},
                         {"role": "user", "content": _build_user_prompt(cleaned_context)},
                     ],
-                    max_retries=0,
+                    max_retries=2,
                     max_tokens=8192,
                 )
             else:

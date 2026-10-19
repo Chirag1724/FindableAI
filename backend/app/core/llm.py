@@ -300,24 +300,59 @@ class LLMClient:
         return tuple(s for s in secrets if s)
 
     # --------------------------------------------------------- circuit breaker
-    def _is_tripped(self, provider: str) -> bool:
-        if provider not in self._tripped_providers:
-            return False
-        expiry = self._global_trip_expiry.get(provider)
-        if expiry is not None and time.monotonic() >= expiry:
-            self._tripped_providers.discard(provider)
-            self._global_trip_expiry.pop(provider, None)
-            return False
-        return True
+    @staticmethod
+    def _trip_key(provider: str, error_class: ErrorClass, model: str | None = None) -> str:
+        """AUTH/quota trip the whole provider; transient faults trip provider:model.
 
-    def _trip(self, provider: str, error_class: ErrorClass, retry_after: float | None) -> None:
+        Same-provider fallback models (e.g. groq/120b → groq/20b) must remain
+        eligible after a SERVER/TIMEOUT on the primary, otherwise a single
+        instructor 'Connection error' after HTTP 200 kills the entire chain.
+        """
+        if (
+            model
+            and error_class
+            in (
+                ErrorClass.SERVER,
+                ErrorClass.TIMEOUT,
+                ErrorClass.UNKNOWN,
+                ErrorClass.INVALID_OUTPUT,
+            )
+        ):
+            return f"{provider}:{model}"
+        return provider
+
+    def _is_tripped(self, provider: str, model: str | None = None) -> bool:
+        keys = [provider]
+        if model:
+            keys.append(f"{provider}:{model}")
+        now = time.monotonic()
+        for key in keys:
+            if key not in self._tripped_providers:
+                continue
+            expiry = self._global_trip_expiry.get(key)
+            if expiry is not None and now >= expiry:
+                self._tripped_providers.discard(key)
+                self._global_trip_expiry.pop(key, None)
+                continue
+            return True
+        return False
+
+    def _trip(
+        self,
+        provider: str,
+        error_class: ErrorClass,
+        retry_after: float | None,
+        *,
+        model: str | None = None,
+    ) -> None:
         seconds = _TRIP_SECONDS.get(error_class, 120.0)
         if error_class is ErrorClass.RATE_LIMIT and retry_after:
             seconds = max(seconds, float(retry_after))
         if seconds <= 0:
             return
-        self._tripped_providers.add(provider)
-        self._global_trip_expiry[provider] = time.monotonic() + seconds
+        key = self._trip_key(provider, error_class, model)
+        self._tripped_providers.add(key)
+        self._global_trip_expiry[key] = time.monotonic() + seconds
 
     # ---------------------------------------------------------- provider chain
     def _create_endpoint_for_provider(
@@ -355,6 +390,50 @@ class LLMClient:
             mode=mode,
         )
 
+    def _append_provider_endpoints(
+        self,
+        endpoints: list[ProviderEndpoint],
+        provider: str,
+        preferred_model: str | None,
+        *,
+        seen: set[tuple[str, str, str]],
+    ) -> None:
+        """Append credentialed endpoints for one provider/model, deduped by key+model."""
+
+        def _add(ep: ProviderEndpoint | None) -> None:
+            if ep is None:
+                return
+            key = (ep.name, ep.model, ep.api_key)
+            if key in seen:
+                return
+            seen.add(key)
+            endpoints.append(ep)
+
+        if provider == "groq":
+            keys = provider_api_keys("groq")
+            if (
+                self._api_key
+                and self._api_key not in keys
+                and key_matches_provider("groq", self._api_key)[0]
+            ):
+                keys = [self._api_key, *keys]
+            if keys:
+                primary_key = KEY_POOL.get_next_key_sync("groq") or keys[0]
+                if self._api_key and self._api_key != settings.GROQ_API_KEY:
+                    primary_key = self._api_key
+                ordered_keys = [primary_key] + [k for k in keys if k != primary_key]
+                for k in ordered_keys:
+                    _add(
+                        self._create_endpoint_for_provider(
+                            provider, preferred_model=preferred_model, key_override=k
+                        )
+                    )
+            else:
+                _add(self._create_endpoint_for_provider(provider, preferred_model=preferred_model))
+            return
+
+        _add(self._create_endpoint_for_provider(provider, preferred_model=preferred_model))
+
     def _get_provider_chain(self, requested_model: str | None = None) -> list[ProviderEndpoint]:
         # 1. Primary model & provider (defaults to settings.DEFAULT_LLM_MODEL)
         primary_spec = requested_model or self._model or settings.DEFAULT_LLM_MODEL
@@ -364,56 +443,28 @@ class LLMClient:
         fallback_spec = settings.FALLBACK_LLM_MODEL
         f_provider, f_model = _parse_model_spec(fallback_spec) if fallback_spec else ("", "")
 
-        # 3. Priority: primary -> fallback -> remaining configured providers
-        providers_order: list[str] = []
+        # 3. Ordered (provider, model) specs — keep same-provider fallback models.
+        #    Previous logic skip-added f_provider when it equaled p_provider, so
+        #    FALLBACK_LLM_MODEL=groq/… never appeared when primary was also groq.
+        model_specs: list[tuple[str, str | None]] = []
         if p_provider:
-            providers_order.append(p_provider)
-        if f_provider and f_provider not in providers_order:
-            providers_order.append(f_provider)
+            model_specs.append((p_provider, p_model or None))
+        if f_provider and (f_provider, f_model or None) not in model_specs:
+            model_specs.append((f_provider, f_model or None))
         for p in ("groq", "openrouter", "gemini", "openai", "nvidia"):
-            if p not in providers_order:
-                providers_order.append(p)
+            if any(existing == p for existing, _ in model_specs):
+                continue
+            model_specs.append((p, None))
 
         # 4. Endpoints — each with ONLY its own credential (or skipped)
         endpoints: list[ProviderEndpoint] = []
-        for p in providers_order:
-            preferred = None
-            if p == p_provider and p_model:
-                preferred = p_model
-            elif p == f_provider and f_model:
-                preferred = f_model
+        seen: set[tuple[str, str, str]] = set()
+        for provider, preferred in model_specs:
+            self._append_provider_endpoints(endpoints, provider, preferred, seen=seen)
 
-            if p == "groq":
-                keys = provider_api_keys("groq")
-                if (
-                    self._api_key
-                    and self._api_key not in keys
-                    and key_matches_provider("groq", self._api_key)[0]
-                ):
-                    keys = [self._api_key, *keys]
-                if keys:
-                    primary_key = KEY_POOL.get_next_key_sync("groq") or keys[0]
-                    if self._api_key and self._api_key != settings.GROQ_API_KEY:
-                        primary_key = self._api_key
-                    ordered_keys = [primary_key] + [k for k in keys if k != primary_key]
-                    for k in ordered_keys:
-                        ep = self._create_endpoint_for_provider(
-                            p, preferred_model=preferred, key_override=k
-                        )
-                        if ep is not None:
-                            endpoints.append(ep)
-                else:
-                    ep = self._create_endpoint_for_provider(p, preferred_model=preferred)
-                    if ep is not None:
-                        endpoints.append(ep)
-            else:
-                ep = self._create_endpoint_for_provider(p, preferred_model=preferred)
-                if ep is not None:
-                    endpoints.append(ep)
-
-        # 5. Healthy providers first, tripped ones last (never dropped entirely)
-        healthy = [ep for ep in endpoints if not self._is_tripped(ep.name)]
-        tripped = [ep for ep in endpoints if self._is_tripped(ep.name)]
+        # 5. Healthy endpoints first, tripped ones last (never dropped entirely)
+        healthy = [ep for ep in endpoints if not self._is_tripped(ep.name, ep.model)]
+        tripped = [ep for ep in endpoints if self._is_tripped(ep.name, ep.model)]
         chain = healthy + tripped
 
         if not chain:
@@ -443,6 +494,12 @@ class LLMClient:
                 "api_key": endpoint.api_key,
                 "timeout": http_timeout,
                 "max_retries": 0,  # Retries owned by LLMClient (avoid nested loops).
+                # openai>=3 pulls httpx2, whose gzip decoder raises
+                # ``TypeError: process() takes no keyword arguments`` and the SDK
+                # wraps that as a misleading ``APIConnectionError: Connection error``
+                # *after* HTTP 200. Disable compressed responses as a defensive
+                # workaround so scans still work on polluted system Pythons.
+                "default_headers": {"Accept-Encoding": "identity"},
             }
             if endpoint.base_url:
                 client_kwargs["base_url"] = endpoint.base_url
@@ -614,9 +671,9 @@ class LLMClient:
 
         for ep_idx, endpoint in enumerate(endpoints):
             remaining_eps = endpoints[ep_idx + 1 :]
-            if self._is_tripped(endpoint.name) and remaining_eps:
+            if self._is_tripped(endpoint.name, endpoint.model) and remaining_eps:
                 continue
-            has_fallback = any(not self._is_tripped(e.name) for e in remaining_eps)
+            has_fallback = any(not self._is_tripped(e.name, e.model) for e in remaining_eps)
             client = self._get_provider_client(endpoint)
             max_tokens = int(kwargs.get("max_tokens", 4096))
             extra = {k: v for k, v in kwargs.items() if k != "max_tokens"}
@@ -730,13 +787,22 @@ class LLMClient:
                         break
 
                     if action is Action.FAILOVER and has_fallback:
-                        self._trip(endpoint.name, ce.error_class, ce.retry_after)
-                        await self._record_failover()
-                        next_ep = next(e for e in remaining_eps if not self._is_tripped(e.name))
-                        logger.warning(
-                            "llm_failover from=%s to=%s class=%s (own credentials each)",
+                        self._trip(
                             endpoint.name,
+                            ce.error_class,
+                            ce.retry_after,
+                            model=endpoint.model,
+                        )
+                        await self._record_failover()
+                        next_ep = next(
+                            e for e in remaining_eps if not self._is_tripped(e.name, e.model)
+                        )
+                        logger.warning(
+                            "llm_failover from=%s/%s to=%s/%s class=%s (own credentials each)",
+                            endpoint.name,
+                            endpoint.model,
                             next_ep.name,
+                            next_ep.model,
                             ce.error_class.value,
                         )
                         break
@@ -744,7 +810,12 @@ class LLMClient:
                         ce.error_class, 0
                     ):
                         # No fallback: remember the outage so sibling requests skip quickly.
-                        self._trip(endpoint.name, ce.error_class, ce.retry_after)
+                        self._trip(
+                            endpoint.name,
+                            ce.error_class,
+                            ce.retry_after,
+                            model=endpoint.model,
+                        )
                     raise last_error from exc
 
                 # ---- success

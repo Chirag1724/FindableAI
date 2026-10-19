@@ -258,6 +258,11 @@ class AsyncCrawler:
                 pw_result = await self.fetch_page_playwright(url)
                 if pw_result:
                     return pw_result
+                # Playwright unavailable / failed: keep HTTP HTML but promote
+                # ``<noscript>`` SEO mirrors so DOMChunker is not left with an
+                # empty #root shell (otherwise pages_crawled>0 and chunks=0).
+                if is_spa:
+                    html = self.promote_noscript_html(html)
 
             return CrawlResult(
                 url=str(response.url),
@@ -306,6 +311,33 @@ class AsyncCrawler:
             text = root.get_text(strip=True)
             return len(text.split()) < 3
         return False
+
+    @staticmethod
+    def promote_noscript_html(html: str) -> str:
+        """Unwrap ``<noscript>`` bodies into the document when the SPA shell is empty.
+
+        Used when Playwright cannot render the hydrated DOM so chunking still
+        sees crawler-visible SEO content instead of an empty ``#root``.
+        """
+        if not html or "<noscript" not in html.lower():
+            return html
+        soup = BeautifulSoup(html, "lxml")
+        root = soup.find(id="root") or soup.find(id="app")
+        root_words = 0
+        if root is not None and hasattr(root, "get_text"):
+            root_words = len(root.get_text(" ", strip=True).split())
+        if root_words >= 3:
+            return html
+        from bs4 import Tag
+
+        promoted = 0
+        for el in list(soup.find_all("noscript")):
+            if isinstance(el, Tag):
+                el.unwrap()
+                promoted += 1
+        if not promoted:
+            return html
+        return str(soup)
 
     async def fetch_robots_txt(self, client: httpx.AsyncClient, base_url: str) -> str:
         """Fetch robots.txt for the given base domain with SSRF validation."""

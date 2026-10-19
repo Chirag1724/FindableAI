@@ -43,6 +43,10 @@ class _Scan(_TestBase):
     org_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     llm_calls_made: Mapped[int | None] = mapped_column(Integer, nullable=True)
     llm_usd_estimated: Mapped[float | None] = mapped_column(Float, nullable=True)
+    execution_mode: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    result_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    outcome: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    remediation_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -295,6 +299,121 @@ async def test_idempotent_enqueue(session: AsyncSession):
     assert r2.created is False
     assert r2.conflict is False
     assert r1.job.id == r2.job.id
+
+
+@pytest.mark.asyncio
+async def test_inconclusive_succeeded_allows_fresh_scan(session: AsyncSession):
+    """Job SUCCEEDED + incomplete audit must not permanently pin the auto key.
+
+    Regression for scan_7f994f4f…: pipeline finished as synthetic_fallback /
+    inconclusive but job status was succeeded, so re-submitting the same URL
+    kept returning the broken scan forever.
+    """
+    from app.jobs.queue import complete_job
+
+    old_scan_id = uuid.uuid4()
+    fp = request_fingerprint(
+        url="https://www.worthfinding.tech/", max_pages=5, personas=None, repo_url=None
+    )
+    key = f"auto:{fp}"
+    async with session.begin():
+        r1 = await enqueue_scan_job(
+            session,
+            scan_uuid=old_scan_id,
+            url="https://www.worthfinding.tech/",
+            max_pages=5,
+            personas=None,
+            repo_url=None,
+            idempotency_key=key,
+            fingerprint=fp,
+        )
+    async with session.begin():
+        claimed = await claim_next_job(session, worker_id="w-inc", lease_seconds=30)
+        assert claimed is not None
+        token = claimed.fencing_token
+    async with session.begin():
+        ok = await complete_job(
+            session, job_id=claimed.job_id, fencing_token=token, worker_id="w-inc"
+        )
+        assert ok is True
+    async with session.begin():
+        scan = await session.get(_Scan, old_scan_id)
+        assert scan is not None
+        scan.status = "completed"
+        scan.outcome = "inconclusive"
+        scan.result_source = "inconclusive"
+        scan.execution_mode = "synthetic_fallback"
+        scan.remediation_eligible = False
+
+    new_scan_id = uuid.uuid4()
+    async with session.begin():
+        r2 = await enqueue_scan_job(
+            session,
+            scan_uuid=new_scan_id,
+            url="https://www.worthfinding.tech/",
+            max_pages=5,
+            personas=None,
+            repo_url=None,
+            idempotency_key=key,
+            fingerprint=fp,
+        )
+    assert r2.created is True
+    assert r2.scan.id == new_scan_id
+    assert r2.job.id != r1.job.id
+
+
+@pytest.mark.asyncio
+async def test_real_llm_success_stays_idempotent(session: AsyncSession):
+    """A real successful audit must still return the same scan on re-POST."""
+    from app.jobs.queue import complete_job
+
+    scan_id = uuid.uuid4()
+    fp = request_fingerprint(
+        url="https://example.com/real-ok", max_pages=3, personas=None, repo_url=None
+    )
+    key = f"auto:{fp}"
+    async with session.begin():
+        r1 = await enqueue_scan_job(
+            session,
+            scan_uuid=scan_id,
+            url="https://example.com/real-ok",
+            max_pages=3,
+            personas=None,
+            repo_url=None,
+            idempotency_key=key,
+            fingerprint=fp,
+        )
+    async with session.begin():
+        claimed = await claim_next_job(session, worker_id="w-ok", lease_seconds=30)
+        assert claimed is not None
+        token = claimed.fencing_token
+    async with session.begin():
+        assert await complete_job(
+            session, job_id=claimed.job_id, fencing_token=token, worker_id="w-ok"
+        )
+    async with session.begin():
+        scan = await session.get(_Scan, scan_id)
+        assert scan is not None
+        scan.status = "completed"
+        scan.outcome = "success"
+        scan.result_source = "real_pipeline"
+        scan.execution_mode = "real_llm"
+        scan.remediation_eligible = True
+
+    async with session.begin():
+        r2 = await enqueue_scan_job(
+            session,
+            scan_uuid=uuid.uuid4(),
+            url="https://example.com/real-ok",
+            max_pages=3,
+            personas=None,
+            repo_url=None,
+            idempotency_key=key,
+            fingerprint=fp,
+        )
+    assert r2.created is False
+    assert r2.scan.id == scan_id
+    assert r2.job.id == r1.job.id
 
 
 @pytest.mark.asyncio

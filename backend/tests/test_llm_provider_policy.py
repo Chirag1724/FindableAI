@@ -70,8 +70,8 @@ def _chain_client(
     endpoints = [_ep(name) for name in handlers]
 
     def fake_chain(requested_model: str | None = None) -> list[ProviderEndpoint]:
-        healthy = [e for e in endpoints if not client._is_tripped(e.name)]
-        tripped = [e for e in endpoints if client._is_tripped(e.name)]
+        healthy = [e for e in endpoints if not client._is_tripped(e.name, e.model)]
+        tripped = [e for e in endpoints if client._is_tripped(e.name, e.model)]
         return healthy + tripped
 
     def fake_get_client(endpoint: ProviderEndpoint) -> Any:
@@ -146,6 +146,72 @@ async def test_429_exhausted_failsover_and_counts() -> None:
     assert client._budget.observability.provider_failovers == 1
     assert client._budget.observability.fallback_provider_used is True
     assert client._is_tripped(_GROQ) is True
+
+
+def test_provider_chain_includes_same_provider_fallback_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FALLBACK_LLM_MODEL on the same provider must appear as a distinct endpoint."""
+    from app.core import config as config_mod
+
+    monkeypatch.setattr(config_mod.settings, "DEFAULT_LLM_MODEL", "groq/openai/gpt-oss-120b")
+    monkeypatch.setattr(config_mod.settings, "FALLBACK_LLM_MODEL", "groq/openai/gpt-oss-20b")
+    monkeypatch.setattr(config_mod.settings, "GROQ_API_KEY", "gsk_test_key_for_chain")
+    monkeypatch.setattr(config_mod.settings, "OPENROUTER_API_KEY", "")
+    monkeypatch.setattr(config_mod.settings, "GEMINI_API_KEY", "")
+    monkeypatch.setattr(config_mod.settings, "OPENAI_API_KEY", "")
+    monkeypatch.setattr(config_mod.settings, "NVIDIA_API_KEY", "")
+
+    LLMClient.reset_tripped_providers()
+    client = LLMClient(model="groq/openai/gpt-oss-120b", budget_guard=BudgetGuard(limit=5))
+    chain = client._get_provider_chain()
+    models = [(e.name, e.model) for e in chain]
+    assert ("groq", "openai/gpt-oss-120b") in models
+    assert ("groq", "openai/gpt-oss-20b") in models
+
+
+@pytest.mark.asyncio
+async def test_connection_error_retries_then_failsover_same_provider_model() -> None:
+    """SERVER 'Connection error' must not trip the whole provider.
+
+    Production scan_7f994f4f… reserved 1 call, got HTTP 200 then instructor
+    'Connection error', and with attempts_cap=1 never retried or reached the
+    same-provider fallback model.
+    """
+    primary = AsyncMock(side_effect=RuntimeError("Connection error."))
+    fallback = AsyncMock(return_value=_Tiny(answer="from-fallback-model"))
+    guard = BudgetGuard(limit=35)
+    client = LLMClient(model="groq/test", budget_guard=guard, instructor_client=None)
+    ep_primary = _ep(_GROQ, model="openai/gpt-oss-120b")
+    ep_fallback = _ep(_GROQ, model="openai/gpt-oss-20b")
+    handlers = {
+        "openai/gpt-oss-120b": primary,
+        "openai/gpt-oss-20b": fallback,
+    }
+
+    def fake_chain(requested_model: str | None = None) -> list[ProviderEndpoint]:
+        eps = [ep_primary, ep_fallback]
+        healthy = [e for e in eps if not client._is_tripped(e.name, e.model)]
+        tripped = [e for e in eps if client._is_tripped(e.name, e.model)]
+        return healthy + tripped
+
+    def fake_get_client(endpoint: ProviderEndpoint) -> Any:
+        return _FakeInstructor(handlers[endpoint.model])
+
+    client._get_provider_chain = fake_chain  # type: ignore[method-assign]
+    client._get_provider_client = fake_get_client  # type: ignore[method-assign]
+
+    result = await client.create(
+        _Tiny, messages=[{"role": "user", "content": "conn-err"}], max_retries=2
+    )
+    assert result.answer == "from-fallback-model"
+    # SERVER policy allows 1 retry on primary (2 attempts) then failover.
+    assert primary.await_count == 2
+    assert fallback.await_count == 1
+    assert client.calls_made == 3
+    assert client._budget.observability.provider_failovers == 1
+    # Provider-level trip must NOT be set — only the failed model.
+    assert client._is_tripped(_GROQ) is False
+    assert client._is_tripped(_GROQ, "openai/gpt-oss-120b") is True
+    assert client._is_tripped(_GROQ, "openai/gpt-oss-20b") is False
 
 
 @pytest.mark.asyncio
