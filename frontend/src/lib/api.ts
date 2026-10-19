@@ -6,6 +6,7 @@ import type {
   VerificationRun,
   ValidationCheck,
   ApiError,
+  ScanSummaryResponse,
 } from "@/types/scan";
 import type { LighthouseResponse } from "@/types/lighthouse";
 import { getAuthHeaders } from "@/lib/authHeaders";
@@ -19,6 +20,45 @@ interface CreateScanBody {
 }
 
 const BASE = "/api/v1";
+
+const SUMMARY_STATUSES = new Set(["none", "generating", "ready", "failed"]);
+
+function isScanSummaryResponse(body: Record<string, unknown>): boolean {
+  const status = body["status"];
+  return typeof status === "string" && SUMMARY_STATUSES.has(status);
+}
+
+function parseSummaryErrorBody(
+  body: Record<string, unknown>,
+  status: number,
+  fallbackMessage: string
+): ApiError {
+  if (isScanSummaryResponse(body)) {
+    const summaryBody = body as unknown as ScanSummaryResponse;
+    const message =
+      typeof summaryBody.message === "string" && summaryBody.message.trim()
+        ? summaryBody.message
+        : fallbackMessage;
+    return {
+      status,
+      message,
+      body: summaryBody,
+      retry_after: summaryBody.retry_after ?? null,
+    };
+  }
+  let detail: string | undefined;
+  let message = fallbackMessage;
+  if (typeof body["detail"] === "string") {
+    detail = body["detail"];
+    message = detail;
+  } else if (Array.isArray(body["detail"])) {
+    detail = (body["detail"] as unknown[])
+      .map((d) => JSON.stringify(d))
+      .join("; ");
+    message = detail;
+  }
+  return { status, message, detail };
+}
 
 async function request<T>(
   path: string,
@@ -218,4 +258,61 @@ export interface HealthResponse {
 
 export async function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
   return request<HealthResponse>("/health", { signal });
+}
+
+export async function getScanSummary(
+  scanId: string,
+  signal?: AbortSignal
+): Promise<ScanSummaryResponse> {
+  return request<ScanSummaryResponse>(`/scans/${scanId}/summary`, { signal });
+}
+
+export async function generateScanSummary(
+  scanId: string,
+  signal?: AbortSignal
+): Promise<ScanSummaryResponse> {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/scans/${scanId}/summary`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders(),
+      },
+      signal,
+    });
+  } catch (networkErr) {
+    const err: ApiError = {
+      status: 0,
+      message:
+        networkErr instanceof Error
+          ? networkErr.message
+          : "Network request failed",
+    };
+    throw err;
+  }
+
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await res.json()) as Record<string, unknown>;
+  } catch {
+    if (!res.ok) {
+      throw parseSummaryErrorBody({}, res.status, `Request failed with status ${res.status}`);
+    }
+    const err: ApiError = {
+      status: res.status,
+      message: "Invalid JSON in response",
+    };
+    throw err;
+  }
+
+  if (res.ok) {
+    return body as unknown as ScanSummaryResponse;
+  }
+
+  throw parseSummaryErrorBody(
+    body,
+    res.status,
+    `Request failed with status ${res.status}`
+  );
 }

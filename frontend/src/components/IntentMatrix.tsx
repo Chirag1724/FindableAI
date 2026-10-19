@@ -400,6 +400,7 @@ export function IntentMatrix({ intents }: IntentMatrixProps) {
                 return (
                   <tr
                     key={intent.intent_id}
+                    id={`intent-${intent.intent_id}`}
                     data-testid={`intent-row-${intent.intent_id}`}
                     className="border-b border-white/[0.04] last:border-0 cursor-pointer transition-colors duration-150 hover:bg-white/[0.02]"
                     onClick={() =>

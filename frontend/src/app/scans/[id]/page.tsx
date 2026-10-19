@@ -27,6 +27,8 @@ import {
 import dynamic from "next/dynamic";
 import { ScanProgress } from "@/components/ScanProgress";
 import { SummaryStats } from "@/components/SummaryStats";
+import { AiHealthBrief, AiSummaryTabControl } from "@/components/AiHealthBrief";
+import { ScanReportTabPanels } from "@/components/ScanReportTabPanels";
 import { IntentMatrix } from "@/components/IntentMatrix";
 import { ContradictionCard } from "@/components/ContradictionCard";
 import { PatchModal } from "@/components/PatchModal";
@@ -34,6 +36,11 @@ import { ErrorState } from "@/components/ErrorState";
 import { gsap, EASING, prefersReducedMotion } from "@/lib/motion";
 import { LiveScanConsole } from "@/components/LiveScanConsole";
 import { LighthouseTab } from "@/components/LighthouseTab";
+import {
+  parseScanReportTab,
+  scanReportTabHref,
+  type ScanReportTab,
+} from "@/lib/scanReportTabs";
 import type { AuditSummary } from "@/types/scan";
 
 const ScoreGauge = dynamic(
@@ -77,25 +84,38 @@ export default function ScanDashboardPage() {
   const scanId = typeof params?.id === "string" ? params.id : null;
 
   const tabParam = searchParams.get("tab");
-  const [activeTab, setActiveTab] = useState<"overview" | "lighthouse">(
-    tabParam === "lighthouse" ? "lighthouse" : "overview"
+  const [activeTab, setActiveTab] = useState<ScanReportTab>(() =>
+    parseScanReportTab(tabParam)
   );
+  const [aiSummaryBusy, setAiSummaryBusy] = useState(false);
+  const [aiSummaryAutoGenerate, setAiSummaryAutoGenerate] = useState(false);
 
-  useEffect(() => {
-    if (tabParam === "lighthouse" || tabParam === "overview") {
-      setActiveTab(tabParam);
-    }
-  }, [tabParam]);
+  const handleAiSummaryBusyChange = useCallback((busy: boolean) => {
+    setAiSummaryBusy(busy);
+  }, []);
+  const handleAiSummaryAutoGenerateConsumed = useCallback(() => {
+    setAiSummaryAutoGenerate(false);
+  }, []);
 
   const handleTabChange = useCallback(
-    (tab: "overview" | "lighthouse") => {
+    (tab: ScanReportTab, opts?: { autoGenerateSummary?: boolean }) => {
       setActiveTab(tab);
+      setAiSummaryAutoGenerate(
+        tab === "summary" ? Boolean(opts?.autoGenerateSummary) : false
+      );
       if (!scanId) return;
-      const targetUrl = tab === "lighthouse" ? `/scans/${scanId}?tab=lighthouse` : `/scans/${scanId}`;
-      router.replace(targetUrl, { scroll: false });
+      router.replace(scanReportTabHref(scanId, tab), { scroll: false });
     },
     [router, scanId]
   );
+
+  const handleAiSummaryTabClick = useCallback(() => {
+    handleTabChange("summary", { autoGenerateSummary: true });
+  }, [handleTabChange]);
+
+  useEffect(() => {
+    setActiveTab(parseScanReportTab(tabParam));
+  }, [tabParam]);
 
   const [initialScan, setInitialScan] = useState<ScanResponse | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -626,18 +646,20 @@ export default function ScanDashboardPage() {
 
         {/* Failed state */}
         {isFailed && (
-          <ErrorState
-            title="Scan failed"
-            message={displayScan.error ?? "The scan encountered an error during processing."}
-            action={
-              <Link
-                href="/"
-                className="rounded-lg bg-surface-secondary shadow-border px-4 py-2 text-xs font-medium text-text-primary transition-colors duration-150 hover:bg-surface-tertiary focus-visible:ring-2 focus-visible:ring-blue-500"
-              >
-                Scan another URL
-              </Link>
-            }
-          />
+          <>
+            <ErrorState
+              title="Scan failed"
+              message={displayScan.error ?? "The scan encountered an error during processing."}
+              action={
+                <Link
+                  href="/"
+                  className="rounded-lg bg-surface-secondary shadow-border px-4 py-2 text-xs font-medium text-text-primary transition-colors duration-150 hover:bg-surface-tertiary focus-visible:ring-2 focus-visible:ring-blue-500"
+                >
+                  Scan another URL
+                </Link>
+              }
+            />
+          </>
         )}
 
         {/* Processing Screen: Live Telemetry Pipeline Workspace (shown until page is fully loaded) */}
@@ -674,11 +696,11 @@ export default function ScanDashboardPage() {
         {/* Completed dashboard (ONLY rendered when fully loaded and ready) */}
         {showCompletedDashboard && (
           <div className="space-y-6 sm:space-y-8 animate-fade-in">
-            {/* Tab Navigation Switcher */}
+            {/* Tab Navigation Switcher + AI Summary control */}
             <div
               role="tablist"
               aria-label="Scan Report Views"
-              className="flex items-center gap-2 border-b border-white/[0.08] pb-3"
+              className="flex items-center gap-2 border-b border-white/[0.08] pb-3 overflow-x-auto"
             >
               <button
                 type="button"
@@ -687,7 +709,7 @@ export default function ScanDashboardPage() {
                 aria-selected={activeTab === "overview"}
                 aria-controls="panel-overview"
                 onClick={() => handleTabChange("overview")}
-                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold tracking-wide transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold tracking-wide transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 shrink-0 ${
                   activeTab === "overview"
                     ? "bg-white text-black shadow-md font-bold"
                     : "bg-surface-secondary text-text-muted hover:text-white hover:bg-surface-tertiary shadow-border"
@@ -704,7 +726,7 @@ export default function ScanDashboardPage() {
                 aria-selected={activeTab === "lighthouse"}
                 aria-controls="panel-lighthouse"
                 onClick={() => handleTabChange("lighthouse")}
-                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold tracking-wide transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold tracking-wide transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 shrink-0 ${
                   activeTab === "lighthouse"
                     ? "bg-white text-black shadow-md font-bold"
                     : "bg-surface-secondary text-text-muted hover:text-white hover:bg-surface-tertiary shadow-border"
@@ -716,114 +738,126 @@ export default function ScanDashboardPage() {
                   NEW
                 </span>
               </button>
+
+              {scanId && (
+                <AiSummaryTabControl
+                  active={activeTab === "summary"}
+                  loading={aiSummaryBusy}
+                  onClick={handleAiSummaryTabClick}
+                />
+              )}
             </div>
 
-            {/* Tab Panel 1: Intelligence Overview */}
-            {activeTab === "overview" && (
-              <div
-                role="tabpanel"
-                id="panel-overview"
-                aria-labelledby="tab-overview"
-                className="space-y-8 sm:space-y-10 animate-fade-in"
-              >
-                {/* Summary stats — duration falls back to created/completed wall clock */}
-                {displayScan.summary && (
-                  <SummaryStats
-                    summary={
-                      (() => {
-                        const base = displayScan.summary as AuditSummary;
-                        const reported = Number(base.execution_time_seconds) || 0;
-                        if (reported > 0) return base;
-                        const computed = durationFromTimestamps(
-                          displayScan.created_at,
-                          displayScan.completed_at
-                        );
-                        if (computed <= 0) return base;
-                        return {
-                          ...base,
-                          execution_time_seconds: Math.round(computed * 10) / 10,
-                        };
-                      })()
-                    }
+            <ScanReportTabPanels
+              activeTab={activeTab}
+              overview={
+                <>
+                  {/* Summary stats — duration falls back to created/completed wall clock */}
+                  {displayScan.summary && (
+                    <SummaryStats
+                      summary={
+                        (() => {
+                          const base = displayScan.summary as AuditSummary;
+                          const reported = Number(base.execution_time_seconds) || 0;
+                          if (reported > 0) return base;
+                          const computed = durationFromTimestamps(
+                            displayScan.created_at,
+                            displayScan.completed_at
+                          );
+                          if (computed <= 0) return base;
+                          return {
+                            ...base,
+                            execution_time_seconds: Math.round(computed * 10) / 10,
+                          };
+                        })()
+                      }
+                    />
+                  )}
+
+                  {/* Findability Analytics Matrix (2x2) — only authoritative real scores */}
+                  {hasAuthoritativeScore && (displayScan.f_score ?? scan.data?.f_score) ? (
+                    <ScoreGauge fScore={(displayScan.f_score ?? scan.data?.f_score)!} />
+                  ) : (
+                    <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-200/90 font-mono">
+                      {scoreSource === "mock"
+                        ? "F-Score unavailable: mock/demo score suppressed (not an audit-grade result)."
+                        : evaluatedIntentCount === 0
+                          ? "F-Score unavailable: no real intent evaluations were completed for this scan."
+                          : "F-Score unavailable: score provenance is incomplete or non-authoritative."}
+                    </div>
+                  )}
+
+                  {/* Intent Evaluations — real DAG rows only */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between pb-1 border-b border-white/[0.06]">
+                      <h2 className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-text-primary">
+                        Intent Vector Evaluations
+                      </h2>
+                      <span className="font-mono text-[11px] text-text-muted">
+                        {evaluatedIntentCount}
+                        {isRealLlm ? " Real Evaluations" : " (no verified real evaluations)"}
+                      </span>
+                    </div>
+                    {intents.error ? (
+                      <ErrorState
+                        message={intents.error}
+                        onRetry={intents.retry}
+                      />
+                    ) : evaluatedIntentCount === 0 ||
+                      resultSource === "synthetic_fallback" ||
+                      resultSource === "inconclusive" ? (
+                      <p className="rounded-lg border border-white/[0.08] bg-surface-secondary px-4 py-6 text-center text-xs text-text-muted">
+                        No evaluation completed against retrieved website evidence.
+                        {displayScan.summary?.synthetic_intents_count
+                          ? ` ${displayScan.summary.synthetic_intents_count} demo placeholders were not treated as real findings.`
+                          : ""}
+                      </p>
+                    ) : (
+                      <IntentMatrix intents={intents.data ?? []} />
+                    )}
+                  </div>
+
+                  {/* Contradictions */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between pb-1 border-b border-white/[0.06]">
+                      <h2 className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-text-primary">
+                        Cross-Page Contradictions &amp; Conflicts
+                      </h2>
+                      <span className="font-mono text-[11px] text-text-muted">
+                        {contradictions.data?.length ?? displayScan.summary?.contradictions_detected ?? 0} Detected
+                      </span>
+                    </div>
+                    {contradictions.error ? (
+                      <ErrorState
+                        message={contradictions.error}
+                        onRetry={contradictions.retry}
+                      />
+                    ) : (
+                      <ContradictionCard contradictions={contradictions.data ?? []} />
+                    )}
+                  </div>
+                </>
+              }
+              lighthouse={scanId ? <LighthouseTab scanId={scanId} /> : null}
+              summary={
+                scanId ? (
+                  <AiHealthBrief
+                    scanId={scanId}
+                    scanStatus={currentStatus}
+                    outcome={scanOutcome}
+                    jobStatus={displayScan.job_status}
+                    panelOnly
+                    open
+                    onOpenChange={(nextOpen) => {
+                      if (!nextOpen) handleTabChange("overview");
+                    }}
+                    autoGenerate={aiSummaryAutoGenerate}
+                    onAutoGenerateConsumed={handleAiSummaryAutoGenerateConsumed}
+                    onBusyChange={handleAiSummaryBusyChange}
                   />
-                )}
-
-                {/* Findability Analytics Matrix (2x2) — only authoritative real scores */}
-                {hasAuthoritativeScore && (displayScan.f_score ?? scan.data?.f_score) ? (
-                  <ScoreGauge fScore={(displayScan.f_score ?? scan.data?.f_score)!} />
-                ) : (
-                  <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-200/90 font-mono">
-                    {scoreSource === "mock"
-                      ? "F-Score unavailable: mock/demo score suppressed (not an audit-grade result)."
-                      : evaluatedIntentCount === 0
-                        ? "F-Score unavailable: no real intent evaluations were completed for this scan."
-                        : "F-Score unavailable: score provenance is incomplete or non-authoritative."}
-                  </div>
-                )}
-
-                {/* Intent Evaluations — real DAG rows only */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between pb-1 border-b border-white/[0.06]">
-                    <h2 className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-text-primary">
-                      Intent Vector Evaluations
-                    </h2>
-                    <span className="font-mono text-[11px] text-text-muted">
-                      {evaluatedIntentCount}
-                      {isRealLlm ? " Real Evaluations" : " (no verified real evaluations)"}
-                    </span>
-                  </div>
-                  {intents.error ? (
-                    <ErrorState
-                      message={intents.error}
-                      onRetry={intents.retry}
-                    />
-                  ) : evaluatedIntentCount === 0 ||
-                    resultSource === "synthetic_fallback" ||
-                    resultSource === "inconclusive" ? (
-                    <p className="rounded-lg border border-white/[0.08] bg-surface-secondary px-4 py-6 text-center text-xs text-text-muted">
-                      No evaluation completed against retrieved website evidence.
-                      {displayScan.summary?.synthetic_intents_count
-                        ? ` ${displayScan.summary.synthetic_intents_count} demo placeholders were not treated as real findings.`
-                        : ""}
-                    </p>
-                  ) : (
-                    <IntentMatrix intents={intents.data ?? []} />
-                  )}
-                </div>
-
-                {/* Contradictions */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between pb-1 border-b border-white/[0.06]">
-                    <h2 className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-text-primary">
-                      Cross-Page Contradictions &amp; Conflicts
-                    </h2>
-                    <span className="font-mono text-[11px] text-text-muted">
-                      {contradictions.data?.length ?? displayScan.summary?.contradictions_detected ?? 0} Detected
-                    </span>
-                  </div>
-                  {contradictions.error ? (
-                    <ErrorState
-                      message={contradictions.error}
-                      onRetry={contradictions.retry}
-                    />
-                  ) : (
-                    <ContradictionCard contradictions={contradictions.data ?? []} />
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Tab Panel 2: AI Lighthouse */}
-            {activeTab === "lighthouse" && scanId && (
-              <div
-                role="tabpanel"
-                id="panel-lighthouse"
-                aria-labelledby="tab-lighthouse"
-                className="animate-fade-in"
-              >
-                <LighthouseTab scanId={scanId} />
-              </div>
-            )}
+                ) : null
+              }
+            />
           </div>
         )}
       </main>

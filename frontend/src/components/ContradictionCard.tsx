@@ -13,6 +13,11 @@ interface ContradictionCardProps {
 function SingleCard({ contradiction }: { contradiction: Contradiction }) {
   return (
     <div
+      id={
+        contradiction.contradiction_id
+          ? `contradiction-${contradiction.contradiction_id}`
+          : undefined
+      }
       data-testid={`contradiction-card-${contradiction.contradiction_id}`}
       className="rounded-xl bg-surface shadow-border p-4 sm:p-6 space-y-4"
     >

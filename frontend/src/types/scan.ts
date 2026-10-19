@@ -281,8 +281,83 @@ export interface VerificationRun {
   is_full_rescan?: boolean | null;
 }
 
+export type SummaryStatus = "none" | "generating" | "ready" | "failed";
+export type SummaryPriority = "high" | "medium" | "low";
+export type SummaryVerdict =
+  | "scan_incomplete"
+  | "insufficient_evidence"
+  | "issues_found"
+  | "no_confirmed_issues";
+export type RemediationStatusLabel =
+  | "not_started"
+  | "in_progress"
+  | "done"
+  | "unavailable";
+
+export interface FactStatement {
+  text: string;
+  fact_ids: string[];
+}
+
+export interface NextStepStatement {
+  text: string;
+  priority: SummaryPriority;
+  fact_ids: string[];
+}
+
+export interface OverallAssessment {
+  text: string;
+  fact_ids?: string[];
+}
+
+export interface SummarySignals {
+  all_intents_unknown?: boolean;
+  zero_dom_chunks?: boolean;
+  single_page_crawl?: boolean;
+  score_pillar_mismatch?: boolean;
+  lighthouse_available?: boolean;
+  remediation_unavailable_reason?: string | null;
+  weighted_pillar_sum?: number | null;
+  overall_score?: number | null;
+}
+
+export interface SummaryCoverage {
+  evaluations_completed?: number | null;
+  evaluations_total?: number | null;
+  findings_included?: number;
+  omitted_count?: number;
+}
+
+export interface ScanSummaryResponse {
+  status: SummaryStatus;
+  verdict?: SummaryVerdict | null;
+  overall_assessment?: OverallAssessment | null;
+  what_the_scan_found?: FactStatement[];
+  why_it_matters?: FactStatement[];
+  evidence_gaps?: FactStatement[];
+  next_steps?: NextStepStatement[];
+  limitations?: string;
+  signals?: SummarySignals | null;
+  omitted?: string[];
+  coverage?: SummaryCoverage | null;
+  remediation_status?: RemediationStatusLabel | null;
+  remediation_reason?: string | null;
+  generated_at?: string | null;
+  model?: string | null;
+  cached?: boolean;
+  reason?: string | null;
+  message?: string | null;
+  retry_after?: number | null;
+  /** @deprecated v1 fields */
+  headline?: string | null;
+  overview?: string | null;
+  items?: unknown[];
+}
+
 export interface ApiError {
   status: number;
   message: string;
   detail?: string;
+  body?: ScanSummaryResponse;
+  retry_after?: number | null;
 }

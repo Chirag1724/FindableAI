@@ -1,0 +1,22 @@
+/** Scan-detail report view tabs — mutually exclusive panels. */
+
+export type ScanReportTab = "overview" | "lighthouse" | "summary";
+
+export function parseScanReportTab(param: string | null | undefined): ScanReportTab {
+  if (param === "lighthouse" || param === "summary") return param;
+  return "overview";
+}
+
+export function scanReportTabHref(scanId: string, tab: ScanReportTab): string {
+  if (tab === "lighthouse") return `/scans/${scanId}?tab=lighthouse`;
+  if (tab === "summary") return `/scans/${scanId}?tab=summary`;
+  return `/scans/${scanId}`;
+}
+
+/** Only the active tab's panel may render. */
+export function isScanReportPanelActive(
+  activeTab: ScanReportTab,
+  panel: ScanReportTab
+): boolean {
+  return activeTab === panel;
+}

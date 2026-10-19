@@ -29,6 +29,10 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      - key: GEMINI_API_KEY_AI_SUMMARY
+        sync: false
+      - key: GEMINI_API_KEY_AI_SUMMARY1
+        sync: false
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENROUTER_API_KEY
@@ -43,6 +47,10 @@ services:
         value: groq/openai/gpt-oss-120b
       - key: FALLBACK_LLM_MODEL
         value: groq/openai/gpt-oss-120b
+      - key: SUMMARY_LLM_MODEL
+        value: gemini/gemini-3.5-flash-lite
+      - key: SUMMARY_MAX_OUTPUT_TOKENS
+        value: "8192"
       - key: LLM_BUDGET_CAP_USD
         value: "0.01"
       - key: MAX_LLM_CALLS_PER_SCAN
@@ -81,6 +89,10 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      - key: GEMINI_API_KEY_AI_SUMMARY
+        sync: false
+      - key: GEMINI_API_KEY_AI_SUMMARY1
+        sync: false
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENROUTER_API_KEY
@@ -95,6 +107,10 @@ services:
         value: groq/openai/gpt-oss-120b
       - key: FALLBACK_LLM_MODEL
         value: groq/openai/gpt-oss-120b
+      - key: SUMMARY_LLM_MODEL
+        value: gemini/gemini-3.5-flash-lite
+      - key: SUMMARY_MAX_OUTPUT_TOKENS
+        value: "8192"
       - key: LLM_BUDGET_CAP_USD
         value: "0.01"
       - key: MAX_LLM_CALLS_PER_SCAN

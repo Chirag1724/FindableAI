@@ -33,6 +33,8 @@ def isolate_tests_from_real_providers_and_queue(monkeypatch: pytest.MonkeyPatch)
     if not _flag("FINDABLE_LIVE_LLM"):
         for name in (
             "GEMINI_API_KEY",
+            "GEMINI_API_KEY_AI_SUMMARY",
+            "GEMINI_API_KEY_AI_SUMMARY1",
             "OPENAI_API_KEY",
             "OPENROUTER_API_KEY",
             "NVIDIA_API_KEY",

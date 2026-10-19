@@ -18,7 +18,7 @@ from fastapi import (
     Response,
     status,
 )
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -109,6 +109,7 @@ from app.orchestration.scan_persistence import (
     observability_from_budget,
     unpack_integrity_from_scan_row,
 )
+from app.orchestration.scan_summary import generate_summary, get_summary
 from app.orchestration.state import OrchestrationChunk, ScanPhase
 from app.schemas.fscore import FScoreBreakdown, SubScoreMetric
 from app.schemas.github_pr import PREngineRequest
@@ -139,6 +140,7 @@ from app.schemas.scan import (
     ScanStatus,
     ScanStatusEvent,
 )
+from app.schemas.summary import SummaryResponse
 
 logger = logging.getLogger(__name__)
 
@@ -1394,6 +1396,23 @@ async def run_scan_pipeline(
         except Exception as db_err:
             logger.info("Scan record DB update skipped (offline DB): %s", db_err)
             evidence_durably_validated = False
+
+        # Prepare AI Summary input snapshot (no LLM) once durable scan rows exist.
+        if final_status is not ScanStatus.FAILED:
+            try:
+                from app.orchestration.scan_summary import prepare_summary_input
+
+                async with AsyncSessionLocal() as prep_session:
+                    async with prep_session.begin():
+                        prep_scan = await prep_session.get(ScanModel, scan_uuid)
+                        if prep_scan is not None and prep_scan.status == "completed":
+                            await prepare_summary_input(prep_session, prep_scan)
+            except Exception as prep_err:
+                logger.info(
+                    "summary_input_prepare_skipped scan_id=%s err=%s",
+                    scan_id,
+                    prep_err,
+                )
 
         # Never publish process-local evidence-backed intents without durable validation.
         publish_remediation_eligible = integrity.remediation_eligible
@@ -4101,3 +4120,58 @@ async def remediate_scan(
             detail="Scan not found",
         )
     return await run_stage_remediate(scan_id=scan_id, scan_uuid=scan_uuid)
+
+
+@router.get(
+    "/{scan_id}/summary",
+    response_model=SummaryResponse,
+)
+async def get_scan_summary(scan_id: str, request: Request) -> SummaryResponse:
+    """Return the cached AI Website Health Brief for the current grounded hash (no LLM)."""
+    tenant = _tenant_from_request(request)
+    assert_permission(tenant, OrgAction.READ_SCANS)
+    scan_uuid = await _authorize_scan_ref(scan_id, tenant)
+    if not scan_uuid:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
+    async with AsyncSessionLocal() as session:
+        db_scan = await get_scan_for_org(session, scan_uuid, tenant)
+        return await get_summary(session, db_scan)
+
+
+@router.post(
+    "/{scan_id}/summary",
+    response_model=SummaryResponse,
+)
+async def post_scan_summary(
+    scan_id: str, request: Request
+) -> SummaryResponse | JSONResponse:
+    """Generate or return a cached AI Website Health Brief (read-like; tenant-scoped)."""
+    tenant = _tenant_from_request(request)
+    assert_permission(tenant, OrgAction.READ_SCANS)
+    scan_uuid = await _authorize_scan_ref(scan_id, tenant)
+    if not scan_uuid:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
+    async with AsyncSessionLocal() as session:
+        db_scan = await get_scan_for_org(session, scan_uuid, tenant)
+        try:
+            response, http_status = await generate_summary(session, db_scan)
+            await session.commit()
+        except Exception:
+            logger.exception("post_scan_summary_unhandled scan_id=%s", scan_id)
+            await session.rollback()
+            from app.schemas.summary import SummaryReason, SummaryResponse, SummaryStatus
+
+            return JSONResponse(
+                status_code=502,
+                content=SummaryResponse(
+                    status=SummaryStatus.FAILED,
+                    reason=SummaryReason.SUMMARY_GENERATION_FAILED.value,
+                    message="Summary generation failed. Please try again.",
+                ).model_dump(mode="json"),
+            )
+        if http_status == 200:
+            return response
+        return JSONResponse(
+            status_code=http_status,
+            content=response.model_dump(mode="json"),
+        )

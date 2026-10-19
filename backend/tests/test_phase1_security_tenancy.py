@@ -30,6 +30,7 @@ SCAN_ROUTES: list[tuple[str, str]] = [
     ("GET", "/api/v1/scans/scan_deadbeefdeadbeefdeadbeefdeadbeef/patches"),
     ("GET", "/api/v1/scans/scan_deadbeefdeadbeefdeadbeefdeadbeef/remediation"),
     ("GET", "/api/v1/scans/scan_deadbeefdeadbeefdeadbeefdeadbeef/remediation/verifications"),
+    ("GET", "/api/v1/scans/scan_deadbeefdeadbeefdeadbeefdeadbeef/summary"),
     ("POST", "/api/v1/scans"),
     ("POST", "/api/v1/scans/scan_deadbeefdeadbeefdeadbeefdeadbeef/cancel"),
     ("POST", "/api/v1/scans/scan_deadbeefdeadbeefdeadbeefdeadbeef/evaluate"),
@@ -37,6 +38,7 @@ SCAN_ROUTES: list[tuple[str, str]] = [
     ("POST", "/api/v1/scans/scan_deadbeefdeadbeefdeadbeefdeadbeef/patches/apply"),
     ("POST", "/api/v1/scans/scan_deadbeefdeadbeefdeadbeefdeadbeef/patches/validate"),
     ("POST", "/api/v1/scans/scan_deadbeefdeadbeefdeadbeefdeadbeef/remediation/verify"),
+    ("POST", "/api/v1/scans/scan_deadbeefdeadbeefdeadbeefdeadbeef/summary"),
     ("POST", "/api/v1/patches/apply-pr"),
 ]
 
