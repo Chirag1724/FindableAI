@@ -285,23 +285,38 @@ def test_provider_chain_prefers_gemini_when_configured(monkeypatch: pytest.Monke
 def test_provider_chain_fallback_order_with_groq_and_gemini(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Cross-provider order: primary groq model, same-provider FALLBACK model, then gemini."""
     monkeypatch.setattr("app.core.config.settings.GROQ_API_KEY", "gsk_test123")
     monkeypatch.setattr("app.core.config.settings.GEMINI_API_KEY", "test-gemini-key")
+    monkeypatch.setattr("app.core.config.settings.OPENROUTER_API_KEY", "")
+    monkeypatch.setattr("app.core.config.settings.OPENAI_API_KEY", "")
+    monkeypatch.setattr("app.core.config.settings.NVIDIA_API_KEY", "")
+    monkeypatch.setattr("app.core.config.settings.FALLBACK_LLM_MODEL", "groq/openai/gpt-oss-20b")
+    client = LLMClient(model="groq/qwen/qwen3.8-27b")
+    chain = client._get_provider_chain()
+    assert len(chain) == 3
+    assert chain[0].name == "groq"
+    assert chain[0].model == "qwen/qwen3.8-27b"
+    assert chain[1].name == "groq"
+    assert chain[1].model == "openai/gpt-oss-20b"
+    assert chain[2].name == "gemini"
+
+
+def test_provider_chain_only_groq_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With only Groq credentials, chain is primary + distinct FALLBACK model (same provider)."""
+    monkeypatch.setattr("app.core.config.settings.GROQ_API_KEY", "gsk_test123")
+    monkeypatch.setattr("app.core.config.settings.GEMINI_API_KEY", "")
+    monkeypatch.setattr("app.core.config.settings.OPENROUTER_API_KEY", "")
+    monkeypatch.setattr("app.core.config.settings.OPENAI_API_KEY", "")
+    monkeypatch.setattr("app.core.config.settings.NVIDIA_API_KEY", "")
+    monkeypatch.setattr("app.core.config.settings.FALLBACK_LLM_MODEL", "groq/openai/gpt-oss-20b")
     client = LLMClient(model="groq/qwen/qwen3.8-27b")
     chain = client._get_provider_chain()
     assert len(chain) == 2
     assert chain[0].name == "groq"
-    assert chain[1].name == "gemini"
-
-
-def test_provider_chain_only_groq_present(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("app.core.config.settings.GROQ_API_KEY", "gsk_test123")
-    monkeypatch.setattr("app.core.config.settings.GEMINI_API_KEY", "")
-    monkeypatch.setattr("app.core.config.settings.OPENAI_API_KEY", "")
-    client = LLMClient(model="groq/qwen/qwen3.8-27b")
-    chain = client._get_provider_chain()
-    assert len(chain) == 1
-    assert chain[0].name == "groq"
+    assert chain[0].model == "qwen/qwen3.8-27b"
+    assert chain[1].name == "groq"
+    assert chain[1].model == "openai/gpt-oss-20b"
 
 
 def test_provider_chain_neither_present_fails_fast(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -319,13 +334,18 @@ def test_provider_chain_circuit_breaker_fails_over_remaining_claims(
     LLMClient.reset_tripped_providers()
     monkeypatch.setattr("app.core.config.settings.GROQ_API_KEY", "gsk_test123")
     monkeypatch.setattr("app.core.config.settings.GEMINI_API_KEY", "test-gemini-key")
+    monkeypatch.setattr("app.core.config.settings.OPENROUTER_API_KEY", "")
+    monkeypatch.setattr("app.core.config.settings.OPENAI_API_KEY", "")
+    monkeypatch.setattr("app.core.config.settings.NVIDIA_API_KEY", "")
+    # Isolate provider-level trip behavior from same-provider model fallback.
+    monkeypatch.setattr("app.core.config.settings.FALLBACK_LLM_MODEL", "gemini/gemini-2.5-flash")
     client = LLMClient(model="groq/qwen/qwen3.8-27b")
-    # Initially healthy: groq first
+    # Initially healthy: groq first, gemini fallback second
     initial_chain = client._get_provider_chain()
     assert initial_chain[0].name == "groq"
     assert initial_chain[1].name == "gemini"
 
-    # Trip groq (e.g. 429 rate limit mid-scan)
+    # Trip groq (e.g. 429 rate limit mid-scan) — provider-scoped key trips all groq models
     client._tripped_providers.add("groq")
 
     # Subsequent claims automatically put gemini first

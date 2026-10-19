@@ -308,15 +308,11 @@ class LLMClient:
         eligible after a SERVER/TIMEOUT on the primary, otherwise a single
         instructor 'Connection error' after HTTP 200 kills the entire chain.
         """
-        if (
-            model
-            and error_class
-            in (
-                ErrorClass.SERVER,
-                ErrorClass.TIMEOUT,
-                ErrorClass.UNKNOWN,
-                ErrorClass.INVALID_OUTPUT,
-            )
+        if model and error_class in (
+            ErrorClass.SERVER,
+            ErrorClass.TIMEOUT,
+            ErrorClass.UNKNOWN,
+            ErrorClass.INVALID_OUTPUT,
         ):
             return f"{provider}:{model}"
         return provider

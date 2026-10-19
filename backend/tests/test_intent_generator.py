@@ -217,7 +217,10 @@ async def test_llm_provider_errors_propagate_as_intent_generation_error():
         await generator.generate_intents(business_context=VALID_CONTEXT)
 
     assert exc_info.value.reason == "llm_failure"
-    assert handler.await_count == 1
+    # Intent generation uses max_retries=2 → attempts_cap=3 for TIMEOUT/SERVER.
+    # Each attempt reserves BudgetGuard once; permanent AUTH still stops earlier.
+    assert handler.await_count == 3
+    assert llm.calls_made == 3
     assert "test-secret-key-do-not-leak" not in str(exc_info.value)
 
 
