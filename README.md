@@ -37,9 +37,18 @@
 | Resource                  | Link                                                                     |
 | :------------------------ | :----------------------------------------------------------------------- |
 | **Live Demo**             | [findableai.vercel.app](https://findableai.vercel.app/)                  |
-| **Demo Video**            | *Walkthrough recording in repository artifacts*                              |                           |
+| **Demo Video**            | [Watch Full Walkthrough on YouTube (8 min)](https://youtu.be/dErfVtxRpho) |
 | **Figma Design**          | [Figma UI/UX Prototype](https://www.figma.com/design/WH3T793esaoyj8FNY265xJ/FindableAI?m=auto&t=VhmLDDUFEAgXNS6M-1) |
 | **Architecture Overview** | [System Flow & End-to-End Architecture](docs/engineering/SYSTEM_FLOW.md) |
+
+<br/>
+
+<div align="center">
+  <a href="https://youtu.be/dErfVtxRpho" target="_blank" rel="noopener noreferrer">
+    <img src="https://img.youtube.com/vi/dErfVtxRpho/maxresdefault.jpg" alt="FindableAI Full Product Walkthrough" width="85%" style="border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.5);" />
+  </a>
+  <p align="center"><i>Click the banner above to watch the full product demonstration on YouTube</i></p>
+</div>
 
 ---
 ## The Problem: SEO is Dying. GEO & MDO is Born.
