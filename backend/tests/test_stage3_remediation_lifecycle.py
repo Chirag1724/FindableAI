@@ -53,7 +53,6 @@ def _admin_request() -> Request:
     return req
 
 
-
 def test_lifecycle_transition_graph_allows_happy_path():
     assert can_transition(None, STATE_MUTATING)
     assert can_transition(STATE_MUTATING, STATE_PR_OPEN)
@@ -432,9 +431,7 @@ async def test_e2e_lifecycle_negative_unsafe_patch_never_mutates(monkeypatch):
     monkeypatch.setattr(scans_mod, "GitHubPRService", lambda *_a, **_k: _Boom())
     monkeypatch.setattr(scans_mod, "build_pygithub_client_from_token", lambda *_a, **_k: object())
     monkeypatch.setattr(scans_mod, "resolve_scan_uuid", lambda _sid: None)
-    monkeypatch.setattr(
-        scans_mod, "_authorize_scan_ref", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr(scans_mod, "_authorize_scan_ref", AsyncMock(return_value=None))
 
     from fastapi import HTTPException
 
@@ -543,9 +540,7 @@ async def test_verify_maps_unresolved_to_failed_lifecycle(monkeypatch):
     monkeypatch.setattr(scans_mod, "upsert_remediation_run", _upsert)
     monkeypatch.setattr(scans_mod, "persist_verification_run", _persist)
     monkeypatch.setattr(scans_mod, "build_pygithub_client_from_token", lambda *_a, **_k: _Gh())
-    monkeypatch.setattr(
-        scans_mod, "_authorize_scan_ref", AsyncMock(return_value=scan_uuid)
-    )
+    monkeypatch.setattr(scans_mod, "_authorize_scan_ref", AsyncMock(return_value=scan_uuid))
 
     from app.schemas.remediation import VerifyRemediationRequest
 
@@ -655,9 +650,7 @@ async def test_verify_blocks_when_pr_head_moves(monkeypatch):
     monkeypatch.setattr(scans_mod, "upsert_remediation_run", _upsert)
     monkeypatch.setattr(scans_mod, "persist_verification_run", _persist)
     monkeypatch.setattr(scans_mod, "build_pygithub_client_from_token", lambda *_a, **_k: _Gh())
-    monkeypatch.setattr(
-        scans_mod, "_authorize_scan_ref", AsyncMock(return_value=scan_uuid)
-    )
+    monkeypatch.setattr(scans_mod, "_authorize_scan_ref", AsyncMock(return_value=scan_uuid))
 
     out = await scans_mod.verify_scan_remediation(
         scan_id,

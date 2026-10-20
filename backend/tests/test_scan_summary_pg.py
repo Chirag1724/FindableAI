@@ -825,9 +825,7 @@ async def test_pg_secondary_key_failover_on_rate_limit(
     scan_id = await _seed_finding_scan(pg_session, org_id=org_id)
     await pg_session.commit()
 
-    monkeypatch.setattr(
-        scan_summary_mod.settings, "SUMMARY_PROVIDER_BACKOFF_SECONDS", 0.0
-    )
+    monkeypatch.setattr(scan_summary_mod.settings, "SUMMARY_PROVIDER_BACKOFF_SECONDS", 0.0)
     monkeypatch.setattr(
         scan_summary_mod,
         "_summary_api_keys",
@@ -885,9 +883,7 @@ async def test_pg_remediation_unavailable_when_not_eligible(
     pg_session: AsyncSession,
 ) -> None:
     org_id, _ = await _seed_org_key(pg_session)
-    scan_id = await _seed_finding_scan(
-        pg_session, org_id=org_id, remediation_eligible=False
-    )
+    scan_id = await _seed_finding_scan(pg_session, org_id=org_id, remediation_eligible=False)
     await pg_session.commit()
 
     fake = ControllableSummaryLlm()

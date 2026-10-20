@@ -12,11 +12,11 @@ describe("parseScanReportTab", () => {
     expect(parseScanReportTab(undefined)).toBe("overview");
     expect(parseScanReportTab("")).toBe("overview");
     expect(parseScanReportTab("other")).toBe("overview");
+    expect(parseScanReportTab("summary")).toBe("overview");
   });
 
-  it("accepts lighthouse and summary", () => {
+  it("accepts lighthouse", () => {
     expect(parseScanReportTab("lighthouse")).toBe("lighthouse");
-    expect(parseScanReportTab("summary")).toBe("summary");
   });
 });
 
@@ -26,14 +26,11 @@ describe("scanReportTabHref", () => {
     expect(scanReportTabHref("scan_abc", "lighthouse")).toBe(
       "/scans/scan_abc?tab=lighthouse"
     );
-    expect(scanReportTabHref("scan_abc", "summary")).toBe(
-      "/scans/scan_abc?tab=summary"
-    );
   });
 });
 
 describe("isScanReportPanelActive", () => {
-  const tabs: ScanReportTab[] = ["overview", "lighthouse", "summary"];
+  const tabs: ScanReportTab[] = ["overview", "lighthouse"];
 
   it("activates exactly one panel for each selected tab", () => {
     for (const active of tabs) {

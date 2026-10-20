@@ -3,7 +3,6 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { ScanReportTabPanels } from "@/components/ScanReportTabPanels";
-import { AiSummaryTabControl } from "@/components/AiHealthBrief";
 import type { ScanReportTab } from "@/lib/scanReportTabs";
 
 function TabHarness({ initial = "overview" as ScanReportTab }) {
@@ -29,16 +28,11 @@ function TabHarness({ initial = "overview" as ScanReportTab }) {
         >
           AI Lighthouse
         </button>
-        <AiSummaryTabControl
-          active={activeTab === "summary"}
-          onClick={() => setActiveTab("summary")}
-        />
       </div>
       <ScanReportTabPanels
         activeTab={activeTab}
         overview={<div>Overview body</div>}
         lighthouse={<div>Lighthouse body</div>}
-        summary={<div>Summary body</div>}
       />
     </div>
   );
@@ -50,41 +44,23 @@ describe("ScanReportTabPanels", () => {
     expect(screen.getByTestId("panel-overview")).toBeInTheDocument();
     expect(screen.getByText("Overview body")).toBeInTheDocument();
     expect(screen.queryByTestId("panel-lighthouse")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("panel-summary")).not.toBeInTheDocument();
-    expect(screen.queryByText("Summary body")).not.toBeInTheDocument();
   });
 
-  it("switches to lighthouse without leaving overview/summary mounted", async () => {
+  it("switches to lighthouse without leaving overview mounted", async () => {
     const user = userEvent.setup();
     render(<TabHarness />);
     await user.click(screen.getByRole("tab", { name: /AI Lighthouse/i }));
     expect(screen.getByTestId("panel-lighthouse")).toBeInTheDocument();
     expect(screen.getByText("Lighthouse body")).toBeInTheDocument();
     expect(screen.queryByTestId("panel-overview")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("panel-summary")).not.toBeInTheDocument();
   });
 
-  it("switches to AI Summary without overview underneath", async () => {
+  it("switches back from lighthouse to overview with exclusive content", async () => {
     const user = userEvent.setup();
-    render(<TabHarness />);
-    await user.click(screen.getByTestId("ai-summary-tab-control"));
-    expect(screen.getByTestId("panel-summary")).toBeInTheDocument();
-    expect(screen.getByText("Summary body")).toBeInTheDocument();
-    expect(screen.queryByTestId("panel-overview")).not.toBeInTheDocument();
-    expect(screen.queryByText("Overview body")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("panel-lighthouse")).not.toBeInTheDocument();
-    expect(screen.getByTestId("ai-summary-tab-control")).toHaveAttribute(
-      "aria-selected",
-      "true"
-    );
-  });
-
-  it("returns to overview from summary with exclusive content", async () => {
-    const user = userEvent.setup();
-    render(<TabHarness initial="summary" />);
-    expect(screen.getByTestId("panel-summary")).toBeInTheDocument();
+    render(<TabHarness initial="lighthouse" />);
+    expect(screen.getByTestId("panel-lighthouse")).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: /Intelligence Overview/i }));
     expect(screen.getByTestId("panel-overview")).toBeInTheDocument();
-    expect(screen.queryByTestId("panel-summary")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("panel-lighthouse")).not.toBeInTheDocument();
   });
 });

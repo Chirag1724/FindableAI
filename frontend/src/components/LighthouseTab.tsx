@@ -8,6 +8,7 @@ import { LighthouseGauge } from "./LighthouseGauge";
 import { CrawlerGovernancePanel } from "./CrawlerGovernancePanel";
 import { AuditChecklist } from "./AuditChecklist";
 import { ErrorState } from "./ErrorState";
+import { AiHealthBrief } from "./AiHealthBrief";
 
 interface LighthouseTabProps {
   scanId: string;
@@ -142,6 +143,15 @@ export function LighthouseTab({ scanId }: LighthouseTabProps) {
           />
         </div>
       </section>
+
+      {/* AI Bot Readiness Summary */}
+      <AiHealthBrief
+        scanId={scanId}
+        scanStatus="completed"
+        scope="lighthouse"
+        title="AI Bot Readiness Summary"
+        description="Crawler governance & engine readiness audit"
+      />
 
       {/* ML Crawler Governance Panel */}
       <section aria-labelledby="crawler-governance-heading">

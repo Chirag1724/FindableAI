@@ -1,15 +1,14 @@
 /** Scan-detail report view tabs — mutually exclusive panels. */
 
-export type ScanReportTab = "overview" | "lighthouse" | "summary";
+export type ScanReportTab = "overview" | "lighthouse";
 
 export function parseScanReportTab(param: string | null | undefined): ScanReportTab {
-  if (param === "lighthouse" || param === "summary") return param;
+  if (param === "lighthouse") return "lighthouse";
   return "overview";
 }
 
 export function scanReportTabHref(scanId: string, tab: ScanReportTab): string {
   if (tab === "lighthouse") return `/scans/${scanId}?tab=lighthouse`;
-  if (tab === "summary") return `/scans/${scanId}?tab=summary`;
   return `/scans/${scanId}`;
 }
 

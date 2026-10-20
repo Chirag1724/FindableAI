@@ -181,10 +181,7 @@ def classify_provider_error(
             "no longer available to new users",
             "is not found for api version",
         )
-    ) or (
-        code == 404
-        and ("model" in lower or "models/" in lower or "not_found" in lower)
-    ):
+    ) or (code == 404 and ("model" in lower or "models/" in lower or "not_found" in lower)):
         return ClassifiedError(ErrorClass.NOT_FOUND, None, code or 404, msg)
 
     if (code is not None and code >= 500) or any(

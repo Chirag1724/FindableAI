@@ -43,8 +43,10 @@ def resolve_pg_url() -> str:
         # Default to an isolated test database (findable_itest) to protect dev/prod databases
         parsed = urlparse(settings.DATABASE_URL)
         current_db = (parsed.path or "").lstrip("/")
-        test_db = "findable_itest" if current_db in ("findable_db", "", "findable") else (
-            current_db if current_db.endswith(("_test", "_itest")) else f"{current_db}_itest"
+        test_db = (
+            "findable_itest"
+            if current_db in ("findable_db", "", "findable")
+            else (current_db if current_db.endswith(("_test", "_itest")) else f"{current_db}_itest")
         )
         raw = urlunparse(parsed._replace(path=f"/{test_db}"))
     return normalize_async_url(raw)

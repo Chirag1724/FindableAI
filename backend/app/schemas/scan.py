@@ -164,12 +164,8 @@ class ScanResponse(BaseModel):
         default=None,
         description="Alias of llm_calls_made — dispatched provider attempts",
     )
-    requests_succeeded: int | None = Field(
-        default=None, description="Alias of provider_successes"
-    )
-    requests_failed: int | None = Field(
-        default=None, description="Alias of provider_failures"
-    )
+    requests_succeeded: int | None = Field(default=None, description="Alias of provider_successes")
+    requests_failed: int | None = Field(default=None, description="Alias of provider_failures")
     retries: int | None = Field(default=None, description="Alias of provider_retries")
     failovers: int | None = Field(default=None, description="Alias of provider_failovers")
     recovery_requests: int | None = Field(

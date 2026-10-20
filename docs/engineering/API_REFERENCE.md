@@ -538,6 +538,56 @@ Delegates single-patch PR creation directly to the unified `apply_scan_patch` pi
 
 ---
 
+### 11. AI Lighthouse Assessment
+
+#### `GET /api/v1/scans/{scan_id}/lighthouse`
+Returns the AI Lighthouse assessment: per-engine readiness scores (ChatGPT, Gemini, Perplexity, Claude), ML crawler governance analysis (robots.txt, llms.txt), and prioritized audit checklist items.
+
+- **Authentication:** Same as other scan endpoints.
+- **Success Status:** `200 OK`
+- **Response Model:** `LighthouseResponse` ([backend/app/schemas/lighthouse.py](../../backend/app/schemas/lighthouse.py))
+
+```json
+{
+  "scan_id": "scan_ba38d45a981a",
+  "generated_at": "2026-10-04T12:01:15.000000Z",
+  "engines": {
+    "chatgpt": { "score": 85, "criteria": { "bot_access": 100, "schema_coverage": 80, "answerability": 75 } },
+    "gemini": { "score": 78, "criteria": { "bot_access": 100, "schema_coverage": 70, "answerability": 65 } },
+    "perplexity": { "score": 82, "criteria": { "bot_access": 100, "schema_coverage": 75, "chunk_quality": 70 } },
+    "claude": { "score": 80, "criteria": { "bot_access": 100, "schema_coverage": 70, "answerability": 70 } }
+  },
+  "crawler_governance": {
+    "visibility_index": 85,
+    "scraping_risk": "low",
+    "llms_txt_present": true,
+    "bot_statuses": []
+  },
+  "audits": []
+}
+```
+
+---
+
+### 12. AI Website Health Brief (Summary)
+
+#### `GET /api/v1/scans/{scan_id}/summary`
+Fetches cached narrative health brief without triggering an LLM call.
+
+- **Query Parameters:**
+  - `scope` (optional, default: `intelligence`): `intelligence` (search intent claims & gaps) or `lighthouse` (bot readiness & crawler governance).
+- **Success Status:** `200 OK` (payload status may be `"ready"` or `"none"`).
+
+#### `POST /api/v1/scans/{scan_id}/summary`
+Generates or returns a cached grounded executive summary using Gemini.
+
+- **Query Parameters:**
+  - `scope` (optional, default: `intelligence`): Target scope (`intelligence` | `lighthouse`).
+- **Success Status:** `200 OK` (ready), `202 Accepted` (generating).
+- **Response Model:** `SummaryResponse` ([backend/app/schemas/summary.py](../../backend/app/schemas/summary.py))
+
+---
+
 ## Execution Modes & Fallback Boundaries
 
 Modes are set in `backend/app/api/v1/scans.py` after DAG execution. Canonical product semantics: [LIMITATIONS_AND_READINESS.md](LIMITATIONS_AND_READINESS.md).

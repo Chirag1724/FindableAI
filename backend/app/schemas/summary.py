@@ -16,6 +16,11 @@ class SummaryStatus(StrEnum):
     FAILED = "failed"
 
 
+class SummaryScope(StrEnum):
+    INTELLIGENCE = "intelligence"
+    LIGHTHOUSE = "lighthouse"
+
+
 class SummaryPriority(StrEnum):
     HIGH = "high"
     MEDIUM = "medium"
@@ -92,6 +97,7 @@ class SummaryResponse(BaseModel):
     reason: str | None = None
     message: str | None = None
     retry_after: int | None = None
+    scope: SummaryScope | None = None
     # Legacy fields kept optional for older clients during transition
     headline: str | None = None
     overview: str | None = None

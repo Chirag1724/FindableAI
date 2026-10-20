@@ -108,10 +108,14 @@ async def test_cancel_queued_job_atomic(pg_session: AsyncSession) -> None:
     assert scan.cancel_requested is True
 
     events = (
-        await pg_session.execute(
-            select(ScanProgressEvent).where(ScanProgressEvent.scan_id == scan_id)
+        (
+            await pg_session.execute(
+                select(ScanProgressEvent).where(ScanProgressEvent.scan_id == scan_id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert any(e.event_type == "cancelled" or e.status == "cancelled" for e in events)
 
 
@@ -220,9 +224,7 @@ async def test_recovery_does_not_resurrect_cancelled(pg_session: AsyncSession) -
     await pg_session.commit()
 
     async with pg_session.begin():
-        await request_scan_cancel(
-            pg_session, scan_id=scan_id, actor="org:test", reason="abandon"
-        )
+        await request_scan_cancel(pg_session, scan_id=scan_id, actor="org:test", reason="abandon")
         job = await pg_session.get(ScanJob, claimed.job_id)
         assert job is not None
         job.lease_expires_at = datetime.now(UTC) - timedelta(seconds=30)

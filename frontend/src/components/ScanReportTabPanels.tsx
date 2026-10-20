@@ -8,18 +8,15 @@ export interface ScanReportTabPanelsProps {
   activeTab: ScanReportTab;
   overview: ReactNode;
   lighthouse: ReactNode;
-  summary: ReactNode;
 }
 
 /**
  * Renders exactly one scan-report panel for the selected tab.
- * Prevents AI Summary from stacking on top of Overview/Lighthouse.
  */
 export function ScanReportTabPanels({
   activeTab,
   overview,
   lighthouse,
-  summary,
 }: ScanReportTabPanelsProps) {
   return (
     <div data-testid="scan-report-tab-panels" data-active-tab={activeTab}>
@@ -43,17 +40,6 @@ export function ScanReportTabPanels({
           className="animate-fade-in"
         >
           {lighthouse}
-        </div>
-      )}
-      {isScanReportPanelActive(activeTab, "summary") && (
-        <div
-          role="tabpanel"
-          id="panel-summary"
-          aria-labelledby="tab-summary"
-          data-testid="panel-summary"
-          className="animate-fade-in"
-        >
-          {summary}
         </div>
       )}
     </div>

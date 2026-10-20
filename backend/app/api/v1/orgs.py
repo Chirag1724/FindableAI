@@ -49,8 +49,10 @@ async def list_members(org_id: uuid.UUID, request: Request) -> list[MembershipOu
         raise HTTPException(status_code=404, detail="Organization not found")
     async with AsyncSessionLocal() as session:
         rows = (
-            await session.execute(select(OrgMembership).where(OrgMembership.org_id == org_id))
-        ).scalars().all()
+            (await session.execute(select(OrgMembership).where(OrgMembership.org_id == org_id)))
+            .scalars()
+            .all()
+        )
         return [
             MembershipOut(id=r.id, org_id=r.org_id, user_id=r.user_id, role=r.role) for r in rows
         ]

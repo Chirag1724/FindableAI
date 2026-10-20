@@ -460,7 +460,7 @@ def _claimable_stmt(now: datetime):
                     ScanJob.lease_expires_at.is_not(None),
                     ScanJob.lease_expires_at < now,
                 ),
-            )
+            ),
         )
         .order_by(ScanJob.available_at.asc())
         .limit(1)

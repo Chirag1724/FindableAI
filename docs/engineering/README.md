@@ -33,3 +33,4 @@ For high-level foundational context and historical team task allocations, refer 
 - [02_TECH_STACK_AND_IMPLEMENTATION.md](../02_TECH_STACK_AND_IMPLEMENTATION.md): Deep-dive into dependencies, data models, and prompt structures.
 - [03_EXECUTION_PLAYBOOK.md](../03_EXECUTION_PLAYBOOK.md): Phase-by-phase development protocols and test checklists.
 - [04_TEAM_TASK_ALLOCATION.md](../04_TEAM_TASK_ALLOCATION.md): Historical task assignment matrix and role ownership.
+- [05_AI_LIGHTHOUSE_FEATURE_SPEC.md](../05_AI_LIGHTHOUSE_FEATURE_SPEC.md): AI Lighthouse per-engine readiness, crawler governance, and audits.

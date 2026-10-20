@@ -176,7 +176,9 @@ def _valid_payload(**kwargs) -> LlmSummaryPayload:
             LlmFactStatement(text="Chunk count was recorded.", fact_ids=["F_dom_chunks"]),
         ],
         why_it_matters=[
-            LlmFactStatement(text="Grounding depends on captured page text.", fact_ids=["F_dom_chunks"]),
+            LlmFactStatement(
+                text="Grounding depends on captured page text.", fact_ids=["F_dom_chunks"]
+            ),
         ],
         evidence_gaps=[
             LlmFactStatement(
@@ -295,9 +297,9 @@ def test_compute_input_hash_includes_context_schema_version() -> None:
     import hashlib
 
     expected = hashlib.sha256(
-        json.dumps(manual, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str).encode(
-            "utf-8"
-        )
+        json.dumps(
+            manual, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str
+        ).encode("utf-8")
     ).hexdigest()
     assert compute_input_hash(snap) == expected
     assert CONTEXT_SCHEMA_VERSION == "ctx_v2"
@@ -457,3 +459,48 @@ def test_ensure_evidence_gaps_fills_insufficient_verdict() -> None:
     filled = scan_summary_mod._ensure_evidence_gaps(empty, snap)
     assert filled.evidence_gaps
     assert "E_unknown_count" in filled.evidence_gaps[0].fact_ids
+
+
+def test_prompt_version_and_filtering_for_scope() -> None:
+    from app.schemas.summary import SummaryScope
+
+    assert scan_summary_mod._prompt_version_for_scope(SummaryScope.INTELLIGENCE) == "v2"
+    assert scan_summary_mod._prompt_version_for_scope(SummaryScope.LIGHTHOUSE) == "lh_v2"
+
+    facts = {
+        "scan_meta": {"id": "scan_meta", "url": "https://example.com"},
+        "I_intent_1": {"id": "I_intent_1", "query": "pricing"},
+        "C_contra_1": {"id": "C_contra_1", "desc": "mismatch"},
+        "L_chatgpt_score": {"id": "L_chatgpt_score", "score": 85},
+        "F_pages": {"id": "F_pages", "value": 5},
+    }
+
+    intel_facts = scan_summary_mod._filter_facts_for_scope(facts, "intelligence")
+    assert "I_intent_1" in intel_facts
+    assert "C_contra_1" in intel_facts
+    assert "L_chatgpt_score" not in intel_facts
+    assert "F_pages" in intel_facts
+
+    lh_facts = scan_summary_mod._filter_facts_for_scope(facts, "lighthouse")
+    assert "I_intent_1" not in lh_facts
+    assert "C_contra_1" not in lh_facts
+    assert "L_chatgpt_score" in lh_facts
+    assert "F_pages" in lh_facts
+    assert "scan_meta" in lh_facts
+
+
+def test_system_prompt_differs_by_scope() -> None:
+    from app.schemas.summary import SummaryScope, SummaryVerdict
+
+    intel_prompt = scan_summary_mod._system_prompt(
+        verdict=SummaryVerdict.ISSUES_FOUND,
+        scope=SummaryScope.INTELLIGENCE,
+    )
+    lh_prompt = scan_summary_mod._system_prompt(
+        verdict=SummaryVerdict.ISSUES_FOUND,
+        scope=SummaryScope.LIGHTHOUSE,
+    )
+
+    assert "Search Intelligence" in intel_prompt
+    assert "AI Bot Readiness" in lh_prompt
+    assert intel_prompt != lh_prompt

@@ -258,6 +258,16 @@ describe("getScanSummary", () => {
       expect.any(Object)
     );
   });
+
+  it("appends scope query parameter when provided", async () => {
+    mockFetchSuccess({ status: "none", scope: "lighthouse" });
+    const result = await getScanSummary("scan_abc123", undefined, "lighthouse");
+    expect(result.scope).toBe("lighthouse");
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/api/v1/scans/scan_abc123/summary?scope=lighthouse",
+      expect.any(Object)
+    );
+  });
 });
 
 describe("generateScanSummary", () => {
@@ -269,6 +279,19 @@ describe("generateScanSummary", () => {
     });
     const result = await generateScanSummary("scan_abc123");
     expect(result.status).toBe("generating");
+  });
+
+  it("appends scope query parameter when generating lighthouse summary", async () => {
+    mockFetchJson(200, {
+      status: "ready",
+      scope: "lighthouse",
+    });
+    const result = await generateScanSummary("scan_abc123", undefined, "lighthouse");
+    expect(result.status).toBe("ready");
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/api/v1/scans/scan_abc123/summary?scope=lighthouse",
+      expect.objectContaining({ method: "POST" })
+    );
   });
 
   it("throws enriched ApiError on 409 ineligible", async () => {
