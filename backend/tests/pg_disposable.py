@@ -38,7 +38,15 @@ def normalize_async_url(url: str) -> str:
 
 
 def resolve_pg_url() -> str:
-    raw = os.environ.get("FINDABLE_PG_DATABASE_URL") or settings.DATABASE_URL
+    raw = os.environ.get("FINDABLE_PG_DATABASE_URL")
+    if not raw:
+        # Default to an isolated test database (findable_itest) to protect dev/prod databases
+        parsed = urlparse(settings.DATABASE_URL)
+        current_db = (parsed.path or "").lstrip("/")
+        test_db = "findable_itest" if current_db in ("findable_db", "", "findable") else (
+            current_db if current_db.endswith(("_test", "_itest")) else f"{current_db}_itest"
+        )
+        raw = urlunparse(parsed._replace(path=f"/{test_db}"))
     return normalize_async_url(raw)
 
 
@@ -53,10 +61,16 @@ def assert_disposable_url(url: str) -> None:
             "Use 127.0.0.1/localhost disposable Postgres, or set "
             "FINDABLE_PG_ALLOW_REMOTE=1 only for an explicitly disposable remote."
         )
-    db_name = (parsed.path or "").lstrip("/")
+    name = db_name(url)
     blocked = {"prod", "production", "live"}
-    if db_name.lower() in blocked and not allow_remote():
-        pytest.fail(f"Refusing database name {db_name!r} without FINDABLE_PG_ALLOW_REMOTE=1")
+    dev_db = (urlparse(settings.DATABASE_URL).path or "").lstrip("/")
+    if dev_db and not dev_db.endswith(("_test", "_itest")):
+        blocked.add(dev_db.lower())
+    if name.lower() in blocked and not allow_remote():
+        pytest.fail(
+            f"Refusing database name {name!r} without FINDABLE_PG_ALLOW_REMOTE=1: "
+            "Never drop or modify a development/production database."
+        )
 
 
 def admin_url(url: str) -> str:
@@ -93,15 +107,42 @@ async def reset_public_schema(engine) -> None:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
 
+def get_alembic_head() -> str:
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    alembic_cfg = Config(str(_BACKEND_ROOT / "alembic.ini"))
+    script = ScriptDirectory.from_config(alembic_cfg)
+    head = script.get_current_head()
+    if not head:
+        raise RuntimeError("No Alembic head revision found")
+    return head
+
+
 async def create_all_with_vector(engine) -> None:
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
+        # Reconcile migration state by stamping alembic_version to head so that
+        # any subsequent alembic upgrade head will not fail on existing tables.
+        head_rev = get_alembic_head()
+        await conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL, "
+                "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+            )
+        )
+        await conn.execute(text("DELETE FROM alembic_version"))
+        await conn.execute(
+            text("INSERT INTO alembic_version (version_num) VALUES (:rev)"),
+            {"rev": head_rev},
+        )
 
 
 def run_alembic_upgrade(url: str, revision: str = "head") -> None:
     env = os.environ.copy()
     env["DATABASE_URL"] = url
+    env["FINDABLE_PG_DATABASE_URL"] = url
     exe = Path(sys.executable)
     candidates = [
         [str(exe), "-P", "-m", "alembic", "upgrade", revision],
@@ -132,6 +173,7 @@ def run_alembic_upgrade(url: str, revision: str = "head") -> None:
 def run_alembic_downgrade(url: str, revision: str = "base") -> None:
     env = os.environ.copy()
     env["DATABASE_URL"] = url
+    env["FINDABLE_PG_DATABASE_URL"] = url
     exe = Path(sys.executable)
     candidates = [
         [str(exe), "-P", "-m", "alembic", "downgrade", revision],

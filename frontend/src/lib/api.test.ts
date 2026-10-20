@@ -7,6 +7,8 @@ import {
   getPatches,
   applyPatches,
   getHealth,
+  getScanSummary,
+  generateScanSummary,
 } from "@/lib/api";
 
 // --- Helpers ---
@@ -29,6 +31,18 @@ function mockFetchError(status: number, detail?: string) {
       ok: false,
       status,
       json: async () => (detail ? { detail } : { message: "err" }),
+    } as unknown as Response)
+  );
+}
+
+function mockFetchJson(status: number, body: unknown, ok?: boolean) {
+  const resolvedOk = ok ?? (status >= 200 && status < 300);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: resolvedOk,
+      status,
+      json: async () => body,
     } as unknown as Response)
   );
 }
@@ -229,5 +243,58 @@ describe("getHealth", () => {
   it("throws on network failure", async () => {
     mockFetchNetworkFailure("Connection refused");
     await expect(getHealth()).rejects.toMatchObject({ status: 0, message: "Connection refused" });
+  });
+});
+
+// --- scan summary ---
+
+describe("getScanSummary", () => {
+  it("GETs /scans/{id}/summary", async () => {
+    mockFetchSuccess({ status: "none", coverage: { findings_included: 0 } });
+    const result = await getScanSummary("scan_abc123");
+    expect(result.status).toBe("none");
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/api/v1/scans/scan_abc123/summary",
+      expect.any(Object)
+    );
+  });
+});
+
+describe("generateScanSummary", () => {
+  it("returns body on 202 generating", async () => {
+    mockFetchJson(202, {
+      status: "generating",
+      reason: "summary_generating",
+      message: "In progress",
+    });
+    const result = await generateScanSummary("scan_abc123");
+    expect(result.status).toBe("generating");
+  });
+
+  it("throws enriched ApiError on 409 ineligible", async () => {
+    mockFetchJson(409, {
+      status: "none",
+      reason: "scan_failed",
+      message: "Scan failed; summary is unavailable.",
+    });
+    await expect(generateScanSummary("scan_abc123")).rejects.toMatchObject({
+      status: 409,
+      message: "Scan failed; summary is unavailable.",
+      body: { reason: "scan_failed" },
+    });
+  });
+
+  it("throws enriched ApiError with retry_after on 429", async () => {
+    mockFetchJson(429, {
+      status: "failed",
+      reason: "summary_rate_limited",
+      message: "Rate limit exceeded.",
+      retry_after: 120,
+    });
+    await expect(generateScanSummary("scan_abc123")).rejects.toMatchObject({
+      status: 429,
+      retry_after: 120,
+      body: { reason: "summary_rate_limited" },
+    });
   });
 });

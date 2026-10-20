@@ -172,7 +172,19 @@ def classify_provider_error(
     ):
         return ClassifiedError(ErrorClass.CONTEXT_LENGTH, None, code, msg)
 
-    if any(m in lower for m in ("model_not_found", "does not exist", "model not found")):
+    if any(
+        m in lower
+        for m in (
+            "model_not_found",
+            "does not exist",
+            "model not found",
+            "no longer available to new users",
+            "is not found for api version",
+        )
+    ) or (
+        code == 404
+        and ("model" in lower or "models/" in lower or "not_found" in lower)
+    ):
         return ClassifiedError(ErrorClass.NOT_FOUND, None, code or 404, msg)
 
     if (code is not None and code >= 500) or any(

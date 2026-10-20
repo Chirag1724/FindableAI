@@ -58,6 +58,10 @@ class Settings(BaseSettings):
         return keys
 
     GEMINI_API_KEY: str = ""
+    # Optional dedicated Gemini keys for on-demand AI Website Health Brief only.
+    # Primary then secondary; when both empty, summary generation falls back to GEMINI_API_KEY.
+    GEMINI_API_KEY_AI_SUMMARY: str = ""
+    GEMINI_API_KEY_AI_SUMMARY1: str = ""
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
 
@@ -73,6 +77,19 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = "openai/gpt-oss-120b"
     GEMINI_MODEL: str = "gemini-2.5-flash"
     OPENAI_MODEL: str = "gpt-4o-mini"
+
+    # AI Website Health Brief (on-demand scan summary — outside scan pipeline budget)
+    # New Gemini API keys are blocked from gemini-2.5-flash; use a current Flash-class ID.
+    SUMMARY_LLM_MODEL: str = "gemini/gemini-3.5-flash-lite"
+    SUMMARY_MAX_FINDINGS: int = 25
+    # Structured JSON + thinking tokens need headroom; 2048 truncates mid-schema → 502.
+    SUMMARY_MAX_OUTPUT_TOKENS: int = 8192
+    SUMMARY_MAX_OUTPUT_TOKENS_REPAIR: int = 12288
+    SUMMARY_LLM_TIMEOUT_SECONDS: float = 60.0
+    SUMMARY_LLM_MAX_CALLS: int = 4
+    SUMMARY_PROVIDER_BACKOFF_SECONDS: float = 1.5
+    SUMMARY_RATE_LIMIT_PER_SCAN_PER_HOUR: int = 3
+    SUMMARY_RATE_LIMIT_PER_ORG_PER_DAY: int = 30
 
     # GitHub App / Token
     GITHUB_TOKEN: str = ""

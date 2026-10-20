@@ -211,6 +211,15 @@ class Scan(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # Prebuilt AI Summary input (no LLM). Invalidated when hash/schema versions change.
+    summary_input: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    summary_input_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    summary_input_prepared_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -243,6 +252,9 @@ class Scan(Base):
     )
     token_ledger: Mapped[list["OrgTokenLedger"]] = relationship(
         "OrgTokenLedger", back_populates="scan", cascade="all, delete-orphan"
+    )
+    summaries: Mapped[list["ScanSummary"]] = relationship(
+        "ScanSummary", back_populates="scan", cascade="all, delete-orphan"
     )
 
 
@@ -572,6 +584,54 @@ class VerificationRun(Base):
     remediation_run: Mapped[RemediationRun] = relationship(
         "RemediationRun", back_populates="verification_runs"
     )
+
+
+class ScanSummary(Base):
+    """Cached on-demand AI Website Health Brief for a finished scan."""
+
+    __tablename__ = "scan_summaries"
+    __table_args__ = (
+        UniqueConstraint(
+            "scan_id",
+            "input_hash",
+            "prompt_version",
+            "model",
+            name="uq_scan_summaries_cache_key",
+        ),
+        Index("ix_scan_summaries_scan_created", "scan_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    org_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="generating"
+    )  # generating | ready | failed
+    content: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    scan: Mapped["Scan"] = relationship("Scan", back_populates="summaries")
 
 
 class OrgTokenLedger(Base):

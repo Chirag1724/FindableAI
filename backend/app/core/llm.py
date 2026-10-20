@@ -212,9 +212,11 @@ class LLMClient:
         budget_cap_usd: float | None = None,
         budget_guard: BudgetGuard | None = None,
         instructor_client: Any | None = None,
+        allow_provider_failover: bool = True,
     ) -> None:
         self._api_key = settings.GROQ_API_KEY if api_key is None else api_key
         self._model = model or settings.DEFAULT_LLM_MODEL
+        self._allow_provider_failover = bool(allow_provider_failover)
 
         if budget_guard is not None:
             if max_calls is not None and max_calls != budget_guard.limit:
@@ -292,6 +294,8 @@ class LLMClient:
             settings.OPENAI_API_KEY,
             settings.ANTHROPIC_API_KEY,
             settings.GEMINI_API_KEY,
+            settings.GEMINI_API_KEY_AI_SUMMARY,
+            settings.GEMINI_API_KEY_AI_SUMMARY1,
             settings.GROQ_API_KEY,
             settings.GITHUB_TOKEN,
         ):
@@ -442,15 +446,22 @@ class LLMClient:
         # 3. Ordered (provider, model) specs — keep same-provider fallback models.
         #    Previous logic skip-added f_provider when it equaled p_provider, so
         #    FALLBACK_LLM_MODEL=groq/… never appeared when primary was also groq.
+        #    Summary clients pin allow_provider_failover=False so Gemini 404s never
+        #    spill into Groq TPM/schema failures.
         model_specs: list[tuple[str, str | None]] = []
         if p_provider:
             model_specs.append((p_provider, p_model or None))
-        if f_provider and (f_provider, f_model or None) not in model_specs:
-            model_specs.append((f_provider, f_model or None))
-        for p in ("groq", "openrouter", "gemini", "openai", "nvidia"):
-            if any(existing == p for existing, _ in model_specs):
-                continue
-            model_specs.append((p, None))
+        if self._allow_provider_failover:
+            if f_provider and (f_provider, f_model or None) not in model_specs:
+                model_specs.append((f_provider, f_model or None))
+            for p in ("groq", "openrouter", "gemini", "openai", "nvidia"):
+                if any(existing == p for existing, _ in model_specs):
+                    continue
+                model_specs.append((p, None))
+        elif f_provider == p_provider and f_model and f_model != p_model:
+            # Same-provider fallback model only (e.g. groq/120b → groq/20b).
+            if (f_provider, f_model or None) not in model_specs:
+                model_specs.append((f_provider, f_model or None))
 
         # 4. Endpoints — each with ONLY its own credential (or skipped)
         endpoints: list[ProviderEndpoint] = []
