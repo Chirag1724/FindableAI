@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import AuditPage from "./page";
 
@@ -9,9 +9,21 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
-describe("AuditPage", () => {
-  it("renders the audit console with title, input, and persona selectors", () => {
+// Mock API module so HealthIndicator's useEffect resolves immediately
+vi.mock("@/lib/api", () => ({
+  getHealth: vi.fn().mockResolvedValue({ status: "healthy" }),
+  createScan: vi.fn(),
+}));
+
+async function renderPage() {
+  await act(async () => {
     render(<AuditPage />);
+  });
+}
+
+describe("AuditPage", () => {
+  it("renders the audit console with title, input, and persona selectors", async () => {
+    await renderPage();
 
     expect(screen.getByRole("heading", { name: "Initialize your machine audit" })).toBeDefined();
     expect(screen.getByTestId("scan-url-input")).toBeDefined();
@@ -22,7 +34,7 @@ describe("AuditPage", () => {
   });
 
   it("shows an error when submitted with an empty or invalid URL", async () => {
-    render(<AuditPage />);
+    await renderPage();
 
     const submitBtn = screen.getByTestId("scan-submit");
     fireEvent.click(submitBtn);
@@ -31,8 +43,8 @@ describe("AuditPage", () => {
     expect(screen.getByText("Please enter a website URL.")).toBeDefined();
   });
 
-  it("allows toggling intent personas", () => {
-    render(<AuditPage />);
+  it("allows toggling intent personas", async () => {
+    await renderPage();
 
     const ctoBtn = screen.getByRole("button", { name: /Skeptical CTO/i });
     fireEvent.click(ctoBtn);
@@ -41,8 +53,8 @@ describe("AuditPage", () => {
     expect(screen.getByText("2 of 3 active")).toBeDefined();
   });
 
-  it("updates crawl scope via preset buttons and stepper controls", () => {
-    render(<AuditPage />);
+  it("updates crawl scope via preset buttons and stepper controls", async () => {
+    await renderPage();
 
     // Default is 5 pages
     expect(screen.getByTestId("max-pages-count").textContent).toContain("5 pages");
@@ -68,8 +80,8 @@ describe("AuditPage", () => {
     expect(screen.getByTestId("max-pages-count").textContent).toContain("24 pages");
   });
 
-  it("populates target URL and GitHub repository when clicking FindableAI quick test", () => {
-    render(<AuditPage />);
+  it("populates target URL and GitHub repository when clicking FindableAI quick test", async () => {
+    await renderPage();
 
     const findableBtn = screen.getByTestId("demo-fill-btn");
     fireEvent.click(findableBtn);
@@ -81,8 +93,8 @@ describe("AuditPage", () => {
     expect(repoInput.value).toBe("https://github.com/Chirag1724/FindableAI");
   });
 
-  it("builds a canonical https URL from domain + default TLD without typing the protocol", () => {
-    render(<AuditPage />);
+  it("builds a canonical https URL from domain + default TLD without typing the protocol", async () => {
+    await renderPage();
 
     fireEvent.change(screen.getByTestId("scan-url-input"), {
       target: { value: "example" },
