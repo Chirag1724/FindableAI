@@ -52,7 +52,6 @@ def decode_scan_list_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
     return created_at, scan_id
 
 
-
 def can_access_scan_org(
     *,
     scan_org_id: uuid.UUID | None,

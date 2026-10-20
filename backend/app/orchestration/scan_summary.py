@@ -62,6 +62,7 @@ from app.schemas.summary import (
     SummaryPriority,
     SummaryReason,
     SummaryResponse,
+    SummaryScope,
     SummarySignals,
     SummaryStatus,
     SummaryVerdict,
@@ -318,7 +319,9 @@ def compute_verdict_and_signals(snapshot: ScanSnapshot) -> tuple[SummaryVerdict,
     f_score = _safe_float(snapshot.facts.get("S_overall", {}).get("value"))
     weighted = _weighted_pillar_sum(s_ans, s_con, s_str, s_acc)
 
-    all_intents_unknown = snapshot.intent_total > 0 and snapshot.e_unknown_count == snapshot.intent_total
+    all_intents_unknown = (
+        snapshot.intent_total > 0 and snapshot.e_unknown_count == snapshot.intent_total
+    )
     zero_dom_chunks = snapshot.dom_chunk_count == 0
     pages = snapshot.pages_crawled
     single_page = pages == 1
@@ -395,7 +398,9 @@ async def build_scan_snapshot(session: AsyncSession, scan: Scan) -> ScanSnapshot
     )
     intent_rows = (
         await session.execute(
-            select(Intent, func.coalesce(evidence_count_sq.c.evidence_count, 0).label("evidence_count"))
+            select(
+                Intent, func.coalesce(evidence_count_sq.c.evidence_count, 0).label("evidence_count")
+            )
             .outerjoin(evidence_count_sq, evidence_count_sq.c.intent_id == Intent.id)
             .where(Intent.scan_id == scan_id)
             .order_by(Intent.intent_key.asc(), Intent.id.asc())
@@ -453,14 +458,19 @@ async def build_scan_snapshot(session: AsyncSession, scan: Scan) -> ScanSnapshot
         )
 
     patch_rows = (
-        await session.execute(
-            select(Patch)
-            .where(Patch.scan_id == scan_id)
-            .order_by(Patch.priority.asc(), Patch.created_at.asc())
+        (
+            await session.execute(
+                select(Patch)
+                .where(Patch.scan_id == scan_id)
+                .order_by(Patch.priority.asc(), Patch.created_at.asc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     patch_titles = [
-        _truncate(p.file_path, _TRUNC_PATCH_TITLE) or p.file_path for p in patch_rows[:_MAX_PATCH_TITLES]
+        _truncate(p.file_path, _TRUNC_PATCH_TITLE) or p.file_path
+        for p in patch_rows[:_MAX_PATCH_TITLES]
     ]
     if len(patch_rows) > len(patch_titles):
         omitted.append(f"{len(patch_rows) - len(patch_titles)} patch titles omitted")
@@ -503,7 +513,10 @@ async def build_scan_snapshot(session: AsyncSession, scan: Scan) -> ScanSnapshot
 
     facts["F_pages"] = {"id": "F_pages", "value": pages_crawled}
     facts["F_dom_chunks"] = {"id": "F_dom_chunks", "value": dom_chunk_count}
-    facts["F_pages_crawled_field"] = {"id": "F_pages_crawled_field", "value": scan.dom_chunks_extracted}
+    facts["F_pages_crawled_field"] = {
+        "id": "F_pages_crawled_field",
+        "value": scan.dom_chunks_extracted,
+    }
     for fid in ("F_pages", "F_dom_chunks", "F_pages_crawled_field"):
         allowed_ids.add(fid)
 
@@ -613,7 +626,10 @@ async def build_scan_snapshot(session: AsyncSession, scan: Scan) -> ScanSnapshot
     facts["S_pillar_con"] = {"id": "S_pillar_con", "value": s_con}
     facts["S_pillar_str"] = {"id": "S_pillar_str", "value": s_str}
     facts["S_pillar_acc"] = {"id": "S_pillar_acc", "value": s_acc}
-    facts["S_weighted_sum"] = {"id": "S_weighted_sum", "value": round(weighted, 2) if weighted is not None else None}
+    facts["S_weighted_sum"] = {
+        "id": "S_weighted_sum",
+        "value": round(weighted, 2) if weighted is not None else None,
+    }
     facts["S_grade"] = {"id": "S_grade", "value": grade}
     for fid in (
         "S_overall",
@@ -675,7 +691,9 @@ async def build_scan_snapshot(session: AsyncSession, scan: Scan) -> ScanSnapshot
         if isinstance(v, dict) and v.get("kind") in {"intent", "contradiction"}
     )
     coverage = SummaryCoverage(
-        evaluations_completed=int(evaluations_completed) if evaluations_completed is not None else None,
+        evaluations_completed=int(evaluations_completed)
+        if evaluations_completed is not None
+        else None,
         evaluations_total=int(evaluations_total) if evaluations_total is not None else None,
         findings_included=findings_included,
         omitted_count=len(omitted),
@@ -735,7 +753,9 @@ def compute_input_hash(snapshot: ScanSnapshot) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _rebuild_derived_sets(facts: dict[str, Any]) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+def _rebuild_derived_sets(
+    facts: dict[str, Any],
+) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
     """Reconstruct allowed_fact_ids / numbers / urls from stored facts."""
     allowed = frozenset(str(k) for k in facts.keys())
     numbers: set[str] = set()
@@ -807,7 +827,9 @@ def deserialize_scan_snapshot(stored: dict[str, Any], scan: Scan) -> ScanSnapsho
         remediation_eligible=stored.get("remediation_eligible", scan.remediation_eligible),
         dom_chunk_count=int(stored.get("dom_chunk_count") or 0),
         pages_crawled=(
-            int(stored["pages_crawled"]) if stored.get("pages_crawled") is not None else scan.pages_crawled
+            int(stored["pages_crawled"])
+            if stored.get("pages_crawled") is not None
+            else scan.pages_crawled
         ),
         e_with_evidence=int(stored.get("e_with_evidence") or 0),
         e_unknown_count=int(stored.get("e_unknown_count") or 0),
@@ -823,7 +845,9 @@ def _stored_summary_input_usable(scan: Scan) -> bool:
         return False
     if stored.get("prompt_version") != PROMPT_VERSION:
         return False
-    stored_hash = (getattr(scan, "summary_input_hash", None) or stored.get("input_hash") or "").strip()
+    stored_hash = (
+        getattr(scan, "summary_input_hash", None) or stored.get("input_hash") or ""
+    ).strip()
     return bool(stored_hash) and bool(stored.get("facts"))
 
 
@@ -906,7 +930,9 @@ class SummaryEligibility:
     http_status: int = 200
 
 
-async def _latest_remediation_run(session: AsyncSession, scan_id: uuid.UUID) -> RemediationRun | None:
+async def _latest_remediation_run(
+    session: AsyncSession, scan_id: uuid.UUID
+) -> RemediationRun | None:
     result = await session.execute(
         select(RemediationRun)
         .where(RemediationRun.scan_id == scan_id)
@@ -1190,7 +1216,15 @@ def validate_summary_payload(
 
 
 def _resolved_model(model: str | None) -> str:
-    return (model or settings.SUMMARY_LLM_MODEL or "").strip() or settings.SUMMARY_LLM_MODEL
+    if model and model.strip():
+        return model.strip()
+    keys = _summary_api_keys()
+    if keys:
+        from app.core.llm_credentials import key_issuer
+
+        if key_issuer(keys[0]) == "groq":
+            return (settings.DEFAULT_LLM_MODEL or "groq/openai/gpt-oss-120b").strip()
+    return (settings.SUMMARY_LLM_MODEL or "gemini/gemini-3.5-flash-lite").strip()
 
 
 def _summary_api_keys() -> list[str]:
@@ -1213,15 +1247,51 @@ def _summary_api_key() -> str:
     return keys[0] if keys else ""
 
 
-def _context_block(snapshot: ScanSnapshot) -> str:
+def _prompt_version_for_scope(scope: SummaryScope | str | None) -> str:
+    s = (
+        str(scope.value if isinstance(scope, SummaryScope) else (scope or "intelligence"))
+        .strip()
+        .lower()
+    )
+    if s == "lighthouse":
+        return f"lh_{PROMPT_VERSION}"
+    return PROMPT_VERSION
+
+
+def _filter_facts_for_scope(facts: dict[str, Any], scope: str) -> dict[str, Any]:
+    if scope == "lighthouse":
+        return {
+            k: v
+            for k, v in facts.items()
+            if k.startswith("L_")
+            or k.startswith("F_")
+            or k.startswith("S_")
+            or k == "scan_meta"
+            or k == "W_warnings"
+        }
+    return {k: v for k, v in facts.items() if not k.startswith("L_") or k == "L_available"}
+
+
+def _context_block(
+    snapshot: ScanSnapshot,
+    scope: SummaryScope | str = "intelligence",
+) -> str:
+    p_ver = _prompt_version_for_scope(scope)
+    s = (
+        str(scope.value if isinstance(scope, SummaryScope) else (scope or "intelligence"))
+        .strip()
+        .lower()
+    )
+    filtered_facts = _filter_facts_for_scope(snapshot.facts, s)
     body = {
         "context_schema_version": CONTEXT_SCHEMA_VERSION,
-        "prompt_version": PROMPT_VERSION,
+        "prompt_version": p_ver,
+        "scope": s,
         "verdict_hint": snapshot.verdict.value,
         "signals": snapshot.signals.model_dump(),
         "coverage": snapshot.coverage.model_dump(),
         "omitted": list(snapshot.omitted),
-        "facts": {k: snapshot.facts[k] for k in sorted(snapshot.facts.keys())},
+        "facts": {k: filtered_facts[k] for k in sorted(filtered_facts.keys())},
     }
     serialized = json.dumps(body, sort_keys=True, ensure_ascii=True, default=str)
     return (
@@ -1234,7 +1304,12 @@ def _context_block(snapshot: ScanSnapshot) -> str:
     )
 
 
-def _system_prompt(*, verdict: SummaryVerdict, compact: bool = False) -> str:
+def _system_prompt(
+    *,
+    verdict: SummaryVerdict,
+    scope: SummaryScope | str = "intelligence",
+    compact: bool = False,
+) -> str:
     list_cap = 3 if compact else 6
     brevity = (
         "Be concise: overall_assessment <=240 chars; each bullet <=180 chars; "
@@ -1242,12 +1317,36 @@ def _system_prompt(*, verdict: SummaryVerdict, compact: bool = False) -> str:
         if compact
         else f"Max {list_cap} items per list. Keep language cautious when evidence is weak."
     )
+    p_ver = _prompt_version_for_scope(scope)
+    s = (
+        str(scope.value if isinstance(scope, SummaryScope) else (scope or "intelligence"))
+        .strip()
+        .lower()
+    )
+    if s == "lighthouse":
+        role_desc = (
+            f"You write an executive-grade AI Bot Readiness & Crawler Governance Brief (prompt_version={p_ver}, "
+            f"context_schema={CONTEXT_SCHEMA_VERSION}) for a technical lead. "
+            "Write in authoritative, crisp, professional English. Avoid robotic jargon and awkward syntax. "
+            "Focus strictly on AI bot accessibility, robots.txt directives, LLM crawler access (GPTBot, ClaudeBot, PerplexityBot, Google-Extended), "
+            "scraping risks, and per-engine readiness (ChatGPT, Gemini, Perplexity, Claude). "
+            "Use ONLY the provided facts object; never invent crawler blocks, audit failures, or readiness scores. "
+        )
+    else:
+        role_desc = (
+            f"You write an executive-grade Search Intelligence Brief (prompt_version={p_ver}, "
+            f"context_schema={CONTEXT_SCHEMA_VERSION}) for a site owner and SEO/AI search lead. "
+            "Write in fluent, polished, authoritative English. Avoid robotic phrasing, repetitive jargon, and raw decimal metrics (e.g. do NOT write raw decimals like '0.095'—describe as percentage or qualitative confidence). "
+            "Instead of database tokens like 'UNKNOWN', write 'unverified' or 'could not be verified'. "
+            "Focus on AI search findability, customer query coverage, cross-page factual contradictions, "
+            "and claim verification against retrieved evidence. "
+            "Use ONLY the provided facts object; never invent issues, numbers, URLs, root causes, "
+            "or technical diagnoses (do not speculate about SPA rendering, robots.txt, or server config "
+            "unless explicitly present in fact text). "
+        )
+
     return (
-        f"You write a plain-English Website Health Brief (prompt_version={PROMPT_VERSION}, "
-        f"context_schema={CONTEXT_SCHEMA_VERSION}) for a non-technical website owner. "
-        "Use ONLY the provided facts object; never invent issues, numbers, URLs, root causes, "
-        "or technical diagnoses (do not speculate about SPA rendering, robots.txt, or server config "
-        "unless explicitly present in fact text). "
+        f"{role_desc}"
         "UNKNOWN intent status means insufficient evidence — never describe UNKNOWN as OK, passed, "
         "or verified. Never use words like healthy, passed, all clear, or no issues unless quoting "
         "a fact verbatim. "
@@ -1265,15 +1364,15 @@ def _system_prompt(*, verdict: SummaryVerdict, compact: bool = False) -> str:
 def _messages_for_summary(
     snapshot: ScanSnapshot,
     *,
+    scope: SummaryScope | str = "intelligence",
     repair_errors: list[str] | None = None,
     compact: bool = False,
 ) -> list[dict[str, str]]:
-    user_parts = [_context_block(snapshot)]
+    user_parts = [_context_block(snapshot, scope=scope)]
     if repair_errors:
         user_parts.append(
             "Previous output failed validation or was truncated. Fix ONLY these issues "
-            "and return complete valid JSON:\n"
-            + "\n".join(f"- {e}" for e in repair_errors)
+            "and return complete valid JSON:\n" + "\n".join(f"- {e}" for e in repair_errors)
         )
     list_cap = 3 if compact else 6
     oa_limit = 240 if compact else 400
@@ -1283,7 +1382,10 @@ def _messages_for_summary(
         "Return the full JSON object — never truncate mid-field."
     )
     return [
-        {"role": "system", "content": _system_prompt(verdict=snapshot.verdict, compact=compact)},
+        {
+            "role": "system",
+            "content": _system_prompt(verdict=snapshot.verdict, scope=scope, compact=compact),
+        },
         {"role": "user", "content": "\n\n".join(user_parts)},
     ]
 
@@ -1356,6 +1458,7 @@ def _response_from_summary_row(
     remediation_label: RemediationStatusLabel,
     remediation_reason: str | None,
     include_model: bool,
+    scope: SummaryScope | None = None,
 ) -> SummaryResponse:
     content = _content_from_row(row)
     overall_raw = content.get("overall_assessment") or {}
@@ -1405,6 +1508,7 @@ def _response_from_summary_row(
         generated_at=row.updated_at or row.created_at,
         model=row.model if include_model and row.model else None,
         cached=cached,
+        scope=scope,
         headline=headline,
         overview=overview,
         items=legacy_items,
@@ -1417,13 +1521,14 @@ async def _fetch_summary_row(
     scan_id: uuid.UUID,
     input_hash: str,
     model: str,
+    prompt_version: str = PROMPT_VERSION,
 ) -> ScanSummary | None:
     result = await session.execute(
         select(ScanSummary)
         .where(
             ScanSummary.scan_id == scan_id,
             ScanSummary.input_hash == input_hash,
-            ScanSummary.prompt_version == PROMPT_VERSION,
+            ScanSummary.prompt_version == prompt_version,
             ScanSummary.model == model,
         )
         .limit(1)
@@ -1481,7 +1586,11 @@ def _remediation_fields(
         run.lifecycle_state if run else None,
         remediation_eligible=snapshot.remediation_eligible,
     )
-    reason = snapshot.signals.remediation_unavailable_reason if label == RemediationStatusLabel.UNAVAILABLE else None
+    reason = (
+        snapshot.signals.remediation_unavailable_reason
+        if label == RemediationStatusLabel.UNAVAILABLE
+        else None
+    )
     return label, reason
 
 
@@ -1490,13 +1599,20 @@ async def get_summary(
     scan: Scan,
     *,
     model: str | None = None,
+    scope: SummaryScope | str = "intelligence",
 ) -> SummaryResponse:
-    """Return latest ready summary for current grounded hash, else status=none."""
+    """Return latest ready summary for current grounded hash and scope, else status=none."""
     resolved_model = _resolved_model(model)
     snapshot = await load_or_build_snapshot(session, scan)
     input_hash = compute_input_hash(snapshot)
+    p_ver = _prompt_version_for_scope(scope)
+    scope_enum = (
+        SummaryScope.LIGHTHOUSE
+        if str(getattr(scope, "value", scope)).lower() == "lighthouse"
+        else SummaryScope.INTELLIGENCE
+    )
     row = await _fetch_summary_row(
-        session, scan_id=scan.id, input_hash=input_hash, model=resolved_model
+        session, scan_id=scan.id, input_hash=input_hash, model=resolved_model, prompt_version=p_ver
     )
     if row is None or row.status != "ready" or not row.content:
         return SummaryResponse(
@@ -1505,6 +1621,7 @@ async def get_summary(
             verdict=snapshot.verdict,
             signals=snapshot.signals,
             omitted=list(snapshot.omitted),
+            scope=scope_enum,
         )
     run = await _latest_remediation_run(session, scan.id)
     label, reason = _remediation_fields(snapshot, run)
@@ -1515,6 +1632,7 @@ async def get_summary(
         remediation_label=label,
         remediation_reason=reason,
         include_model=include_model,
+        scope=scope_enum,
     )
 
 
@@ -1524,6 +1642,7 @@ async def _try_insert_generating(
     scan: Scan,
     input_hash: str,
     model: str,
+    prompt_version: str = PROMPT_VERSION,
 ) -> ScanSummary | None:
     row_id = uuid.uuid4()
     now = datetime.now(UTC)
@@ -1532,7 +1651,7 @@ async def _try_insert_generating(
         "scan_id": scan.id,
         "org_id": getattr(scan, "org_id", None),
         "input_hash": input_hash,
-        "prompt_version": PROMPT_VERSION,
+        "prompt_version": prompt_version,
         "model": model,
         "status": "generating",
         "content": None,
@@ -1548,7 +1667,7 @@ async def _try_insert_generating(
     await session.execute(stmt)
     await session.flush()
     created = await _fetch_summary_row(
-        session, scan_id=scan.id, input_hash=input_hash, model=model
+        session, scan_id=scan.id, input_hash=input_hash, model=model, prompt_version=prompt_version
     )
     if created is not None and created.id == row_id:
         return created
@@ -1664,7 +1783,9 @@ def _is_schema_invalid_output_error(exc: BaseException) -> bool:
             return True
         msg = str(item).lower()
         if "validation error" in msg and (
-            "llmsummarypayload" in msg or "list_type" in msg or "input should be a valid array" in msg
+            "llmsummarypayload" in msg
+            or "list_type" in msg
+            or "input should be a valid array" in msg
         ):
             return True
     return False
@@ -1702,11 +1823,20 @@ def _is_retryable_provider_error(exc: BaseException) -> bool:
 
 
 def _make_summary_client(*, api_key: str, model: str) -> LLMClient:
+    from app.core.llm_credentials import key_issuer
+
+    issuer = key_issuer(api_key)
+    effective_model = model
+    if issuer == "groq" and (
+        not model or model.startswith("gemini/") or model.startswith("openai/")
+    ):
+        effective_model = (settings.DEFAULT_LLM_MODEL or "groq/openai/gpt-oss-120b").strip()
+    elif issuer == "gemini" and (not model or model.startswith("groq/")):
+        effective_model = (settings.SUMMARY_LLM_MODEL or "gemini/gemini-3.5-flash-lite").strip()
     return LLMClient(
-        model=model,
+        model=effective_model,
         api_key=api_key,
         max_calls=int(settings.SUMMARY_LLM_MAX_CALLS),
-        # Keep summary on Gemini keys only — never spill into Groq TPM/schema errors.
         allow_provider_failover=False,
     )
 
@@ -1811,9 +1941,16 @@ async def generate_summary(
     *,
     model: str | None = None,
     llm_client: LLMClient | None = None,
+    scope: SummaryScope | str = "intelligence",
 ) -> tuple[SummaryResponse, int]:
     """Generate or return a cached Website Health Brief (POST semantics)."""
     resolved_model = _resolved_model(model)
+    scope_enum = (
+        SummaryScope.LIGHTHOUSE
+        if str(getattr(scope, "value", scope)).lower() == "lighthouse"
+        else SummaryScope.INTELLIGENCE
+    )
+    p_ver = _prompt_version_for_scope(scope)
 
     eligibility = await eligibility_for_summary(session, scan)
     if not eligibility.eligible:
@@ -1822,6 +1959,7 @@ async def generate_summary(
                 status=SummaryStatus.NONE,
                 reason=eligibility.reason.value if eligibility.reason else None,
                 message=eligibility.message,
+                scope=scope_enum,
             ),
             eligibility.http_status,
         )
@@ -1830,19 +1968,20 @@ async def generate_summary(
     snapshot = await load_or_build_snapshot(session, scan)
     input_hash = compute_input_hash(snapshot)
     existing = await _fetch_summary_row(
-        session, scan_id=scan.id, input_hash=input_hash, model=resolved_model
+        session, scan_id=scan.id, input_hash=input_hash, model=resolved_model, prompt_version=p_ver
     )
     run = await _latest_remediation_run(session, scan.id)
     remediation_label, remediation_reason = _remediation_fields(snapshot, run)
 
     if existing is not None and existing.status == "ready" and existing.content:
         logger.info(
-            "scan_summary_cache_hit scan_id=%s org_id=%s model=%s outcome=%s verdict=%s",
+            "scan_summary_cache_hit scan_id=%s org_id=%s model=%s outcome=%s verdict=%s scope=%s",
             scan.id,
             getattr(scan, "org_id", None),
             resolved_model,
             scan.outcome,
             snapshot.verdict.value,
+            scope_enum.value,
         )
         return (
             _response_from_summary_row(
@@ -1851,6 +1990,7 @@ async def generate_summary(
                 remediation_label=remediation_label,
                 remediation_reason=remediation_reason,
                 include_model=bool(existing.model),
+                scope=scope_enum,
             ),
             200,
         )
@@ -1862,11 +2002,15 @@ async def generate_summary(
 
     if existing is None:
         work_row = await _try_insert_generating(
-            session, scan=scan, input_hash=input_hash, model=resolved_model
+            session, scan=scan, input_hash=input_hash, model=resolved_model, prompt_version=p_ver
         )
         if work_row is None:
             existing = await _fetch_summary_row(
-                session, scan_id=scan.id, input_hash=input_hash, model=resolved_model
+                session,
+                scan_id=scan.id,
+                input_hash=input_hash,
+                model=resolved_model,
+                prompt_version=p_ver,
             )
     if work_row is None and existing is not None:
         if existing.status == "ready" and existing.content:
@@ -1877,10 +2021,14 @@ async def generate_summary(
                     remediation_label=remediation_label,
                     remediation_reason=remediation_reason,
                     include_model=bool(existing.model),
+                    scope=scope_enum,
                 ),
                 200,
             )
-        if existing.status == "generating" and (existing.updated_at or existing.created_at) >= stale_before:
+        if (
+            existing.status == "generating"
+            and (existing.updated_at or existing.created_at) >= stale_before
+        ):
             return (
                 SummaryResponse(
                     status=SummaryStatus.GENERATING,
@@ -1890,6 +2038,7 @@ async def generate_summary(
                     verdict=snapshot.verdict,
                     signals=snapshot.signals,
                     omitted=list(snapshot.omitted),
+                    scope=scope_enum,
                 ),
                 202,
             )
@@ -1906,6 +2055,7 @@ async def generate_summary(
                 verdict=snapshot.verdict,
                 signals=snapshot.signals,
                 omitted=list(snapshot.omitted),
+                scope=scope_enum,
             ),
             202,
         )
@@ -1970,9 +2120,7 @@ async def generate_summary(
         )
 
     key_index = 0
-    client = llm_client or _make_summary_client(
-        api_key=api_keys[key_index], model=resolved_model
-    )
+    client = llm_client or _make_summary_client(api_key=api_keys[key_index], model=resolved_model)
     injected_client = llm_client is not None
 
     repair_errors: list[str] | None = None
@@ -1991,12 +2139,10 @@ async def generate_summary(
     while provider_attempt < max_rounds:
         provider_attempt += 1
         messages = _messages_for_summary(
-            snapshot, repair_errors=repair_errors, compact=compact
+            snapshot, scope=scope_enum, repair_errors=repair_errors, compact=compact
         )
         try:
-            raw_payload = await _invoke_summary_llm(
-                client, messages, max_tokens=max_tokens
-            )
+            raw_payload = await _invoke_summary_llm(client, messages, max_tokens=max_tokens)
             validated, validation_errors = validate_summary_payload(
                 raw_payload,
                 allowed_fact_ids=snapshot.allowed_fact_ids,
@@ -2100,9 +2246,7 @@ async def generate_summary(
                 )
                 continue
 
-            truncation_exhausted = (
-                _is_output_truncation_error(exc) and truncation_repaired
-            )
+            truncation_exhausted = _is_output_truncation_error(exc) and truncation_repaired
             can_failover_key = (
                 not injected_client
                 and key_index + 1 < len(api_keys)
@@ -2117,9 +2261,7 @@ async def generate_summary(
                 backoff = float(settings.SUMMARY_PROVIDER_BACKOFF_SECONDS)
                 if _is_retryable_provider_error(exc) and backoff > 0:
                     await asyncio.sleep(min(backoff * key_index, 5.0))
-                client = _make_summary_client(
-                    api_key=api_keys[key_index], model=resolved_model
-                )
+                client = _make_summary_client(api_key=api_keys[key_index], model=resolved_model)
                 logger.info(
                     "scan_summary_key_failover scan_id=%s model=%s key_slot=%s reason=%s",
                     scan.id,
@@ -2158,6 +2300,7 @@ async def generate_summary(
                     verdict=snapshot.verdict,
                     signals=snapshot.signals,
                     omitted=list(snapshot.omitted),
+                    scope=scope_enum,
                 ),
                 502,
             )
@@ -2173,6 +2316,7 @@ async def generate_summary(
                 verdict=snapshot.verdict,
                 signals=snapshot.signals,
                 omitted=list(snapshot.omitted),
+                scope=scope_enum,
             ),
             502,
         )
@@ -2212,7 +2356,7 @@ async def generate_summary(
 
     logger.info(
         "scan_summary_ready scan_id=%s org_id=%s model=%s tokens_in=%s tokens_out=%s "
-        "latency_ms=%s cache_hit=%s outcome=%s verdict=%s",
+        "latency_ms=%s cache_hit=%s outcome=%s verdict=%s scope=%s",
         scan.id,
         getattr(scan, "org_id", None),
         resolved_model,
@@ -2222,6 +2366,7 @@ async def generate_summary(
         False,
         scan.outcome,
         snapshot.verdict.value,
+        scope_enum.value,
     )
 
     refreshed = await session.get(ScanSummary, work_row.id)
@@ -2233,6 +2378,7 @@ async def generate_summary(
             remediation_label=remediation_label,
             remediation_reason=remediation_reason,
             include_model=True,
+            scope=scope_enum,
         ),
         200,
     )
@@ -2243,6 +2389,7 @@ __all__ = [
     "PROMPT_VERSION",
     "ScanSnapshot",
     "SummaryEligibility",
+    "SummaryScope",
     "build_scan_snapshot",
     "compute_input_hash",
     "compute_verdict_and_signals",

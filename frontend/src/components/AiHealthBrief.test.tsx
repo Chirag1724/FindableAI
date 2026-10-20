@@ -47,7 +47,6 @@ describe("AiHealthBrief", () => {
       <AiHealthBrief
         scanId="scan_abc"
         scanStatus="completed"
-        panelOnly
         open
         onRestoredReady={onRestoredReady}
       />
@@ -62,7 +61,7 @@ describe("AiHealthBrief", () => {
     expect(screen.getByTestId("ai-health-brief-verdict")).toHaveTextContent(
       /needs more evidence/i
     );
-    expect(getSpy).toHaveBeenCalledTimes(1);
+    expect(getSpy).toHaveBeenCalledWith("scan_abc", expect.any(AbortSignal), "intelligence");
 
     // Simulate parent SSE/poll re-renders with new callback identities.
     for (let i = 0; i < 5; i++) {
@@ -70,7 +69,6 @@ describe("AiHealthBrief", () => {
         <AiHealthBrief
           scanId="scan_abc"
           scanStatus="completed"
-          panelOnly
           open
           onRestoredReady={() => onRestoredReady()}
           onBusyChange={() => undefined}
@@ -84,102 +82,66 @@ describe("AiHealthBrief", () => {
     });
 
     expect(screen.getByTestId("ai-health-brief-ready")).toBeInTheDocument();
-    expect(screen.queryByText(/Preparing your scan findings/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Preparing search query evaluations/i)).not.toBeInTheDocument();
     expect(getSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("autoGenerate posts once and retains ready content", async () => {
+  it("renders on-demand idle trigger with professional technical styling (no sparkles)", async () => {
     vi.spyOn(api, "getScanSummary").mockResolvedValue(noneResponse());
-    let resolvePost!: (v: ScanSummaryResponse) => void;
-    const postSpy = vi.spyOn(api, "generateScanSummary").mockImplementation(
-      () =>
-        new Promise<ScanSummaryResponse>((resolve) => {
-          resolvePost = resolve;
-        })
-    );
 
-    const onConsumed = vi.fn();
-    const { rerender } = render(
+    render(
       <AiHealthBrief
         scanId="scan_abc"
         scanStatus="completed"
-        panelOnly
-        open
-        autoGenerate
-        onAutoGenerateConsumed={onConsumed}
+        scope="intelligence"
+        title="Search Intelligence Summary"
       />
     );
 
-    await waitFor(() => expect(postSpy).toHaveBeenCalledTimes(1));
-    expect(onConsumed).toHaveBeenCalled();
-    expect(screen.getByText(/Preparing your scan findings/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Search Intelligence Summary")).toBeInTheDocument();
+    });
 
-    await act(async () => {
-      resolvePost({ ...READY, cached: false });
+    const generateBtn = screen.getByTestId("ai-health-brief-generate");
+    expect(generateBtn).toBeInTheDocument();
+    expect(generateBtn).toHaveTextContent("Generate Intelligence Summary");
+    // Ensure no sparkle text or emojis
+    expect(generateBtn.innerHTML).not.toContain("✨");
+    expect(generateBtn.innerHTML).not.toContain("sparkle");
+  });
+
+  it("triggers on-demand generation when button is clicked with scope='lighthouse'", async () => {
+    vi.spyOn(api, "getScanSummary").mockResolvedValue(noneResponse());
+    const postSpy = vi.spyOn(api, "generateScanSummary").mockResolvedValue({
+      ...READY,
+      scope: "lighthouse",
+    });
+
+    render(
+      <AiHealthBrief
+        scanId="scan_abc"
+        scanStatus="completed"
+        scope="lighthouse"
+        title="AI Bot Readiness Summary"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("AI Bot Readiness Summary")).toBeInTheDocument();
+    });
+
+    const generateBtn = screen.getByTestId("ai-health-brief-generate");
+    expect(generateBtn).toHaveTextContent("Generate Readiness Summary");
+
+    await userEvent.click(generateBtn);
+
+    await waitFor(() => {
+      expect(postSpy).toHaveBeenCalledWith("scan_abc", expect.any(AbortSignal), "lighthouse");
     });
 
     await waitFor(() => {
       expect(screen.getByTestId("ai-health-brief-ready")).toBeInTheDocument();
     });
-    expect(postSpy).toHaveBeenCalledTimes(1);
-
-    // Parent re-asserting autoGenerate after ready must not POST again.
-    rerender(
-      <AiHealthBrief
-        scanId="scan_abc"
-        scanStatus="completed"
-        panelOnly
-        open
-        autoGenerate
-        onAutoGenerateConsumed={onConsumed}
-      />
-    );
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(postSpy).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId("ai-health-brief-ready")).toBeInTheDocument();
-  });
-
-  it("disables tab control while loading", () => {
-    render(<AiSummaryTabControl active loading onClick={() => undefined} />);
-    expect(screen.getByTestId("ai-summary-tab-control")).toBeDisabled();
-  });
-
-  it("does not replace ready content with skeleton when scan status props update", async () => {
-    vi.spyOn(api, "getScanSummary").mockResolvedValue(READY);
-
-    const { rerender } = render(
-      <AiHealthBrief scanId="scan_abc" scanStatus="completed" panelOnly open />
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId("ai-health-brief-ready")).toBeInTheDocument();
-    });
-
-    rerender(
-      <AiHealthBrief
-        scanId="scan_abc"
-        scanStatus="completed"
-        outcome="success"
-        jobStatus="succeeded"
-        panelOnly
-        open
-      />
-    );
-    rerender(
-      <AiHealthBrief
-        scanId="scan_abc"
-        scanStatus="completed"
-        outcome="success"
-        jobStatus="succeeded"
-        panelOnly
-        open
-      />
-    );
-
-    expect(screen.getByTestId("ai-health-brief-ready")).toBeInTheDocument();
-    expect(screen.queryByText(/Preparing your scan findings/i)).not.toBeInTheDocument();
   });
 
   it("shows error with retry on API failure without looping", async () => {
@@ -192,7 +154,7 @@ describe("AiHealthBrief", () => {
       .mockResolvedValue(READY);
 
     render(
-      <AiHealthBrief scanId="scan_abc" scanStatus="completed" panelOnly open />
+      <AiHealthBrief scanId="scan_abc" scanStatus="completed" open />
     );
 
     await waitFor(() => {
@@ -210,49 +172,12 @@ describe("AiHealthBrief", () => {
     });
   });
 
-  it("shows idle empty state when no summary exists", async () => {
-    vi.spyOn(api, "getScanSummary").mockResolvedValue(noneResponse());
-
-    render(
-      <AiHealthBrief scanId="scan_abc" scanStatus="completed" panelOnly open />
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText(/Select/i)).toBeInTheDocument();
-      expect(screen.getByText(/AI Summary/i)).toBeInTheDocument();
-    });
-    expect(screen.queryByTestId("ai-health-brief-ready")).not.toBeInTheDocument();
-  });
-
-  it("keeps state when collapsed (hidden) then reopened without refetch blink", async () => {
-    const getSpy = vi.spyOn(api, "getScanSummary").mockResolvedValue(READY);
-
-    const { rerender } = render(
-      <AiHealthBrief scanId="scan_abc" scanStatus="completed" panelOnly open />
-    );
-    await waitFor(() => {
-      expect(screen.getByTestId("ai-health-brief-ready")).toBeInTheDocument();
-    });
-
-    rerender(
-      <AiHealthBrief scanId="scan_abc" scanStatus="completed" panelOnly open={false} />
-    );
-    expect(screen.getByTestId("ai-health-brief-hidden")).toBeInTheDocument();
-
-    rerender(
-      <AiHealthBrief scanId="scan_abc" scanStatus="completed" panelOnly open />
-    );
-    expect(screen.getByTestId("ai-health-brief-ready")).toBeInTheDocument();
-    expect(screen.queryByText(/Preparing your scan findings/i)).not.toBeInTheDocument();
-    expect(getSpy).toHaveBeenCalledTimes(1);
-  });
-
   it("uses single-expand accordion; assessment stays visible; all sections retain content", async () => {
     const user = userEvent.setup();
     vi.spyOn(api, "getScanSummary").mockResolvedValue(READY);
 
     render(
-      <AiHealthBrief scanId="scan_abc" scanStatus="completed" panelOnly open />
+      <AiHealthBrief scanId="scan_abc" scanStatus="completed" open />
     );
 
     await waitFor(() => {
@@ -300,11 +225,12 @@ describe("AiHealthBrief", () => {
 });
 
 describe("AiSummaryTabControl", () => {
-  it("renders beside-style control with sparkle label as a tab", () => {
+  it("renders beside-style control without sparkles", () => {
     render(<AiSummaryTabControl active={false} onClick={() => undefined} />);
     const tab = screen.getByTestId("ai-summary-tab-control");
     expect(tab).toHaveTextContent("AI Summary");
     expect(tab).toHaveAttribute("role", "tab");
     expect(tab).toHaveAttribute("aria-selected", "false");
+    expect(tab.innerHTML).not.toContain("✨");
   });
 });

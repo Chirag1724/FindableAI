@@ -81,9 +81,7 @@ async def test_remediation_rejected_when_eligible_false(scan_in_memory, monkeypa
     assert resp.status_code in (400, 409, 422)
     detail = resp.json()["detail"]
     detail_s = detail if isinstance(detail, str) else str(detail)
-    assert "not eligible" in detail_s.lower() or (
-        isinstance(detail, dict) and detail.get("reason")
-    )
+    assert "not eligible" in detail_s.lower() or (isinstance(detail, dict) and detail.get("reason"))
     create_called.assert_not_called()
 
 
@@ -105,9 +103,7 @@ async def test_remediation_rejected_when_eligible_none(scan_in_memory, monkeypat
     assert resp.status_code in (400, 409, 422)
     detail = resp.json()["detail"]
     detail_s = detail if isinstance(detail, str) else str(detail)
-    assert "not eligible" in detail_s.lower() or (
-        isinstance(detail, dict) and detail.get("reason")
-    )
+    assert "not eligible" in detail_s.lower() or (isinstance(detail, dict) and detail.get("reason"))
     create_called.assert_not_called()
 
 

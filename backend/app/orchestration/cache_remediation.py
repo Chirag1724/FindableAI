@@ -118,7 +118,9 @@ def evaluate_cache_only_remediation(
     if not is_system_admin:
         if tenant_org_id is None or getattr(scan, "org_id", None) is None:
             return EligibilityDecision(
-                False, RemediationDenyReason.CROSS_TENANT, "scan org missing or principal has no org"
+                False,
+                RemediationDenyReason.CROSS_TENANT,
+                "scan org missing or principal has no org",
             )
         if scan.org_id != tenant_org_id:
             return EligibilityDecision(

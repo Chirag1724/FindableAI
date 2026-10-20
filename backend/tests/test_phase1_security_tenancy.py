@@ -83,9 +83,7 @@ def test_health_and_ready_remain_anonymous(client: TestClient) -> None:
     assert client.get("/api/v1/ready").status_code == 200
 
 
-def test_system_key_can_list_scans(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_system_key_can_list_scans(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     from unittest.mock import AsyncMock, MagicMock
 
     from app.api.v1 import scans as scans_mod
@@ -148,7 +146,9 @@ async def test_get_scan_for_org_denies_cross_tenant_and_null_org() -> None:
         session.add(Organization(id=org_a, name="A", slug=f"a-{org_a.hex[:6]}"))
         session.add(Organization(id=org_b, name="B", slug=f"b-{org_b.hex[:6]}"))
         session.add(Scan(id=scan_a, org_id=org_a, url="https://a.example", status="completed"))
-        session.add(Scan(id=scan_null, org_id=None, url="https://legacy.example", status="completed"))
+        session.add(
+            Scan(id=scan_null, org_id=None, url="https://legacy.example", status="completed")
+        )
         await session.commit()
 
     member_a = TenantContext(org_id=org_a)
@@ -192,7 +192,9 @@ async def test_enqueue_stamps_org_id_on_scan_and_job(monkeypatch: pytest.MonkeyP
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     org_id = uuid.uuid4()
     scan_uuid = uuid.uuid4()
-    fp = request_fingerprint(url="https://example.com", max_pages=1, personas=["cto"], repo_url=None)
+    fp = request_fingerprint(
+        url="https://example.com", max_pages=1, personas=["cto"], repo_url=None
+    )
 
     async with factory() as session:
         session.add(Organization(id=org_id, name="Org", slug=f"org-{org_id.hex[:6]}"))
@@ -386,8 +388,12 @@ async def test_org_api_keys_isolate_scan_reads(monkeypatch: pytest.MonkeyPatch) 
     async with factory() as session:
         session.add_all(
             [
-                Organization(id=org_a, name="A", slug=f"a-{org_a.hex[:6]}", rate_limit_per_min=1000),
-                Organization(id=org_b, name="B", slug=f"b-{org_b.hex[:6]}", rate_limit_per_min=1000),
+                Organization(
+                    id=org_a, name="A", slug=f"a-{org_a.hex[:6]}", rate_limit_per_min=1000
+                ),
+                Organization(
+                    id=org_b, name="B", slug=f"b-{org_b.hex[:6]}", rate_limit_per_min=1000
+                ),
                 ApiKey(
                     id=uuid.uuid4(),
                     org_id=org_a,

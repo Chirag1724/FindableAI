@@ -171,10 +171,14 @@ async def test_removed_member_keys_revoked_immediately(pg_session: AsyncSession)
         )
         assert result.ok is True
         rows = (
-            await pg_session.execute(
-                select(ApiKey).where(ApiKey.org_id == org.id, ApiKey.user_id == member_id)
+            (
+                await pg_session.execute(
+                    select(ApiKey).where(ApiKey.org_id == org.id, ApiKey.user_id == member_id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert rows
         assert all(r.revoked_at is not None for r in rows)
 
@@ -185,7 +189,10 @@ async def test_cross_tenant_membership_denied(pg_session: AsyncSession):
         org_a, owner_a, _ = await _seed_org(pg_session)
         org_b, owner_b, _ = await _seed_org(pg_session)
         tenant_a = TenantContext(
-            org_id=org_a.id, role=OrgRole.OWNER.value, api_key_id=uuid.uuid4(), is_system_admin=False
+            org_id=org_a.id,
+            role=OrgRole.OWNER.value,
+            api_key_id=uuid.uuid4(),
+            is_system_admin=False,
         )
         with pytest.raises(HTTPException) as ei:
             await remove_member(

@@ -251,7 +251,9 @@ async def dense_search(
         return [], warnings
 
     if not settings.OPENAI_API_KEY:
-        warnings.append("Semantic dense retrieval skipped: no embedding API key configured; using lexical FTS.")
+        warnings.append(
+            "Semantic dense retrieval skipped: no embedding API key configured; using lexical FTS."
+        )
         return [], warnings
     query_emb = await get_embedding(cleaned)
     if len(query_emb) != EMBEDDING_DIM:

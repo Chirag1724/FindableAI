@@ -148,7 +148,9 @@ async def test_429_exhausted_failsover_and_counts() -> None:
     assert client._is_tripped(_GROQ) is True
 
 
-def test_provider_chain_includes_same_provider_fallback_model(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_provider_chain_includes_same_provider_fallback_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """FALLBACK_LLM_MODEL on the same provider must appear as a distinct endpoint."""
     from app.core import config as config_mod
 

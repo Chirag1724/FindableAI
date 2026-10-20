@@ -143,6 +143,7 @@ def get_provider_throttle(provider: str, api_key: str | None = None) -> Provider
     p = (provider or "").strip().lower()
     if p == "groq" and api_key:
         import hashlib
+
         key_id = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:12]
         if key_id not in KEY_THROTTLES:
             KEY_THROTTLES[key_id] = ProviderThrottle(

@@ -1,22 +1,15 @@
-# Agent Instructions & Guidelines
+# Agent Guidelines — FindableAI
 
-## Ponytail: Minimalist & Senior Engineering Guidelines
+## 1. Core Principles
+- **Minimalist & Pragmatic (YAGNI):** Implement the simplest solution that directly solves the problem. Avoid speculative abstractions, wrapper bloat, and premature optimizations.
+- **Reuse first:** Check the codebase and standard libraries for existing components, utilities, and dependencies before creating new ones.
+- **Surgical changes:** Keep diffs focused on the task at hand. Do not rewrite functioning adjacent code or reformat unrelated files.
 
-> "He says nothing. He writes one line. It works."
+## 2. Domain & Safety Invariants
+- **Canonical F-Score:** \(F = 0.40 S_{ans} + 0.30 S_{con} + 0.20 S_{str} + 0.10 S_{acc}\) with sub-scores already scaled 0–100 (see ADR-001).
+- **Documentation truthfulness:** Prefer [docs/engineering/LIMITATIONS_AND_READINESS.md](docs/engineering/LIMITATIONS_AND_READINESS.md) over marketing claims when describing runtime behavior.
+- **Non-negotiable safety:** Never compromise input validation, security boundaries, database transaction integrity, or accessibility (ARIA, semantic HTML).
 
-When writing or refactoring code in this repository, always apply the **Ladder of Laziness**:
-
-1. **Does this need to exist?** → No: Skip it (YAGNI).
-2. **Already in this codebase?** → Reuse existing components, utilities, and helper functions.
-3. **Standard library does it?** → Use standard library features.
-4. **Native platform feature?** → Use HTML5 / CSS / browser built-ins.
-5. **Installed dependency?** → Use existing dependencies before adding new ones.
-6. **One line?** → Write one clean, readable line instead of multi-function wrappers.
-7. **Only then:** → Write the minimum viable, safe, and maintainable implementation.
-
-### Documentation truthfulness
-- Prefer [docs/engineering/LIMITATIONS_AND_READINESS.md](docs/engineering/LIMITATIONS_AND_READINESS.md) over marketing claims when describing runtime behavior (retrieval, fallback, persistence, PRs).
-- Canonical F-Score: \(F = 0.40 S_{ans} + 0.30 S_{con} + 0.20 S_{str} + 0.10 S_{acc}\) with components already on 0–100 (no outer ×100). See ADR-001.
-
-### Safety Invariants
-- Never compromise input validation, security, database transactional integrity, or accessibility.
+## 3. Tech Stack Reference
+- **Frontend:** Next.js (App Router), TypeScript, Tailwind CSS, Vitest.
+- **Backend:** FastAPI, Python 3.11+, SQLAlchemy, PostgreSQL, Pytest.

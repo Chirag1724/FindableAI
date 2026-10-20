@@ -148,9 +148,7 @@ class KeyPool:
         if len(keys) <= 1:
             return False
         now = time.monotonic()
-        other_healthy = [
-            k for k in keys if k != current_key and now >= self._cooldowns.get(k, 0.0)
-        ]
+        other_healthy = [k for k in keys if k != current_key and now >= self._cooldowns.get(k, 0.0)]
         return len(other_healthy) > 0
 
 

@@ -148,9 +148,7 @@ async def _seed(
 
 async def main() -> int:
     use_real = os.environ.get("LIVE_PROOF_REAL_GEMINI", "").lower() in ("1", "true", "yes")
-    has_key = bool(
-        (settings.GEMINI_API_KEY_AI_SUMMARY or settings.GEMINI_API_KEY or "").strip()
-    )
+    has_key = bool((settings.GEMINI_API_KEY_AI_SUMMARY or settings.GEMINI_API_KEY or "").strip())
     if use_real and not has_key:
         print("LIVE_PROOF_REAL_GEMINI=1 but no Gemini key configured; aborting.")
         return 2
@@ -189,12 +187,16 @@ async def main() -> int:
             resp1, code1 = await generate_summary(session, scan, llm_client=llm)
         assert code1 == 200 and resp1.status.value == "ready" and resp1.cached is False
         row = (
-            await session.execute(
-                select(ScanSummary).where(
-                    ScanSummary.scan_id == scan_id, ScanSummary.status == "ready"
+            (
+                await session.execute(
+                    select(ScanSummary).where(
+                        ScanSummary.scan_id == scan_id, ScanSummary.status == "ready"
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         assert row is not None
         print(
             f"(a) first generate OK cached={resp1.cached} "

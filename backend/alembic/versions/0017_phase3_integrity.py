@@ -20,12 +20,8 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     op.add_column("evidence", sa.Column("content_hash", sa.String(length=64), nullable=True))
-    op.add_column(
-        "evidence", sa.Column("cache_fingerprint", sa.String(length=128), nullable=True)
-    )
-    op.add_column(
-        "dom_chunks", sa.Column("content_hash", sa.String(length=64), nullable=True)
-    )
+    op.add_column("evidence", sa.Column("cache_fingerprint", sa.String(length=128), nullable=True))
+    op.add_column("dom_chunks", sa.Column("content_hash", sa.String(length=64), nullable=True))
     op.add_column(
         "api_keys",
         sa.Column("role", sa.String(length=50), nullable=False, server_default="member"),

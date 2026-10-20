@@ -59,6 +59,9 @@ Frontend AiHealthBrief renders brief; polls GET if POST returned 202
 | `GET` | `/api/v1/scans/{scan_id}/summary` | `/api/scans/{scan_id}/summary` |
 | `POST` | `/api/v1/scans/{scan_id}/summary` | `/api/scans/{scan_id}/summary` |
 
+- **Query parameter:** `scope` (optional, default `intelligence`):
+  - `intelligence`: Search query claim evaluation, gaps, and grounded findability analysis.
+  - `lighthouse`: AI crawler governance, bot access policies, and per-engine readiness.
 - **Request body:** none (both methods).
 - **Response model:** `SummaryResponse` ([backend/app/schemas/summary.py](../../backend/app/schemas/summary.py)).
 - **Handlers:** `get_scan_summary` / `post_scan_summary` in [backend/app/api/v1/scans.py](../../backend/app/api/v1/scans.py).

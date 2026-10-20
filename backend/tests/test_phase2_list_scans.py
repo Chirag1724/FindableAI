@@ -136,14 +136,10 @@ async def test_list_scans_for_org_sql_filter_hides_other_org_and_null() -> None:
     async with factory() as session:
         page1 = await list_scans_for_org(session, member_a, limit=1)
         assert len(page1) == 1 and page1[0].id == scan_a2
-        cursor = encode_scan_list_cursor(
-            created_at=page1[0].created_at, scan_id=page1[0].id
-        )
+        cursor = encode_scan_list_cursor(created_at=page1[0].created_at, scan_id=page1[0].id)
         page2 = await list_scans_for_org(session, member_a, limit=1, cursor=cursor)
         assert len(page2) == 1 and page2[0].id == scan_a1
-        cursor2 = encode_scan_list_cursor(
-            created_at=page2[0].created_at, scan_id=page2[0].id
-        )
+        cursor2 = encode_scan_list_cursor(created_at=page2[0].created_at, scan_id=page2[0].id)
         page3 = await list_scans_for_org(session, member_a, limit=1, cursor=cursor2)
         assert page3 == []
 

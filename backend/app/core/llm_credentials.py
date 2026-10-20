@@ -83,7 +83,9 @@ def provider_api_keys(provider: str) -> list[str]:
 def provider_api_key(provider: str) -> str:
     """Raw configured key for a provider (unvalidated). Never log the return value."""
     p = (provider or "").strip().lower()
-    groq_primary = settings.groq_api_keys_list[0] if settings.groq_api_keys_list else settings.GROQ_API_KEY
+    groq_primary = (
+        settings.groq_api_keys_list[0] if settings.groq_api_keys_list else settings.GROQ_API_KEY
+    )
     mapping = {
         "groq": groq_primary,
         "gemini": settings.GEMINI_API_KEY,

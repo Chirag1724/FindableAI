@@ -328,8 +328,11 @@ export interface SummaryCoverage {
   omitted_count?: number;
 }
 
+export type SummaryScope = "intelligence" | "lighthouse";
+
 export interface ScanSummaryResponse {
   status: SummaryStatus;
+  scope?: SummaryScope | null;
   verdict?: SummaryVerdict | null;
   overall_assessment?: OverallAssessment | null;
   what_the_scan_found?: FactStatement[];

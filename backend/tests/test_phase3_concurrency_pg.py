@@ -243,9 +243,7 @@ async def test_fencing_stale_worker_writes_affect_zero_rows(pg_engine):
         # Stale A
         async with session.begin():
             assert (
-                await heartbeat(
-                    session, job_id=jid, fencing_token=c1.fencing_token, worker_id="A"
-                )
+                await heartbeat(session, job_id=jid, fencing_token=c1.fencing_token, worker_id="A")
                 is False
             )
             seq = await persist_scan_progress(
@@ -297,9 +295,7 @@ async def test_fencing_stale_worker_writes_affect_zero_rows(pg_engine):
         # Live B succeeds
         async with session.begin():
             assert (
-                await heartbeat(
-                    session, job_id=jid, fencing_token=c2.fencing_token, worker_id="B"
-                )
+                await heartbeat(session, job_id=jid, fencing_token=c2.fencing_token, worker_id="B")
                 is True
             )
             assert (

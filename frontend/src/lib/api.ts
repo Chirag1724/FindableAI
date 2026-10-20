@@ -7,6 +7,7 @@ import type {
   ValidationCheck,
   ApiError,
   ScanSummaryResponse,
+  SummaryScope,
 } from "@/types/scan";
 import type { LighthouseResponse } from "@/types/lighthouse";
 import { getAuthHeaders } from "@/lib/authHeaders";
@@ -262,18 +263,22 @@ export async function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
 
 export async function getScanSummary(
   scanId: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  scope?: SummaryScope
 ): Promise<ScanSummaryResponse> {
-  return request<ScanSummaryResponse>(`/scans/${scanId}/summary`, { signal });
+  const query = scope ? `?scope=${encodeURIComponent(scope)}` : "";
+  return request<ScanSummaryResponse>(`/scans/${scanId}/summary${query}`, { signal });
 }
 
 export async function generateScanSummary(
   scanId: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  scope?: SummaryScope
 ): Promise<ScanSummaryResponse> {
+  const query = scope ? `?scope=${encodeURIComponent(scope)}` : "";
   let res: Response;
   try {
-    res = await fetch(`${BASE}/scans/${scanId}/summary`, {
+    res = await fetch(`${BASE}/scans/${scanId}/summary${query}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

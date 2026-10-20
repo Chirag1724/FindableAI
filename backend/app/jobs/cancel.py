@@ -73,7 +73,6 @@ async def _latest_job(session: AsyncSession, scan_id: uuid.UUID) -> ScanJob | No
     return job if isinstance(job, ScanJob) else None
 
 
-
 async def request_scan_cancel(
     session: AsyncSession,
     *,
@@ -124,9 +123,7 @@ async def request_scan_cancel(
             update(ScanJob)
             .where(
                 ScanJob.id == job.id,
-                ScanJob.status.in_(
-                    [JobStatus.QUEUED.value, JobStatus.RETRY_SCHEDULED.value]
-                ),
+                ScanJob.status.in_([JobStatus.QUEUED.value, JobStatus.RETRY_SCHEDULED.value]),
             )
             .values(
                 status=JobStatus.CANCELLED.value,

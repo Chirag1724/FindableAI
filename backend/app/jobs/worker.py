@@ -196,9 +196,7 @@ class ScanJobWorker:
                                 job_id=claimed.job_id,
                                 fencing_token=claimed.fencing_token,
                                 worker_id=self.worker_id,
-                                exc=RuntimeError(
-                                    "already failed: job/scan org_id mismatch"
-                                ),
+                                exc=RuntimeError("already failed: job/scan org_id mismatch"),
                             )
                     self._current_job_id = None
                     return

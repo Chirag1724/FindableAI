@@ -27,7 +27,7 @@ import {
 import dynamic from "next/dynamic";
 import { ScanProgress } from "@/components/ScanProgress";
 import { SummaryStats } from "@/components/SummaryStats";
-import { AiHealthBrief, AiSummaryTabControl } from "@/components/AiHealthBrief";
+import { AiHealthBrief } from "@/components/AiHealthBrief";
 import { ScanReportTabPanels } from "@/components/ScanReportTabPanels";
 import { IntentMatrix } from "@/components/IntentMatrix";
 import { ContradictionCard } from "@/components/ContradictionCard";
@@ -87,31 +87,14 @@ export default function ScanDashboardPage() {
   const [activeTab, setActiveTab] = useState<ScanReportTab>(() =>
     parseScanReportTab(tabParam)
   );
-  const [aiSummaryBusy, setAiSummaryBusy] = useState(false);
-  const [aiSummaryAutoGenerate, setAiSummaryAutoGenerate] = useState(false);
-
-  const handleAiSummaryBusyChange = useCallback((busy: boolean) => {
-    setAiSummaryBusy(busy);
-  }, []);
-  const handleAiSummaryAutoGenerateConsumed = useCallback(() => {
-    setAiSummaryAutoGenerate(false);
-  }, []);
-
   const handleTabChange = useCallback(
-    (tab: ScanReportTab, opts?: { autoGenerateSummary?: boolean }) => {
+    (tab: ScanReportTab) => {
       setActiveTab(tab);
-      setAiSummaryAutoGenerate(
-        tab === "summary" ? Boolean(opts?.autoGenerateSummary) : false
-      );
       if (!scanId) return;
       router.replace(scanReportTabHref(scanId, tab), { scroll: false });
     },
     [router, scanId]
   );
-
-  const handleAiSummaryTabClick = useCallback(() => {
-    handleTabChange("summary", { autoGenerateSummary: true });
-  }, [handleTabChange]);
 
   useEffect(() => {
     setActiveTab(parseScanReportTab(tabParam));
@@ -700,7 +683,7 @@ export default function ScanDashboardPage() {
             <div
               role="tablist"
               aria-label="Scan Report Views"
-              className="flex items-center gap-2 border-b border-white/[0.08] pb-3 overflow-x-auto"
+              className="flex items-center gap-1.5 border-b border-white/[0.06] pb-3 overflow-x-auto"
             >
               <button
                 type="button"
@@ -709,13 +692,17 @@ export default function ScanDashboardPage() {
                 aria-selected={activeTab === "overview"}
                 aria-controls="panel-overview"
                 onClick={() => handleTabChange("overview")}
-                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold tracking-wide transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 shrink-0 ${
+                className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium tracking-wide transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/20 shrink-0 ${
                   activeTab === "overview"
-                    ? "bg-white text-black shadow-md font-bold"
-                    : "bg-surface-secondary text-text-muted hover:text-white hover:bg-surface-tertiary shadow-border"
+                    ? "bg-surface-tertiary text-text-primary border border-white/10 shadow-sm"
+                    : "text-text-muted hover:text-text-primary hover:bg-white/[0.04] border border-transparent"
                 }`}
               >
-                <LayoutDashboard size={14} aria-hidden="true" />
+                <LayoutDashboard
+                  size={14}
+                  aria-hidden="true"
+                  className={activeTab === "overview" ? "text-text-primary" : "text-text-muted"}
+                />
                 <span>Intelligence Overview</span>
               </button>
 
@@ -726,26 +713,19 @@ export default function ScanDashboardPage() {
                 aria-selected={activeTab === "lighthouse"}
                 aria-controls="panel-lighthouse"
                 onClick={() => handleTabChange("lighthouse")}
-                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold tracking-wide transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 shrink-0 ${
+                className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium tracking-wide transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/20 shrink-0 ${
                   activeTab === "lighthouse"
-                    ? "bg-white text-black shadow-md font-bold"
-                    : "bg-surface-secondary text-text-muted hover:text-white hover:bg-surface-tertiary shadow-border"
+                    ? "bg-surface-tertiary text-text-primary border border-white/10 shadow-sm"
+                    : "text-text-muted hover:text-text-primary hover:bg-white/[0.04] border border-transparent"
                 }`}
               >
-                <Compass size={14} aria-hidden="true" />
-                <span>AI Lighthouse</span>
-                <span className="rounded-full bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-mono font-bold text-sky-400">
-                  NEW
-                </span>
-              </button>
-
-              {scanId && (
-                <AiSummaryTabControl
-                  active={activeTab === "summary"}
-                  loading={aiSummaryBusy}
-                  onClick={handleAiSummaryTabClick}
+                <Compass
+                  size={14}
+                  aria-hidden="true"
+                  className={activeTab === "lighthouse" ? "text-text-primary" : "text-text-muted"}
                 />
-              )}
+                <span>AI Lighthouse</span>
+              </button>
             </div>
 
             <ScanReportTabPanels
@@ -785,6 +765,19 @@ export default function ScanDashboardPage() {
                           ? "F-Score unavailable: no real intent evaluations were completed for this scan."
                           : "F-Score unavailable: score provenance is incomplete or non-authoritative."}
                     </div>
+                  )}
+
+                  {/* Embedded On-Demand Search Intelligence Summary */}
+                  {scanId && (
+                    <AiHealthBrief
+                      scanId={scanId}
+                      scanStatus={currentStatus}
+                      outcome={scanOutcome}
+                      jobStatus={displayScan.job_status}
+                      scope="intelligence"
+                      title="Search Intelligence Summary"
+                      description="Grounded query claim evaluation & actionable gap analysis"
+                    />
                   )}
 
                   {/* Intent Evaluations — real DAG rows only */}
@@ -839,24 +832,6 @@ export default function ScanDashboardPage() {
                 </>
               }
               lighthouse={scanId ? <LighthouseTab scanId={scanId} /> : null}
-              summary={
-                scanId ? (
-                  <AiHealthBrief
-                    scanId={scanId}
-                    scanStatus={currentStatus}
-                    outcome={scanOutcome}
-                    jobStatus={displayScan.job_status}
-                    panelOnly
-                    open
-                    onOpenChange={(nextOpen) => {
-                      if (!nextOpen) handleTabChange("overview");
-                    }}
-                    autoGenerate={aiSummaryAutoGenerate}
-                    onAutoGenerateConsumed={handleAiSummaryAutoGenerateConsumed}
-                    onBusyChange={handleAiSummaryBusyChange}
-                  />
-                ) : null
-              }
             />
           </div>
         )}

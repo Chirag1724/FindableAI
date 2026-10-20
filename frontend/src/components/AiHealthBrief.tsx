@@ -10,8 +10,8 @@ import {
   type ReactNode,
 } from "react";
 import {
-  Sparkles,
   FileSearch,
+  FileText,
   AlertCircle,
   Clock3,
   ChevronDown,
@@ -21,6 +21,7 @@ import {
   ListChecks,
   Info,
   ArrowRight,
+  Compass,
   type LucideIcon,
 } from "lucide-react";
 import { generateScanSummary, getScanSummary } from "@/lib/api";
@@ -30,6 +31,7 @@ import type {
   NextStepStatement,
   ScanSummaryResponse,
   SummaryPriority,
+  SummaryScope,
   SummaryVerdict,
 } from "@/types/scan";
 import { formatRelativeTime } from "@/lib/format";
@@ -50,6 +52,9 @@ export interface AiHealthBriefProps {
   scanStatus: string;
   outcome?: string | null;
   jobStatus?: string | null;
+  scope?: SummaryScope;
+  title?: string;
+  description?: string;
   /** When true, only render the panel (control lives in the tab row). */
   panelOnly?: boolean;
   /** Controlled open state from the tab-row toggle. */
@@ -164,38 +169,28 @@ function verdictHint(v: SummaryVerdict): string {
 function verdictTone(v?: SummaryVerdict | null): {
   rail: string;
   text: string;
-  glow: string;
-  hairline: string;
 } {
   switch (v) {
     case "issues_found":
       return {
         rail: "bg-rose-400",
         text: "text-rose-300",
-        glow: "bg-gradient-to-br from-rose-500/10 via-transparent to-transparent",
-        hairline: "bg-gradient-to-r from-rose-400/60 via-rose-400/15 to-transparent",
       };
     case "insufficient_evidence":
     case "scan_incomplete":
       return {
         rail: "bg-amber-400",
         text: "text-amber-200",
-        glow: "bg-gradient-to-br from-amber-500/10 via-transparent to-transparent",
-        hairline: "bg-gradient-to-r from-amber-400/60 via-amber-400/15 to-transparent",
       };
     case "no_confirmed_issues":
       return {
         rail: "bg-emerald-400",
         text: "text-emerald-300",
-        glow: "bg-gradient-to-br from-emerald-500/10 via-transparent to-transparent",
-        hairline: "bg-gradient-to-r from-emerald-400/60 via-emerald-400/15 to-transparent",
       };
     default:
       return {
         rail: "bg-white/30",
         text: "text-text-muted",
-        glow: "bg-gradient-to-br from-white/[0.06] via-transparent to-transparent",
-        hairline: "bg-gradient-to-r from-white/40 via-white/10 to-transparent",
       };
   }
 }
@@ -244,14 +239,22 @@ function factLabel(fid: string): string {
   return fid;
 }
 
-/** Presentation-only wording — does not invent findings. */
+/** Presentation-only wording — ensures fluent, executive-grade English. */
 function humanizeCopy(text: string): string {
   return text
+    // Fix ungrammatical 'remain UNKNOWN' / 'remain could not be verified'
+    .replace(/\bremain(?:s)?\s+(?:could\s+not\s+be\s+verified|unverified|UNKNOWN)\b/gi, "remain unverified")
     .replace(/\bUNKNOWN\b/g, "could not be verified")
     .replace(/\bUnknown\b/g, "could not be verified")
     .replace(/\bDOM chunks?\b/gi, "readable page content")
-    .replace(/\bintents?\b/gi, "site checks")
+    .replace(/\bsite\s+checks?\s+coverage/gi, "query coverage")
+    .replace(/\bsite\s+checks?\b/gi, "search queries")
+    .replace(/\bintents?\s+checks?\b/gi, "search queries")
+    .replace(/\bintents?\b/gi, "search queries")
     .replace(/\bNLI\b/g, "claim checks")
+    // Format raw decimal confidence e.g. (0.095) -> (~10% confidence)
+    .replace(/\(0\.(\d{2,3})\)/g, (_, d) => `(~${Math.round(parseFloat("0." + d) * 100)}% confidence)`)
+    .replace(/\s{2,}/g, " ")
     .trim();
 }
 
@@ -400,7 +403,7 @@ function AccordionRow({
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => onToggle(id)}
-        className="group w-full flex items-center gap-3.5 px-5 sm:px-7 py-4 text-left transition-colors duration-150 hover:bg-white/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 motion-reduce:transition-none"
+        className="group w-full flex items-center gap-3.5 px-5 sm:px-7 py-4 text-left transition-colors duration-150 hover:bg-white/[0.025] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white/20 motion-reduce:transition-none"
       >
         <span
           aria-hidden="true"
@@ -502,7 +505,17 @@ function Notice({
   );
 }
 
-function ReadyBriefPanel({ summary }: { summary: ScanSummaryResponse }) {
+function ReadyBriefPanel({
+  summary,
+  scope,
+  title,
+  description,
+}: {
+  summary: ScanSummaryResponse;
+  scope?: SummaryScope;
+  title?: string;
+  description?: string;
+}) {
   const verdict = summary.verdict;
   const found = summary.what_the_scan_found ?? [];
   const matters = summary.why_it_matters ?? [];
@@ -528,21 +541,18 @@ function ReadyBriefPanel({ summary }: { summary: ScanSummaryResponse }) {
     : "";
   const tone = verdictTone(verdict);
 
+  const isLh = scope === "lighthouse" || summary.scope === "lighthouse";
+  const HeaderIcon = isLh ? Compass : FileSearch;
+  const defaultTitle = isLh ? "AI Bot Readiness Summary" : "Search Intelligence Summary";
+  const defaultDesc = isLh
+    ? "Crawler governance & engine readiness audit"
+    : "Grounded findability & query claim evaluation";
+
   return (
     <div
       data-testid="ai-health-brief-ready"
-      className="relative rounded-xl bg-surface shadow-border overflow-hidden"
+      className="rounded-xl bg-surface-secondary/70 shadow-border overflow-hidden"
     >
-      {/* Ambient verdict wash + top hairline — the single colored moment in the panel */}
-      <div
-        aria-hidden="true"
-        className={`pointer-events-none absolute inset-x-0 top-0 h-56 ${tone.glow}`}
-      />
-      <div
-        aria-hidden="true"
-        className={`pointer-events-none absolute inset-x-0 top-0 h-px ${tone.hairline}`}
-      />
-
       <div className="relative px-5 sm:px-7 pt-6 pb-8">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -550,12 +560,12 @@ function ReadyBriefPanel({ summary }: { summary: ScanSummaryResponse }) {
               aria-hidden="true"
               className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-white/[0.05] ring-1 ring-inset ring-white/10"
             >
-              <FileSearch size={12} strokeWidth={2} className="text-text-primary" />
+              <HeaderIcon size={12} strokeWidth={2} className="text-text-primary" />
             </span>
-            <h2 className={`${EYEBROW} !text-text-primary`}>AI Summary</h2>
+            <h2 className={`${EYEBROW} !text-text-primary`}>{title || defaultTitle}</h2>
             <span aria-hidden="true" className="hidden sm:inline h-3 w-px bg-white/10" />
             <span className="hidden sm:inline text-xs text-text-muted truncate">
-              Written by AI from your saved scan
+              {description || defaultDesc}
             </span>
           </div>
           {summary.generated_at && (
@@ -580,12 +590,12 @@ function ReadyBriefPanel({ summary }: { summary: ScanSummaryResponse }) {
               </p>
             )}
             {assessment && (
-              <p className="mt-3 text-lg sm:text-xl font-semibold tracking-tight text-text-primary leading-snug break-words max-w-[46ch] text-balance">
+              <p className="mt-3 text-base sm:text-lg font-medium text-text-primary leading-relaxed break-words">
                 {assessment}
               </p>
             )}
             {verdict && (
-              <p className="mt-4 text-sm text-text-muted leading-relaxed max-w-[62ch]">
+              <p className="mt-2 text-xs sm:text-sm text-text-muted leading-relaxed">
                 {verdictHint(verdict)}
               </p>
             )}
@@ -738,10 +748,10 @@ export function AiSummaryTabControl({
       aria-busy={loading || undefined}
       disabled={disabled || loading}
       onClick={onClick}
-      className={`group inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold tracking-wide transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 shrink-0 motion-reduce:transition-none ${
+      className={`group inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium tracking-wide transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/20 shrink-0 motion-reduce:transition-none ${
         active
-          ? "bg-white text-black shadow-md font-bold"
-          : "bg-surface-secondary text-text-muted hover:text-white hover:bg-surface-tertiary shadow-border"
+          ? "bg-surface-tertiary text-text-primary border border-white/10 shadow-sm"
+          : "text-text-muted hover:text-text-primary hover:bg-white/[0.04] border border-transparent"
       } disabled:cursor-not-allowed disabled:opacity-50`}
     >
       {loading ? (
@@ -763,37 +773,30 @@ export function AiSummaryTabControl({
 }
 
 /** Skeleton shaped like the finished brief, so the layout does not jump on arrival. */
-function GeneratingState() {
+function GeneratingState({ scope }: { scope?: SummaryScope }) {
   const [secs, setSecs] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setSecs((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, []);
 
+  const isLh = scope === "lighthouse";
   const statusText =
     secs < 4
-      ? "Preparing your scan findings…"
+      ? (isLh ? "Reading crawler governance & engine scores…" : "Preparing search query evaluations…")
       : secs < 12
-        ? "Writing your AI Website Health Brief…"
+        ? (isLh ? "Synthesizing AI engine readiness findings…" : "Analyzing search intent and contradiction findings…")
         : secs < 25
-          ? "Validating evidence citations…"
-          : "Still finishing — large scans can take a bit longer…";
+          ? "Validating citations against scan evidence…"
+          : "Finishing audit brief…";
 
   return (
     <div
       data-testid="ai-health-brief"
-      className="relative rounded-xl bg-surface shadow-border overflow-hidden"
+      className="rounded-xl bg-surface-secondary/70 shadow-border overflow-hidden"
       aria-live="polite"
       aria-busy="true"
     >
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-violet-400/55 via-violet-400/10 to-transparent"
-      />
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-br from-violet-500/10 via-transparent to-transparent"
-      />
       <div className="relative px-5 sm:px-7 pt-6 pb-8">
         <div className="flex items-center justify-between gap-3">
           <p className="flex items-center gap-2.5 text-xs text-text-muted min-w-0">
@@ -801,7 +804,7 @@ function GeneratingState() {
               aria-hidden="true"
               className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-white/[0.05] ring-1 ring-inset ring-white/10"
             >
-              <Sparkles size={12} className="text-violet-400 motion-safe:animate-pulse" />
+              <Clock3 size={12} className="text-text-muted motion-safe:animate-pulse" />
             </span>
             <span className="truncate">{statusText}</span>
           </p>
@@ -833,7 +836,7 @@ function GeneratingState() {
       </div>
       <div className="relative px-5 sm:px-7 py-3.5 border-t border-white/[0.06] bg-surface-secondary/40">
         <p className="text-xs text-text-muted leading-relaxed">
-          Generating from your saved scan — this usually takes a few seconds.
+          Generating from your saved scan findings — this usually takes a few seconds.
         </p>
       </div>
     </div>
@@ -849,6 +852,9 @@ export function AiHealthBrief({
   scanStatus,
   outcome,
   jobStatus,
+  scope = "intelligence",
+  title,
+  description,
   panelOnly = false,
   open = true,
   onOpenChange,
@@ -864,7 +870,7 @@ export function AiHealthBrief({
   const [ineligibleMessage, setIneligibleMessage] = useState<string | null>(null);
 
   const pollAbortRef = useRef<AbortController | null>(null);
-  const generateInFlightRef = useRef(false);
+  const generateInFlightStateRef = useRef(false);
   const autoGenerateHandledRef = useRef(false);
   const restoredNotifiedRef = useRef(false);
   const viewRef = useRef<ViewState>("loading");
@@ -953,7 +959,7 @@ export function AiHealthBrief({
     const started = Date.now();
     while (Date.now() - started < POLL_TIMEOUT_MS) {
       await sleep(POLL_INTERVAL_MS, signal);
-      const data = await getScanSummary(scanId, signal);
+      const data = await getScanSummary(scanId, signal, scope);
       if (data.status === "ready" || data.status === "failed") {
         applySummary(data);
         return;
@@ -964,13 +970,13 @@ export function AiHealthBrief({
     );
     setView("error");
     viewRef.current = "error";
-  }, [applySummary, scanId]);
+  }, [applySummary, scanId, scope]);
 
-  // Initial GET once per scanId — independent of parent callback identity / status churn.
+  // Initial GET once per scanId and scope — independent of parent callback identity / status churn.
   useEffect(() => {
     restoredNotifiedRef.current = false;
     autoGenerateHandledRef.current = false;
-    generateInFlightRef.current = false;
+    generateInFlightStateRef.current = false;
     setSummary(null);
     summaryRef.current = null;
     setView("loading");
@@ -982,7 +988,7 @@ export function AiHealthBrief({
     const controller = new AbortController();
     void (async () => {
       try {
-        const data = await getScanSummary(scanId, controller.signal);
+        const data = await getScanSummary(scanId, controller.signal, scope);
         if (controller.signal.aborted) return;
         applySummary(data);
       } catch (err) {
@@ -999,7 +1005,7 @@ export function AiHealthBrief({
       pollAbortRef.current?.abort();
       pollAbortRef.current = null;
     };
-  }, [scanId, applySummary]);
+  }, [scanId, scope, applySummary]);
 
   // Reflect eligibility changes without refetching or clearing a ready brief.
   useEffect(() => {
@@ -1020,17 +1026,15 @@ export function AiHealthBrief({
   }, [propIneligible]);
 
   const handleGenerate = useCallback(async () => {
-    if (generateInFlightRef.current) return;
+    if (generateInFlightStateRef.current) return;
     if (propIneligibleRef.current) {
       setIneligibleMessage(propIneligibleRef.current);
       setView("ineligible");
       viewRef.current = "ineligible";
       return;
     }
-    // Already have a ready brief — keep it; do not regenerate unless forced by a new click
-    // after explicit user intent. Tab control sets autoGenerate only when opening to generate.
     onOpenChangeRef.current?.(true);
-    generateInFlightRef.current = true;
+    generateInFlightStateRef.current = true;
     pollAbortRef.current?.abort();
     const controller = new AbortController();
     pollAbortRef.current = controller;
@@ -1040,7 +1044,7 @@ export function AiHealthBrief({
     setRetryAfter(null);
 
     try {
-      const data = await generateScanSummary(scanId, controller.signal);
+      const data = await generateScanSummary(scanId, controller.signal, scope);
       if (controller.signal.aborted) return;
       if (data.status === "generating") {
         await pollForReady(controller.signal);
@@ -1080,9 +1084,9 @@ export function AiHealthBrief({
       setView("error");
       viewRef.current = "error";
     } finally {
-      generateInFlightRef.current = false;
+      generateInFlightStateRef.current = false;
     }
-  }, [applySummary, pollForReady, scanId]);
+  }, [applySummary, pollForReady, scanId, scope]);
 
   // One-shot auto-generate from tab control. Never re-fires on parent re-renders.
   useEffect(() => {
@@ -1104,7 +1108,7 @@ export function AiHealthBrief({
   }, [autoGenerate, view, handleGenerate]);
 
   const handleRetry = useCallback(() => {
-    if (generateInFlightRef.current) return;
+    if (generateInFlightStateRef.current) return;
     void handleGenerate();
   }, [handleGenerate]);
 
@@ -1118,17 +1122,24 @@ export function AiHealthBrief({
     view === "loading" ||
     view === "ineligible" ||
     Boolean(propIneligible) ||
-    generateInFlightRef.current;
+    generateInFlightStateRef.current;
 
   if (view === "ready" && summary) {
-    return <ReadyBriefPanel summary={summary} />;
+    return (
+      <ReadyBriefPanel
+        summary={summary}
+        scope={scope}
+        title={title}
+        description={description}
+      />
+    );
   }
 
   if (view === "error") {
     return (
       <div data-testid="ai-health-brief" className="space-y-3">
         <ErrorState
-          title="AI summary unavailable"
+          title="Summary unavailable"
           message={errorMessage ?? "Something went wrong."}
           onRetry={handleRetry}
           retryLabel="Retry"
@@ -1138,7 +1149,7 @@ export function AiHealthBrief({
   }
 
   if (view === "loading" || view === "generating") {
-    return <GeneratingState />;
+    return <GeneratingState scope={scope} />;
   }
 
   const rateLimitedNotice = (
@@ -1148,18 +1159,22 @@ export function AiHealthBrief({
     </Notice>
   );
 
-  // idle / ineligible / rate_limited
+  const isLh = scope === "lighthouse";
+  const TriggerIcon = isLh ? Compass : FileSearch;
+  const defaultTitle = isLh ? "AI Bot Readiness Summary" : "Search Intelligence Summary";
+  const defaultDesc = isLh
+    ? "Audit crawler governance, engine policies, and access readiness for search AI bots."
+    : "Plain-English synthesis of search query evaluations, evidence gaps, and next actions.";
+  const generateLabel = isLh ? "Generate Readiness Summary" : "Generate Intelligence Summary";
+
+  // idle / ineligible / rate_limited in panelOnly mode
   if (panelOnly) {
     return (
       <div
         data-testid="ai-health-brief"
-        className="relative rounded-xl bg-surface shadow-border px-5 sm:px-7 py-6 space-y-4 overflow-hidden"
+        className="rounded-xl bg-surface-secondary/70 p-5 sm:p-6 shadow-border space-y-4"
         aria-live="polite"
       >
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-white/30 via-white/5 to-transparent"
-        />
         {view === "ineligible" && (
           <Notice tone="warn" icon={AlertCircle}>
             {ineligibleMessage ?? propIneligible}
@@ -1172,11 +1187,10 @@ export function AiHealthBrief({
               aria-hidden="true"
               className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/[0.04] ring-1 ring-inset ring-white/10"
             >
-              <Sparkles size={16} className="text-violet-400" />
+              <TriggerIcon size={16} className="text-text-primary" />
             </span>
             <p className="text-sm text-text-muted leading-relaxed pt-0.5">
-              Select <span className="font-semibold text-text-primary">AI Summary</span> above
-              to generate a plain-English brief from this scan.
+              Select <span className="font-semibold text-text-primary">Generate Summary</span> to create an audit brief from this scan.
             </p>
           </div>
         )}
@@ -1187,12 +1201,8 @@ export function AiHealthBrief({
   return (
     <div
       data-testid="ai-health-brief"
-      className="relative rounded-xl bg-surface shadow-border px-5 sm:px-7 py-6 sm:py-7 space-y-6 overflow-hidden"
+      className="rounded-xl bg-surface-secondary/70 p-5 sm:p-6 shadow-border space-y-6"
     >
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-violet-400/55 via-violet-400/10 to-transparent"
-      />
       <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
         <div className="min-w-0 max-w-xl">
           <div className="flex items-center gap-2.5">
@@ -1200,19 +1210,18 @@ export function AiHealthBrief({
               aria-hidden="true"
               className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-white/[0.05] ring-1 ring-inset ring-white/10"
             >
-              <Sparkles size={12} className="text-violet-400" />
+              <TriggerIcon size={12} className="text-text-primary" />
             </span>
             <span className={EYEBROW}>On demand</span>
           </div>
-          <h2 className="mt-4 text-lg sm:text-xl font-semibold tracking-tight text-text-primary leading-snug">
-            AI Website Health Brief
+          <h2 className="mt-3 text-lg sm:text-xl font-semibold tracking-tight text-text-primary leading-snug">
+            {title || defaultTitle}
           </h2>
-          <p className="mt-3 text-sm text-text-muted leading-relaxed">
-            Plain-English explanation of your scan, what matters and what to do first
+          <p className="mt-2 text-sm text-text-muted leading-relaxed">
+            {description || defaultDesc}
           </p>
-          <p className="mt-2 text-xs text-text-muted/80 leading-relaxed">
-            You’ll get what we found, why it matters, what we couldn’t verify and the next
-            steps. It runs only when you ask, using this scan’s saved data.
+          <p className="mt-2 text-xs text-text-muted/70 leading-relaxed">
+            Runs strictly on demand using this scan’s saved data. No hallucinated findings.
           </p>
         </div>
 
@@ -1221,10 +1230,10 @@ export function AiHealthBrief({
           data-testid="ai-health-brief-generate"
           disabled={generateDisabled}
           onClick={() => void handleGenerate()}
-          className="group inline-flex shrink-0 items-center justify-center gap-2.5 rounded-lg bg-white px-5 py-3 text-xs font-semibold text-black tracking-wider uppercase transition-colors duration-150 hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 motion-reduce:transition-none"
+          className="group inline-flex shrink-0 items-center justify-center gap-2.5 rounded-lg bg-white px-5 py-3 text-xs font-semibold text-black tracking-normal transition-colors duration-150 hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/20 motion-reduce:transition-none"
         >
-          <Sparkles size={14} aria-hidden="true" />
-          Generate AI Summary
+          <TriggerIcon size={14} className="text-black" aria-hidden="true" />
+          <span>{generateLabel}</span>
           <ArrowRight
             size={14}
             aria-hidden="true"

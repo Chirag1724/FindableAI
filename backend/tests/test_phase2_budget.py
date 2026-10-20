@@ -106,9 +106,7 @@ async def test_concurrent_budget_reserve_never_exceeds_limit(
     assert max(successes) == limit
 
     async with factory() as session:
-        used = await session.scalar(
-            select(Scan.llm_calls_made).where(Scan.id == scan_id)
-        )
+        used = await session.scalar(select(Scan.llm_calls_made).where(Scan.id == scan_id))
     assert int(used or 0) == limit
     await engine.dispose()
 

@@ -104,7 +104,9 @@ class ApiKey(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Effective org role for this key (owner|admin|member|viewer). Source of truth for
     # API permission checks — never trust a client-supplied role claim alone.
-    role: Mapped[str] = mapped_column(String(50), nullable=False, default="member", server_default="member")
+    role: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="member", server_default="member"
+    )
     # Optional link to OrgMembership.user_id for revoke-on-removal.
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
 

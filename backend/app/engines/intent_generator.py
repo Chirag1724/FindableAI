@@ -331,7 +331,9 @@ def validate_intent_batch(
             )
         )
 
-    active_p = [p.lower().strip() for p in personas] if personas else ["cto", "developer", "procurement"]
+    active_p = (
+        [p.lower().strip() for p in personas] if personas else ["cto", "developer", "procurement"]
+    )
     expected_count = len(active_p) * 10
     expected_per_category = len(active_p)
 
@@ -450,7 +452,11 @@ class IntentGenerator:
                 active_personas = [
                     p.lower().strip() for p in (personas or ["cto", "developer", "procurement"])
                 ]
-                target_personas = [p for p in active_personas if p] or ["cto", "developer", "procurement"]
+                target_personas = [p for p in active_personas if p] or [
+                    "cto",
+                    "developer",
+                    "procurement",
+                ]
 
                 sub_batches: list[PersonaIntentBatch] = []
                 for p in target_personas:

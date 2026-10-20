@@ -140,7 +140,7 @@ from app.schemas.scan import (
     ScanStatus,
     ScanStatusEvent,
 )
-from app.schemas.summary import SummaryResponse
+from app.schemas.summary import SummaryResponse, SummaryScope, SummaryStatus
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +206,8 @@ async def _authorize_scan_ref(scan_id: str, tenant: TenantContext) -> uuid.UUID 
             mem_org = None
     assert_scan_org_access(scan_org_id=mem_org, tenant=tenant)
     return scan_uuid
+
+
 CHUNKS_DB: dict[str, list[ChunkData]] = {}
 LIGHTHOUSE_DB: dict[str, LighthouseResponse] = {}
 ROBOTS_DB: dict[str, str] = {}
@@ -988,7 +990,9 @@ async def run_scan_pipeline(
         async def _on_nli_progress(completed: int, total: int, item: Any) -> None:
             # Monotonically scale 72% -> 91% as individual queries complete in real time
             pct = min(91, 72 + int((completed / max(total, 1)) * 19))
-            query_preview = getattr(item, "query", "")[:45] if item else "Persona batch verification"
+            query_preview = (
+                getattr(item, "query", "")[:45] if item else "Persona batch verification"
+            )
             obs_snap = budget_guard.observability.snapshot()
             batches_done = obs_snap.get("batches_completed")
             batches_total = obs_snap.get("batches_total")
@@ -1903,9 +1907,7 @@ async def cancel_scan(
                     reason=reason,
                 )
     except LookupError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found"
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found") from exc
     except Exception as exc:
         logger.warning("cancel_scan_failed scan_id=%s: %s", scan_id, exc)
         raise HTTPException(
@@ -1923,9 +1925,7 @@ async def cancel_scan(
     mem = SCANS_DB.get(scan_id)
     if mem is not None:
         mem.status = (
-            ScanStatus.CANCELLED
-            if result.scan_status == "cancelled"
-            else ScanStatus.CANCELLING
+            ScanStatus.CANCELLED if result.scan_status == "cancelled" else ScanStatus.CANCELLING
         )
         mem.error = reason
 
@@ -2399,7 +2399,11 @@ async def stream_scan_progress(
                         if synth.seq:
                             yield f"id: {synth.seq}\n"
                         yield f"data: {json.dumps(synth.model_dump(mode='json'))}\n\n"
-                        if status_enum in (ScanStatus.COMPLETED, ScanStatus.FAILED, ScanStatus.CANCELLED):
+                        if status_enum in (
+                            ScanStatus.COMPLETED,
+                            ScanStatus.FAILED,
+                            ScanStatus.CANCELLED,
+                        ):
                             return
                     for row in rows:
                         st = _db_status_to_scan_status(row.status, stage=row.stage)
@@ -2435,7 +2439,11 @@ async def stream_scan_progress(
                         cursor = max(cursor, int(event.seq))
                     yield f"data: {json.dumps(event.model_dump(mode='json'))}\n\n"
                     delivered = True
-                    if event.status in (ScanStatus.COMPLETED, ScanStatus.FAILED, ScanStatus.CANCELLED):
+                    if event.status in (
+                        ScanStatus.COMPLETED,
+                        ScanStatus.FAILED,
+                        ScanStatus.CANCELLED,
+                    ):
                         return
                 except TimeoutError:
                     pass
@@ -2464,7 +2472,11 @@ async def stream_scan_progress(
                             yield f"id: {row.seq}\n"
                             yield f"data: {json.dumps(ev.model_dump(mode='json'))}\n\n"
                             delivered = True
-                            if st in (ScanStatus.COMPLETED, ScanStatus.FAILED, ScanStatus.CANCELLED):
+                            if st in (
+                                ScanStatus.COMPLETED,
+                                ScanStatus.FAILED,
+                                ScanStatus.CANCELLED,
+                            ):
                                 return
                         if snap and (snap.get("status") in ("completed", "failed")) and not rows:
                             st = _db_status_to_scan_status(
@@ -3942,9 +3954,7 @@ async def list_scans(
 
     try:
         async with AsyncSessionLocal() as s:
-            rows = await list_scans_for_org(
-                s, tenant, limit=page_size, cursor=cursor
-            )
+            rows = await list_scans_for_org(s, tenant, limit=page_size, cursor=cursor)
     except HTTPException:
         raise
     except Exception as exc:
@@ -4126,8 +4136,15 @@ async def remediate_scan(
     "/{scan_id}/summary",
     response_model=SummaryResponse,
 )
-async def get_scan_summary(scan_id: str, request: Request) -> SummaryResponse:
-    """Return the cached AI Website Health Brief for the current grounded hash (no LLM)."""
+async def get_scan_summary(
+    scan_id: str,
+    request: Request,
+    scope: SummaryScope = Query(
+        default=SummaryScope.INTELLIGENCE,
+        description="Target scope for on-demand brief: 'intelligence' for search intents & contradictions, 'lighthouse' for AI bot & crawler readiness",
+    ),
+) -> SummaryResponse:
+    """Return the cached AI Website Health Brief for the current grounded hash and scope (no LLM)."""
     tenant = _tenant_from_request(request)
     assert_permission(tenant, OrgAction.READ_SCANS)
     scan_uuid = await _authorize_scan_ref(scan_id, tenant)
@@ -4135,7 +4152,13 @@ async def get_scan_summary(scan_id: str, request: Request) -> SummaryResponse:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
     async with AsyncSessionLocal() as session:
         db_scan = await get_scan_for_org(session, scan_uuid, tenant)
-        return await get_summary(session, db_scan)
+        if not db_scan:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
+        try:
+            return await get_summary(session, db_scan, scope=scope)
+        except Exception:
+            logger.exception("get_scan_summary_unhandled scan_id=%s scope=%s", scan_id, scope)
+            return SummaryResponse(status=SummaryStatus.NONE, scope=scope)
 
 
 @router.post(
@@ -4143,7 +4166,12 @@ async def get_scan_summary(scan_id: str, request: Request) -> SummaryResponse:
     response_model=SummaryResponse,
 )
 async def post_scan_summary(
-    scan_id: str, request: Request
+    scan_id: str,
+    request: Request,
+    scope: SummaryScope = Query(
+        default=SummaryScope.INTELLIGENCE,
+        description="Target scope for on-demand brief: 'intelligence' for search intents & contradictions, 'lighthouse' for AI bot & crawler readiness",
+    ),
 ) -> SummaryResponse | JSONResponse:
     """Generate or return a cached AI Website Health Brief (read-like; tenant-scoped)."""
     tenant = _tenant_from_request(request)
@@ -4153,11 +4181,13 @@ async def post_scan_summary(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
     async with AsyncSessionLocal() as session:
         db_scan = await get_scan_for_org(session, scan_uuid, tenant)
+        if not db_scan:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
         try:
-            response, http_status = await generate_summary(session, db_scan)
+            response, http_status = await generate_summary(session, db_scan, scope=scope)
             await session.commit()
         except Exception:
-            logger.exception("post_scan_summary_unhandled scan_id=%s", scan_id)
+            logger.exception("post_scan_summary_unhandled scan_id=%s scope=%s", scan_id, scope)
             await session.rollback()
             from app.schemas.summary import SummaryReason, SummaryResponse, SummaryStatus
 
@@ -4167,6 +4197,7 @@ async def post_scan_summary(
                     status=SummaryStatus.FAILED,
                     reason=SummaryReason.SUMMARY_GENERATION_FAILED.value,
                     message="Summary generation failed. Please try again.",
+                    scope=scope,
                 ).model_dump(mode="json"),
             )
         if http_status == 200:
