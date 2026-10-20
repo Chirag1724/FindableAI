@@ -37,17 +37,31 @@
 | Resource                  | Link                                                                     |
 | :------------------------ | :----------------------------------------------------------------------- |
 | **Live Demo**             | [findableai.vercel.app](https://findableai.vercel.app/)                  |
-| **Demo Video**            | [Watch Full Walkthrough on YouTube (8 min)](https://youtu.be/dErfVtxRpho) |
+| **Quick Pitch (60s)**     | [Watch 1-Minute Overview on YouTube](https://youtu.be/NzgD3424j-w)       |
+| **Full Walkthrough (8m)** | [Watch Deep-Dive Walkthrough on YouTube](https://youtu.be/dErfVtxRpho)   |
 | **Figma Design**          | [Figma UI/UX Prototype](https://www.figma.com/design/WH3T793esaoyj8FNY265xJ/FindableAI?m=auto&t=VhmLDDUFEAgXNS6M-1) |
 | **Architecture Overview** | [System Flow & End-to-End Architecture](docs/engineering/SYSTEM_FLOW.md) |
 
 <br/>
 
 <div align="center">
-  <a href="https://youtu.be/dErfVtxRpho" target="_blank" rel="noopener noreferrer">
-    <img src="https://img.youtube.com/vi/dErfVtxRpho/maxresdefault.jpg" alt="FindableAI Full Product Walkthrough" width="85%" style="border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.5);" />
-  </a>
-  <p align="center"><i>Click the banner above to watch the full product demonstration on YouTube</i></p>
+  <table>
+    <tr>
+      <td width="50%" align="center">
+        <b>60-Second Overview (Quick Pitch)</b><br/><br/>
+        <a href="https://youtu.be/NzgD3424j-w" target="_blank" rel="noopener noreferrer">
+          <img src="https://img.youtube.com/vi/NzgD3424j-w/maxresdefault.jpg" alt="FindableAI 60-Second Overview" width="100%" style="border-radius: 8px;" />
+        </a>
+      </td>
+      <td width="50%" align="center">
+        <b>Full Technical Walkthrough (8 Minutes)</b><br/><br/>
+        <a href="https://youtu.be/dErfVtxRpho" target="_blank" rel="noopener noreferrer">
+          <img src="https://img.youtube.com/vi/dErfVtxRpho/maxresdefault.jpg" alt="FindableAI Full Technical Walkthrough" width="100%" style="border-radius: 8px;" />
+        </a>
+      </td>
+    </tr>
+  </table>
+  <p align="center"><i>Click either preview to watch on YouTube</i></p>
 </div>
 
 ---
