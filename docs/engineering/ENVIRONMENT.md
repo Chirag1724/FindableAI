@@ -28,7 +28,18 @@ Canonical reference derived from `backend/app/core/config.py`, root `.env.exampl
 | `DEFAULT_LLM_MODEL` | LiteLLM model id | Optional | `groq/qwen/qwen3.8-27b` | Backend | No |
 | `OPENAI_API_KEY` | Embeddings (`text-embedding-3-small`) and optional LLM | Optional | empty | Embeddings; LLM if selected | Yes |
 | `ANTHROPIC_API_KEY` | Optional alternate LLM | Optional | empty | Backend (configured; failover not automatic) | Yes |
-| `GEMINI_API_KEY` | Optional alternate LLM | Optional | empty | Backend (configured; failover not automatic) | Yes |
+| `GEMINI_API_KEY` | Optional alternate LLM; also **3rd** fallback key for AI Website Health Brief | Optional | empty | Backend LLM; summary key chain | Yes |
+| `GEMINI_API_KEY_AI_SUMMARY` | Primary dedicated key for on-demand AI Website Health Brief | Optional (required to generate briefs without falling back) | empty | `scan_summary._summary_api_keys` | Yes |
+| `GEMINI_API_KEY_AI_SUMMARY1` | Secondary dedicated Health Brief key | Optional | empty | Summary key chain | Yes |
+| `SUMMARY_LLM_MODEL` | LiteLLM model id for Health Brief (use `gemini/…` prefix) | Optional | `gemini/gemini-3.5-flash-lite` | Summary generation | No |
+| `SUMMARY_MAX_FINDINGS` | Max findings packed into summary snapshot | Optional | `25` | Snapshot builder | No |
+| `SUMMARY_MAX_OUTPUT_TOKENS` | Primary max output tokens for summary LLM | Optional | `8192` | Summary LLM | No |
+| `SUMMARY_MAX_OUTPUT_TOKENS_REPAIR` | Raised token budget after truncation | Optional | `12288` | Summary repair path | No |
+| `SUMMARY_LLM_TIMEOUT_SECONDS` | Per-call timeout; stale `generating` reclaim uses `2×` | Optional | `60` | Summary LLM / single-flight | No |
+| `SUMMARY_LLM_MAX_CALLS` | Max LLM attempts per generate (incl. repairs) | Optional | `4` | Summary LLM | No |
+| `SUMMARY_PROVIDER_BACKOFF_SECONDS` | Backoff between summary key retries | Optional | `1.5` | Summary failover | No |
+| `SUMMARY_RATE_LIMIT_PER_SCAN_PER_HOUR` | Generation attempts per scan per hour | Optional | `3` | Summary rate limit | No |
+| `SUMMARY_RATE_LIMIT_PER_ORG_PER_DAY` | Generation attempts per org per day | Optional | `30` | Summary rate limit | No |
 | `GITHUB_TOKEN` | PAT for remediation PRs | Required for live PR apply | empty | GitHub PR engine | Yes |
 | `API_KEY` | If set, mutating API routes require `X-API-Key` or Bearer | Optional | empty (open in dev) | Backend auth | Yes |
 | `RATE_LIMIT_ENABLED` | Toggle in-memory rate limiter | Optional | `true` | Backend | No |
@@ -54,6 +65,8 @@ Canonical reference derived from `backend/app/core/config.py`, root `.env.exampl
 4. **Embeddings without `OPENAI_API_KEY`:** deterministic hash embeddings are used (`embeddings.py`).
 5. **Required vs optional:** only mark a variable required when the code path you need actually fails without it. Empty `API_KEY` is intentional for local demos.
 6. **`ALLOW_SYNTHETIC_DEMO`:** default `false`. Ignored / blocked in `ENVIRONMENT=production`.
+7. **AI Website Health Brief keys:** ordered unique list `GEMINI_API_KEY_AI_SUMMARY` → `GEMINI_API_KEY_AI_SUMMARY1` → `GEMINI_API_KEY` → `GROQ_API_KEY`. Summary client sets `allow_provider_failover=False` (key-list failover only). Full feature doc: [AI_WEBSITE_HEALTH_BRIEF.md](AI_WEBSITE_HEALTH_BRIEF.md).
+8. **Model naming:** prefer `SUMMARY_LLM_MODEL=gemini/gemini-3.5-flash-lite`. New Gemini keys often 404 older ids such as `gemini-2.5-flash`. This is separate from scan `GEMINI_MODEL`.
 
 ---
 
@@ -63,6 +76,10 @@ Canonical reference derived from `backend/app/core/config.py`, root `.env.exampl
 ENVIRONMENT=development
 DATABASE_URL=postgresql+asyncpg://findable:findable_secret@localhost:5432/findable_db
 GROQ_API_KEY=gsk_your_key_here
+GEMINI_API_KEY_AI_SUMMARY=your_gemini_summary_key
+GEMINI_API_KEY_AI_SUMMARY1=
+SUMMARY_LLM_MODEL=gemini/gemini-3.5-flash-lite
+SUMMARY_MAX_OUTPUT_TOKENS=8192
 GITHUB_TOKEN=
 API_KEY=
 ALLOW_SYNTHETIC_DEMO=false

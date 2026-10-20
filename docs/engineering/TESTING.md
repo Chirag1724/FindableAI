@@ -77,6 +77,8 @@ FindableAI maintains a comprehensive test suite across the backend and frontend.
 | `test_pr_engine_integration.py` | GitHub Integration | End-to-end flow from crawl extraction to pull request generation. |
 | `test_pr_markdown.py` | Reporting | Deterministic PR report Markdown generation, table escaping, secret redaction. |
 | `test_scans_api.py` | API Endpoints | REST endpoints, SSE event streams, 404 handling, parameter validations. |
+| `test_scan_summary.py` | AI Website Health Brief | Verdicts, validation/grounding, hash/schema versions, key order, truncation detection, evidence-gap fill (no PostgreSQL). |
+| `test_scan_summary_pg.py` | AI Website Health Brief (PG) | Cache hit, single-flight, rate limits, tenancy deny, key failover, prepare reuse — requires `FINDABLE_PG_INTEGRATION=1`. |
 
 ---
 
@@ -84,7 +86,10 @@ FindableAI maintains a comprehensive test suite across the backend and frontend.
 
 | Test File | Category | Focus Areas |
 | :--- | :--- | :--- |
-| `src/lib/api.test.ts` | API Client | Fetch wrapper, abort signals, error parsing (`status`, `detail`). |
+| `src/lib/api.test.ts` | API Client | Fetch wrapper, abort signals, error parsing (`status`, `detail`); `getScanSummary` / `generateScanSummary` (incl. 202/409/429). |
+| `src/components/AiHealthBrief.test.tsx` | AI Summary UI | Load → ready, autoGenerate, errors, accordion, tab control. |
+| `src/components/ScanReportTabPanels.test.tsx` | Scan report tabs | Exclusive Overview / Lighthouse / AI Summary panel mounting. |
+| `src/lib/scanReportTabs.test.ts` | Routing | `?tab=summary` tab id parsing. |
 | `src/lib/phases.test.ts` | Utilities | Scan lifecycle phase mappings and state transitions. |
 | `src/lib/format.test.ts` | Utilities | Number formatting, grade color classes, timestamp displays. |
 | `src/lib/diff.test.ts` | Utilities | Unified diff parsing into additions and deletions. |
@@ -120,6 +125,23 @@ pytest tests -v
 cd backend
 pytest tests/test_pr_engine.py -v
 ```
+
+### Run AI Website Health Brief Tests
+```bash
+cd backend
+# Unit (no Postgres)
+pytest tests/test_scan_summary.py -q
+
+# Optional PG integration (disposable Postgres + FINDABLE_PG_INTEGRATION=1)
+pytest tests/test_scan_summary_pg.py -q
+```
+
+```bash
+cd frontend
+npx vitest run src/components/AiHealthBrief.test.tsx src/lib/api.test.ts src/lib/scanReportTabs.test.ts
+```
+
+Canonical feature ops/API notes: [AI_WEBSITE_HEALTH_BRIEF.md](AI_WEBSITE_HEALTH_BRIEF.md).
 
 ### Run Backend Tests with Coverage Report
 ```bash

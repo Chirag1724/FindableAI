@@ -24,6 +24,7 @@
 [Architecture Deep Dive](docs/01_ARCHITECTURE_AND_SYSTEM_DESIGN.md) •
 [Known Limitations & Readiness](docs/engineering/LIMITATIONS_AND_READINESS.md) •
 [System Flow](docs/engineering/SYSTEM_FLOW.md) •
+[AI Website Health Brief](docs/engineering/AI_WEBSITE_HEALTH_BRIEF.md) •
 [Environment Reference](docs/engineering/ENVIRONMENT.md) •
 [Team Task Allocation](docs/04_TEAM_TASK_ALLOCATION.md) •
 [Engineering Docs](docs/engineering/README.md) •
@@ -108,6 +109,9 @@ FindableAI is the first autonomous engine designed to diagnose, score, and remed
 
 6. **Remediation proposals & optional GitHub PRs**
    - Generates unified diffs / Schema.org patches and can open a GitHub PR when credentials allow. **Opening a PR does not verify that the original defect is fixed.**
+
+7. **On-demand AI Website Health Brief (AI Summary)**
+   - After a completed scan, generates a grounded plain-English brief via Gemini (`GET`/`POST /api/v1/scans/{id}/summary`), cached in `scan_summaries` with a precomputed `summary_input` snapshot. Outside the per-scan LLM call budget. Details: [AI_WEBSITE_HEALTH_BRIEF.md](docs/engineering/AI_WEBSITE_HEALTH_BRIEF.md).
 
 ## Findability F-Score Breakdown
 

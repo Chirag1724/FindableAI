@@ -668,7 +668,11 @@ FindableAI/
 
 ## 8. Configuration & Environment Variables
 
-### `.env.example`
+> **Canonical env reference:** [engineering/ENVIRONMENT.md](engineering/ENVIRONMENT.md) (from `config.py` + root `.env.example`).  
+> **AI Website Health Brief keys/model:** [engineering/AI_WEBSITE_HEALTH_BRIEF.md](engineering/AI_WEBSITE_HEALTH_BRIEF.md).  
+> The sample block below is historical / illustrative and may lag code — prefer `.env.example`.
+
+### `.env.example` (illustrative sketch — use repo root `.env.example`)
 
 ```bash
 # ═══════════════════════════════════════════
@@ -694,6 +698,10 @@ CRAWL_CONCURRENCY=5
 
 # ── Budget ──
 MAX_LLM_CALLS_PER_SCAN=35
+
+# ── AI Website Health Brief (on-demand; see engineering docs) ──
+GEMINI_API_KEY_AI_SUMMARY=
+SUMMARY_LLM_MODEL=gemini/gemini-3.5-flash-lite
 
 # ── Frontend ──
 NEXT_PUBLIC_API_URL=http://localhost:8000
