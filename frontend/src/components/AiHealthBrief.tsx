@@ -11,6 +11,7 @@ import {
 } from "react";
 import {
   Sparkles,
+  FileSearch,
   AlertCircle,
   Clock3,
   ChevronDown,
@@ -549,7 +550,7 @@ function ReadyBriefPanel({ summary }: { summary: ScanSummaryResponse }) {
               aria-hidden="true"
               className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-white/[0.05] ring-1 ring-inset ring-white/10"
             >
-              <Sparkles size={12} className="text-violet-400" />
+              <FileSearch size={12} strokeWidth={2} className="text-text-primary" />
             </span>
             <h2 className={`${EYEBROW} !text-text-primary`}>AI Summary</h2>
             <span aria-hidden="true" className="hidden sm:inline h-3 w-px bg-white/10" />
@@ -700,16 +701,10 @@ function ReadyBriefPanel({ summary }: { summary: ScanSummaryResponse }) {
 
       <footer className="relative px-5 sm:px-7 py-3.5 border-t border-white/[0.06] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 bg-surface-secondary/40">
         <p className="text-xs text-text-muted leading-relaxed">
-          Generated from your saved scan. Confirm details in the report below.
+          Generated from your saved scan.
         </p>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-text-muted">
           {summary.model && <span className="font-mono text-[10px]">{summary.model}</span>}
-          {summary.cached && (
-            <span className="inline-flex items-center gap-1.5">
-              <span aria-hidden="true" className="h-1 w-1 rounded-full bg-white/30" />
-              Served from cache
-            </span>
-          )}
         </div>
       </footer>
     </div>
@@ -755,14 +750,11 @@ export function AiSummaryTabControl({
           className="h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent motion-safe:animate-spin"
         />
       ) : (
-        <Sparkles
+        <FileSearch
           size={14}
+          strokeWidth={2}
           aria-hidden="true"
-          className={
-            active
-              ? undefined
-              : "text-violet-400 transition-transform duration-150 group-hover:rotate-12 motion-reduce:transition-none"
-          }
+          className={active ? undefined : "text-text-primary"}
         />
       )}
       <span>AI Summary</span>
