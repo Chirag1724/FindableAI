@@ -1,0 +1,26 @@
+# FindableAI
+
+> Machine Discoverability Optimization (MDO) & Generative Engine Optimization (GEO) platform.
+
+FindableAI audits how well AI search engines (SearchGPT, Perplexity, Google AI Overviews, Gemini, Claude) discover, understand, and ground technical claims about web applications. It calculates an evidence-grounded F-Score, flags factual contradictions using Natural Language Inference (NLI), and opens automated pull requests with Schema.org JSON-LD and DOM fixes.
+
+## Canonical F-Score Metric
+The discoverability score is computed via the canonical four-pillar formula:
+- F = 0.40 * S_ans + 0.30 * S_con + 0.20 * S_str + 0.10 * S_acc (scaled 0-100)
+- S_ans (Answerability): Evaluates claim entailment across synthetic personas (Skeptical CTO, Developer Evaluator, Procurement Officer).
+- S_con (Consistency): Semantic contradiction detection against authoritative page evidence.
+- S_str (Structured Data): Schema.org microdata, JSON-LD graphs, OpenGraph tags, and semantic HTML5 hierarchy.
+- S_acc (Accessibility): Crawlability, server headers, bot directives, and rendering performance.
+
+## Core Endpoints & Resources
+- [Web Application](https://findableai.vercel.app): Interactive web dashboard and visual inspection suite.
+- [Machine Audit Engine](https://findableai.vercel.app/audit): Configure crawl scope (1-25 pages), buyer personas, and GitHub repository.
+- [API Documentation](https://findableai.vercel.app/docs): Interactive FastAPI Swagger UI documentation.
+- [OpenAPI Specification](https://findableai.vercel.app/openapi.json): Machine-readable OpenAPI 3.1 JSON contract for LLM function calling and agent integration.
+- [Full Technical Specification](https://findableai.vercel.app/llms-full.txt): Comprehensive MDO architecture, API schemas, and scoring heuristics.
+
+## Automated PR Engine
+When connected with a GitHub repository, FindableAI autonomously generates and tests:
+- Framework-native Schema.org JSON-LD components (Next.js, Vite, React).
+- AI agent crawl directives (`robots.txt`).
+- High-signal `llms.txt` and `llms-full.txt` files for AI search engine indexing.

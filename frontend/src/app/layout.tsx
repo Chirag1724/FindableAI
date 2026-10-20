@@ -78,6 +78,9 @@ export const metadata: Metadata = {
     images: ["/logo.png"],
     creator: "@FindableAI",
   },
+  alternates: {
+    canonical: "/",
+  },
   robots: {
     index: true,
     follow: true,
@@ -91,6 +94,58 @@ export const metadata: Metadata = {
   },
 };
 
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://findableai.vercel.app/#organization",
+      "name": "FindableAI",
+      "url": "https://findableai.vercel.app",
+      "logo": {
+        "@type": "ImageObject",
+        "url": "https://findableai.vercel.app/logo.png",
+        "width": 1200,
+        "height": 630,
+      },
+      "description":
+        "Autonomous Machine Discoverability Optimization (MDO) & Generative Engine Optimization (GEO) platform.",
+      "sameAs": ["https://github.com/Chirag1724/FindableAI"],
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://findableai.vercel.app/#software",
+      "name": "FindableAI",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "All",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD",
+      },
+      "description":
+        "Audit how well AI search engines find and trust your website. Calculate your F-Score, detect factual contradictions, and open automated code remediation pull requests.",
+      "publisher": {
+        "@id": "https://findableai.vercel.app/#organization",
+      },
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://findableai.vercel.app/#website",
+      "url": "https://findableai.vercel.app",
+      "name": "FindableAI",
+      "publisher": {
+        "@id": "https://findableai.vercel.app/#organization",
+      },
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://findableai.vercel.app/audit?url={search_term_string}",
+        "query-input": "required name=search_term_string",
+      },
+    },
+  ],
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -102,6 +157,10 @@ export default function RootLayout({
       className={`dark ${GeistSans.variable} ${GeistMono.variable}`}
     >
       <body className="min-h-screen bg-background text-[#EDEDED] antialiased selection:bg-white selection:text-black">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
         {children}
       </body>
     </html>
