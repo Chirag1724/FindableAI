@@ -33,7 +33,7 @@ class HealthCheckResponse(BaseModel):
 
 
 @router.get("/health", response_model=HealthCheckResponse)
-async def health_check():
+async def health_check() -> HealthCheckResponse:
     """Liveness: process is up. Does not probe DB (avoids restart loops).
 
     Use ``/ready`` for database and queue dependency checks.
@@ -50,7 +50,7 @@ async def health_check():
 
 
 @router.get("/ready", response_model=HealthCheckResponse)
-async def readiness_check():
+async def readiness_check() -> HealthCheckResponse:
     """Readiness: API + database + durable queue observability (no secrets)."""
     from app.core.auth import is_production_environment, production_api_key_configured
 
