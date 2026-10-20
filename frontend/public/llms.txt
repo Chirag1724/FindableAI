@@ -1,0 +1,7 @@
+# FindableAI
+
+> Official AI search and agent knowledge manifest for FindableAI.
+
+## Resources
+
+- [Audit](https://findableai.vercel.app/audit): General information and resources
