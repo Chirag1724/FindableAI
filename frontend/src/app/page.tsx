@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
@@ -22,39 +22,32 @@ import {
 } from "lucide-react";
 import { getHealth } from "@/lib/api";
 import type { FScoreBreakdown } from "@/types/scan";
-import dynamic from "next/dynamic";
+import { ScoreGauge } from "@/components/ScoreGauge";
+import { LighthouseGauge } from "@/components/LighthouseGauge";
+import { CrawlInspector } from "@/components/CrawlInspector";
+import { IntentSimulator } from "@/components/IntentSimulator";
+import { ContradictionInspector } from "@/components/ContradictionInspector";
+import { ArchitecturePillars } from "@/components/ArchitecturePillars";
 import { GaugeSkeleton } from "@/components/Skeletons";
-import { gsap, EASING, prefersReducedMotion } from "@/lib/motion";
+import { gsap, ScrollTrigger, EASING, prefersReducedMotion } from "@/lib/motion";
 
-const ScoreGauge = dynamic(
-  () => import("@/components/ScoreGauge").then((mod) => mod.ScoreGauge),
-  { ssr: false, loading: () => <GaugeSkeleton /> }
-);
-
-const LighthouseGauge = dynamic(
-  () => import("@/components/LighthouseGauge").then((mod) => mod.LighthouseGauge),
-  { ssr: false, loading: () => <div className="h-64 rounded-xl bg-surface animate-pulse" /> }
-);
-
-const CrawlInspector = dynamic(
-  () => import("@/components/CrawlInspector").then((mod) => mod.CrawlInspector),
-  { ssr: false, loading: () => <div className="h-72 rounded-xl bg-surface animate-pulse" /> }
-);
-
-const IntentSimulator = dynamic(
-  () => import("@/components/IntentSimulator").then((mod) => mod.IntentSimulator),
-  { ssr: false, loading: () => <div className="h-72 rounded-xl bg-surface animate-pulse" /> }
-);
-
-const ContradictionInspector = dynamic(
-  () => import("@/components/ContradictionInspector").then((mod) => mod.ContradictionInspector),
-  { ssr: false, loading: () => <div className="h-72 rounded-xl bg-surface animate-pulse" /> }
-);
-
-const ArchitecturePillars = dynamic(
-  () => import("@/components/ArchitecturePillars").then((mod) => mod.ArchitecturePillars),
-  { ssr: false, loading: () => <div className="h-48 rounded-xl bg-surface animate-pulse" /> }
-);
+/**
+ * Home demo widgets (especially Recharts) can break SSR. Mount them only
+ * after hydration so the page never gets stuck on next/dynamic loading shells.
+ */
+function ClientDemo({
+  children,
+  fallback,
+}: {
+  children: ReactNode;
+  fallback: ReactNode;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  return <>{mounted ? children : fallback}</>;
+}
 
 const DOCS_URL = process.env.NEXT_PUBLIC_API_URL
   ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")}/docs`
@@ -202,31 +195,48 @@ export default function HomePage() {
       if (heroRef.current) {
         gsap.from("[data-hero-reveal]", {
           y: 20,
-          opacity: 0,
+          autoAlpha: 0,
           duration: 0.5,
           stagger: 0.08,
           ease: EASING.entrance,
+          immediateRender: false,
+          clearProps: "transform",
         });
       }
 
       // 2. ScrollTrigger Section Fade-up Reveals
+      // immediateRender:false avoids leaving sections stuck at opacity:0 when
+      // ScrollTrigger is created before layout settles (dynamic demo mounts).
       const sections = gsap.utils.toArray<HTMLElement>("[data-reveal-section]");
       sections.forEach((sec) => {
         gsap.from(sec, {
           scrollTrigger: {
             trigger: sec,
-            start: "top 88%",
+            start: "top 90%",
             toggleActions: "play none none none",
+            once: true,
           },
           y: 28,
-          opacity: 0,
+          autoAlpha: 0,
           duration: 0.65,
           ease: EASING.entrance,
+          immediateRender: false,
+          clearProps: "transform",
         });
       });
     });
 
-    return () => ctx.revert();
+    // Refresh after paint + after ClientDemo mounts so triggers match real heights.
+    const refreshId = window.requestAnimationFrame(() => {
+      ScrollTrigger.refresh();
+    });
+    const refreshTimer = window.setTimeout(() => ScrollTrigger.refresh(), 100);
+
+    return () => {
+      window.cancelAnimationFrame(refreshId);
+      window.clearTimeout(refreshTimer);
+      ctx.revert();
+    };
   }, []);
 
   return (
@@ -542,7 +552,9 @@ export default function HomePage() {
 
           {/* Focused UI Artifact: Live DOM Extraction & Chunking Inspector */}
           <div className="w-full">
-            <CrawlInspector />
+            <ClientDemo fallback={<div className="h-72 rounded-xl bg-surface animate-pulse" />}>
+              <CrawlInspector />
+            </ClientDemo>
           </div>
 
           {/* Bolded single-sentence caption */}
@@ -581,7 +593,9 @@ export default function HomePage() {
 
           {/* Focused UI Artifact: Live Synthetic Buyer Intent Simulator */}
           <div className="w-full">
-            <IntentSimulator />
+            <ClientDemo fallback={<div className="h-72 rounded-xl bg-surface animate-pulse" />}>
+              <IntentSimulator />
+            </ClientDemo>
           </div>
 
           {/* Bolded single-sentence caption */}
@@ -591,7 +605,9 @@ export default function HomePage() {
         </section>
 
         {/* Section 4: Architecture Pillars (Visual 3-Card Grid) */}
-        <ArchitecturePillars />
+        <ClientDemo fallback={<div className="h-48 rounded-xl bg-surface animate-pulse max-w-7xl mx-auto w-full" />}>
+          <ArchitecturePillars />
+        </ClientDemo>
 
         {/* Section 5: Feature 3 - Contradiction Detection */}
         <section id="contradictions" data-reveal-section className="mb-10 sm:mb-12 lg:mb-16 scroll-mt-20 pt-1 max-w-7xl mx-auto w-full">
@@ -623,7 +639,9 @@ export default function HomePage() {
 
           {/* Focused UI Artifact: Live NLI Cross-Page Contradiction Inspector */}
           <div className="w-full">
-            <ContradictionInspector />
+            <ClientDemo fallback={<div className="h-72 rounded-xl bg-surface animate-pulse" />}>
+              <ContradictionInspector />
+            </ClientDemo>
           </div>
 
           {/* Bolded single-sentence caption */}
@@ -662,7 +680,9 @@ export default function HomePage() {
 
           {/* Focused UI Artifact: 3-Card Bento + 4-Column Diagnostic Grid */}
           <div className="w-full">
-            <ScoreGauge fScore={SAMPLE_FSCORE} />
+            <ClientDemo fallback={<GaugeSkeleton />}>
+              <ScoreGauge fScore={SAMPLE_FSCORE} />
+            </ClientDemo>
           </div>
 
           {/* Bolded single-sentence caption */}
@@ -718,38 +738,48 @@ export default function HomePage() {
 
             {/* 4 Engine Gauges in a Full-Width Row */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 p-3 sm:p-4 bg-surface/30">
-              <LighthouseGauge
-                score={92}
-                label="ChatGPT"
-                engineKey="chatgpt"
-                icon={Bot}
-                accentColorClass="text-emerald-400"
-                criteria={SAMPLE_LIGHTHOUSE_CRITERIA.chatgpt}
-              />
-              <LighthouseGauge
-                score={86}
-                label="Gemini"
-                engineKey="gemini"
-                icon={FileCode2}
-                accentColorClass="text-sky-400"
-                criteria={SAMPLE_LIGHTHOUSE_CRITERIA.gemini}
-              />
-              <LighthouseGauge
-                score={64}
-                label="Perplexity"
-                engineKey="perplexity"
-                icon={Search}
-                accentColorClass="text-amber-400"
-                criteria={SAMPLE_LIGHTHOUSE_CRITERIA.perplexity}
-              />
-              <LighthouseGauge
-                score={78}
-                label="Claude"
-                engineKey="claude"
-                icon={ShieldCheck}
-                accentColorClass="text-violet-400"
-                criteria={SAMPLE_LIGHTHOUSE_CRITERIA.claude}
-              />
+              <ClientDemo
+                fallback={
+                  <>
+                    {[0, 1, 2, 3].map((i) => (
+                      <div key={i} className="h-64 rounded-xl bg-surface animate-pulse" />
+                    ))}
+                  </>
+                }
+              >
+                <LighthouseGauge
+                  score={92}
+                  label="ChatGPT"
+                  engineKey="chatgpt"
+                  icon={Bot}
+                  accentColorClass="text-emerald-400"
+                  criteria={SAMPLE_LIGHTHOUSE_CRITERIA.chatgpt}
+                />
+                <LighthouseGauge
+                  score={86}
+                  label="Gemini"
+                  engineKey="gemini"
+                  icon={FileCode2}
+                  accentColorClass="text-sky-400"
+                  criteria={SAMPLE_LIGHTHOUSE_CRITERIA.gemini}
+                />
+                <LighthouseGauge
+                  score={64}
+                  label="Perplexity"
+                  engineKey="perplexity"
+                  icon={Search}
+                  accentColorClass="text-amber-400"
+                  criteria={SAMPLE_LIGHTHOUSE_CRITERIA.perplexity}
+                />
+                <LighthouseGauge
+                  score={78}
+                  label="Claude"
+                  engineKey="claude"
+                  icon={ShieldCheck}
+                  accentColorClass="text-violet-400"
+                  criteria={SAMPLE_LIGHTHOUSE_CRITERIA.claude}
+                />
+              </ClientDemo>
             </div>
 
             {/* Diagnostic Summary Telemetry */}
