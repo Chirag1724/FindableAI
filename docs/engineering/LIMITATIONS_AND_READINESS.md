@@ -4,7 +4,7 @@
 
 **Evidence date:** working tree after P0 integrity + P1 persistence + pre-commit hardening. This document does **not** claim that live provider calls, production deploys, or full CI runs were executed during documentation updates.
 
-**Related:** [ADR-001 F-Score](ARCHITECTURE_DECISIONS.md#adr-001-canonical-f-score-weight-formulation) · [DURABLE_JOBS.md](DURABLE_JOBS.md) · [SYSTEM_FLOW.md](SYSTEM_FLOW.md) · [FRONTEND_INTEGRITY_CONTRACT.md](FRONTEND_INTEGRITY_CONTRACT.md) · [ROADMAP.md](ROADMAP.md) · [docs/04 §10](../04_TEAM_TASK_ALLOCATION.md#10-production-readiness-roadmap)
+**Related:** [ADR-001 F-Score](ARCHITECTURE_DECISIONS.md#adr-001-canonical-f-score-weight-formulation) · [DURABLE_JOBS.md](DURABLE_JOBS.md) · [SYSTEM_FLOW.md](SYSTEM_FLOW.md) · [AI_WEBSITE_HEALTH_BRIEF.md](AI_WEBSITE_HEALTH_BRIEF.md) · [FRONTEND_INTEGRITY_CONTRACT.md](FRONTEND_INTEGRITY_CONTRACT.md) · [ROADMAP.md](ROADMAP.md) · [docs/04 §10](../04_TEAM_TASK_ALLOCATION.md#10-production-readiness-roadmap)
 
 ---
 
@@ -37,6 +37,7 @@ Do **not** describe the product as production-ready solely because Dockerfiles, 
 | **Remediation LLM budget** | Scan BudgetGuard + remediation helpers | Apply/verify are non-LLM; optional remediation LLM must `reserve()` first; exhaustion blocks mutation when LLM required | No separate USD ledger for GitHub API calls (rate limit only). |
 | **Hard-failure handling** | Implemented | `_finalize_hard_failure` sets failed/partial integrity, `remediation_eligible=False`, sanitized public/SSE errors, best-effort DB persist | If DB is down during failure, durability is best-effort (logged); in-memory/API state still fail-closed. |
 | **Deployment & ops** | Partial (Phase 3 queue in code) | `scan_jobs` + `python -m app.worker`; Compose `worker` service; `/ready` | Live multi-worker deploy **unverified**. Redis still unused as broker. `SCAN_JOB_INLINE_FALLBACK` must be false in production. PG SKIP LOCKED tests require `FINDABLE_PG_INTEGRATION=1`. |
+| **AI Website Health Brief** | Implemented (on-demand) | `GET`/`POST …/summary`; `scan_summaries` + `summary_input` (`0018`/`0019`); Gemini via `SUMMARY_*` / dedicated keys; unit + PG tests in tree | Live Gemini success **environment-dependent**. Manual `scripts/live_proof_summary.py` may be stale vs v2 schemas. Distinct from crawl `AuditSummary`. |
 
 ---
 

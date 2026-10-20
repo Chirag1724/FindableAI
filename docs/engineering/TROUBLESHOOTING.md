@@ -14,6 +14,7 @@ This runbook documents verified solutions for real issues encountered during the
 6. [Alembic Module Resolution Error on Headless Execution](#6-alembic-module-resolution-error-on-headless-execution)
 7. [F-Score Delta Floating-Point Validation Error](#7-f-score-delta-floating-point-validation-error)
 8. [Scan Completes in Fallback Mode with Synthetic or Empty Intents](#8-scan-completes-in-fallback-mode-with-synthetic-or-empty-intents)
+9. [AI Website Health Brief Returns 502 / 429 / Model Access Errors](#9-ai-website-health-brief-returns-502--429--model-access-errors)
 
 ---
 
@@ -122,3 +123,28 @@ This runbook documents verified solutions for real issues encountered during the
   2. `GET /api/v1/scans/{id}` → `execution_mode`, `llm_calls_made`, `data_source`.
   3. `GET /api/v1/scans/{id}/intents` vs summary `intents_generated` (multi-worker / restart hydrate can diverge).
 - **Product note:** Synthetic or empty intelligence is **not** a successful real-LLM audit. This is a known honesty gap — see [LIMITATIONS_AND_READINESS.md](LIMITATIONS_AND_READINESS.md). Do not “fix” it by documenting it as success.
+
+---
+
+### 9. AI Website Health Brief Returns 502 / 429 / Model Access Errors
+
+Canonical reference: [AI_WEBSITE_HEALTH_BRIEF.md](AI_WEBSITE_HEALTH_BRIEF.md).
+
+- **Symptom:**
+  `POST /api/v1/scans/{id}/summary` returns `502` with `reason` `provider_auth_error`, `provider_model_rejected`, or `summary_generation_failed`; or `429` with `summary_rate_limited`; UI AI Summary tab shows an error / stays empty.
+- **Root Cause (by `reason`):**
+  1. **`provider_auth_error`:** No usable key in `GEMINI_API_KEY_AI_SUMMARY` → `GEMINI_API_KEY_AI_SUMMARY1` → `GEMINI_API_KEY` → `GROQ_API_KEY`.
+  2. **`provider_model_rejected`:** Model id not allowed for the key (common with new Gemini keys vs older `gemini-2.5-flash` ids).
+  3. **`summary_generation_failed`:** Validation failure after repair, truncation, or unhandled provider error. Low `SUMMARY_MAX_OUTPUT_TOKENS` (e.g. 2048) truncates structured JSON mid-schema.
+  4. **`summary_rate_limited`:** Hit `SUMMARY_RATE_LIMIT_PER_SCAN_PER_HOUR` (default 3) or `SUMMARY_RATE_LIMIT_PER_ORG_PER_DAY` (default 30).
+- **Fix:**
+  1. Set dedicated summary keys (placeholders only in docs/commits): `GEMINI_API_KEY_AI_SUMMARY=…`.
+  2. Set `SUMMARY_LLM_MODEL=gemini/gemini-3.5-flash-lite` (or another Flash-class id allowed for your key).
+  3. Keep `SUMMARY_MAX_OUTPUT_TOKENS≥8192` (repair path uses `SUMMARY_MAX_OUTPUT_TOKENS_REPAIR`, default 12288).
+  4. For `429`, wait `retry_after` seconds or raise rate-limit env vars deliberately.
+  5. Ensure Alembic head includes `0018_scan_summaries` and `0019_summary_input_snapshot`.
+  6. Confirm scan is `completed` with outcome `success` or `partial` (`409` otherwise).
+- **Notes:**
+  - Summary generation runs in the **API** process on POST; configure keys on the web service.
+  - Summary LLM calls are **outside** `MAX_LLM_CALLS_PER_SCAN`.
+  - Do not confuse with `GET /scans/{id}` field `summary` (`AuditSummary` crawl stats).

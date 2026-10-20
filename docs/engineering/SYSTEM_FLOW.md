@@ -160,6 +160,17 @@ flowchart TD
   3. For modern frontend frameworks (Next.js App Router, Pages Router, React Router, Vue, Astro), `framework_adapter.py` synthesizes standalone, type-safe components (e.g. `src/components/JsonLd.tsx`).
   4. Verified unified diffs (`--- a/index.html`, `+++ b/index.html`) and score delta projections are bound to each patch proposal.
   5. The worker transitions status to `ScanStatus.COMPLETED` (100% progress), persisting all records to database and memory.
+  6. **AI Website Health Brief input (no LLM):** best-effort `prepare_summary_input()` persists a versioned grounded snapshot on `scans.summary_input` / `summary_input_hash` / `summary_input_prepared_at` (Alembic `0019`). This is separate from crawl `AuditSummary` stats.
+
+### Stage 10b: On-demand AI Website Health Brief (optional)
+
+After the scan is completed, the user may open the **AI Summary** tab. This path is **not** part of the crawl DAG budget:
+
+1. Frontend `GET /api/v1/scans/{id}/summary` — cache lookup only.
+2. Frontend `POST /api/v1/scans/{id}/summary` — generate via Gemini (`SUMMARY_LLM_MODEL`) or return cache; validate/repair; persist `scan_summaries` (`0018`).
+3. Concurrent POSTs single-flight (`202 generating`); UI may poll GET until `ready`.
+
+Canonical reference: [AI_WEBSITE_HEALTH_BRIEF.md](AI_WEBSITE_HEALTH_BRIEF.md).
 
 ### Stage 11: GitHub PR Engine Execution & Three-Tier Resolution
 - **Components Responsible:** [`backend/app/api/v1/scans.py`](../../backend/app/api/v1/scans.py) (`apply_scan_patch()`), [`backend/app/github/pr_engine.py`](../../backend/app/github/pr_engine.py) (`GitHubPRService.create_remediation_pr()`), [`backend/app/engines/framework_adapter.py`](../../backend/app/engines/framework_adapter.py), [`backend/app/github/client.py`](../../backend/app/github/client.py)

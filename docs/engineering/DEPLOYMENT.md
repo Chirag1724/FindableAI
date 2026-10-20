@@ -45,7 +45,11 @@ All configuration is parsed and validated at application startup using Pydantic 
 | `DEFAULT_LLM_MODEL` | Backend | Optional | `groq/qwen/qwen3.8-27b` | Model identifier string used by LiteLLM and Instructor. |
 | `OPENAI_API_KEY` | Backend | Optional | `""` | Secondary fallback provider key. |
 | `ANTHROPIC_API_KEY` | Backend | Optional | `""` | Secondary fallback provider key. |
-| `GEMINI_API_KEY` | Backend | Optional | `""` | Secondary fallback provider key. |
+| `GEMINI_API_KEY` | Backend | Optional | `""` | Secondary fallback provider key; also 3rd fallback for AI Website Health Brief. |
+| `GEMINI_API_KEY_AI_SUMMARY` | Backend (web) | Optional | `""` | Primary dedicated key for on-demand AI Summary. Synced in `render.yaml` for web + worker. |
+| `GEMINI_API_KEY_AI_SUMMARY1` | Backend (web) | Optional | `""` | Secondary dedicated AI Summary key. |
+| `SUMMARY_LLM_MODEL` | Backend | Optional | `gemini/gemini-3.5-flash-lite` | Health Brief model id (`render.yaml` sets this explicitly). |
+| `SUMMARY_MAX_OUTPUT_TOKENS` | Backend | Optional | `8192` | Health Brief max output tokens (`render.yaml` sets `"8192"`). |
 | `GITHUB_TOKEN` | Backend | Optional | `""` | Personal Access Token (PAT) with `repo` or `public_repo` scope. Required only when users click "Create Pull Request". |
 | `API_KEY` | Backend | Optional | `""` | Master API secret. If configured, enforces `X-API-Key` or `Bearer` authentication on mutating endpoints. |
 | `RATE_LIMIT_ENABLED` | Backend | Optional | `true` | Master switch for in-memory sliding-window rate limiting. |
@@ -141,3 +145,7 @@ docker run -d -p 3000:3000 \
      cd backend
      alembic upgrade head
      ```
+   - AI Website Health Brief requires heads through **`0019_summary_input_snapshot`** (`scan_summaries` + `scans.summary_input*`).
+
+5. **AI Website Health Brief keys on the web service:**
+   - Generation runs in the API process on `POST /api/v1/scans/{id}/summary`. Set `GEMINI_API_KEY_AI_SUMMARY` (and optional `…_SUMMARY1`) plus `SUMMARY_LLM_MODEL` on the **web** service (`render.yaml` already declares these). See [AI_WEBSITE_HEALTH_BRIEF.md](AI_WEBSITE_HEALTH_BRIEF.md).

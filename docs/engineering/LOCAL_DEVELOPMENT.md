@@ -32,7 +32,7 @@ cp .env.example .env
 cp .env.example backend/.env
 ```
 
-Edit `.env` to configure your keys (e.g. `GROQ_API_KEY` for live AI generation, `GITHUB_TOKEN` for pull request testing).
+Edit `.env` to configure your keys (e.g. `GROQ_API_KEY` for live AI generation, `GEMINI_API_KEY_AI_SUMMARY` for on-demand **AI Summary**, `GITHUB_TOKEN` for pull request testing). See [ENVIRONMENT.md](ENVIRONMENT.md) and [AI_WEBSITE_HEALTH_BRIEF.md](AI_WEBSITE_HEALTH_BRIEF.md).
 
 ---
 
@@ -83,7 +83,9 @@ cd backend
 alembic upgrade head
 ```
 
-*Note: FindableAI includes a process-local memory store (`SCANS_DB`). The backend can run scans if PostgreSQL is offline, but results will not survive restart / multi-worker handoff. Redis is optional and **unused by application code** today (rate limits are in-memory; jobs use FastAPI `BackgroundTasks`).*
+Migrations **`0018_scan_summaries`** and **`0019_summary_input_snapshot`** are required for AI Website Health Brief cache + `scans.summary_input` persistence.
+
+*Note: FindableAI includes a process-local memory store (`SCANS_DB`). The backend can run scans if PostgreSQL is offline, but results will not survive restart / multi-worker handoff. Redis is optional and **unused by application code** today (rate limits are in-memory; durable scans use the job worker when enabled).*
 
 ---
 

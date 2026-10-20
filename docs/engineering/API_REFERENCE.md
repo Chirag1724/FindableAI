@@ -296,6 +296,81 @@ Fetches deterministic AI Lighthouse per-engine readiness scores (ChatGPT, Gemini
 
 ---
 
+### AI Website Health Brief (on-demand AI Summary)
+
+> **Canonical deep dive:** [AI_WEBSITE_HEALTH_BRIEF.md](AI_WEBSITE_HEALTH_BRIEF.md).  
+> Do **not** confuse with the `summary` object on `GET /api/v1/scans/{id}` (crawl/stats `AuditSummary`).
+
+#### `GET /api/v1/scans/{scan_id}/summary`
+Returns the cached brief for the current grounded input hash, or `status: "none"` if no ready row exists. **Does not call the LLM.**
+
+- **Auth:** Scans router `verify_api_key` + `OrgAction.READ_SCANS` (see Health Brief doc).
+- **Alias:** `/api/scans/{scan_id}/summary`
+- **Body:** none
+- **Success:** `200 OK` with `SummaryResponse` (`status` may be `none` or `ready`)
+- **Errors:** `401` / `403` / `404`
+
+#### `POST /api/v1/scans/{scan_id}/summary`
+Generates a grounded Website Health Brief or returns an existing cache hit. Outside the per-scan `MAX_LLM_CALLS_PER_SCAN` budget.
+
+- **Auth:** Same as GET (`READ_SCANS`)
+- **Alias:** `/api/scans/{scan_id}/summary`
+- **Body:** none
+- **Response model:** `SummaryResponse` ([backend/app/schemas/summary.py](../../backend/app/schemas/summary.py))
+
+| HTTP | `status` | Typical `reason` |
+| :--- | :--- | :--- |
+| `200` | `ready` | Cache hit or fresh generation (`cached` true/false) |
+| `202` | `generating` | `summary_generating` |
+| `409` | `none` | `scan_queued` / `scan_running` / `scan_failed` / `scan_cancelled` / `scan_ineligible` |
+| `429` | `failed` | `summary_rate_limited` (+ `retry_after`) |
+| `502` | `failed` | `summary_generation_failed` / `provider_auth_error` / `provider_model_rejected` |
+
+```bash
+# Inspect cache (no LLM)
+curl -sS -H "X-API-Key: YOUR_API_KEY" \
+  "http://localhost:8000/api/v1/scans/SCAN_ID/summary"
+
+# Generate or return cached brief
+curl -sS -X POST -H "X-API-Key: YOUR_API_KEY" \
+  "http://localhost:8000/api/v1/scans/SCAN_ID/summary"
+```
+
+Redacted ready payload:
+
+```json
+{
+  "status": "ready",
+  "verdict": "issues_found",
+  "overall_assessment": {
+    "text": "Hours appear inconsistent across pages.",
+    "fact_ids": ["C_total", "E_contradicted_count"]
+  },
+  "what_the_scan_found": [
+    { "text": "Two hour ranges appear in evidence.", "fact_ids": ["C_<uuid>"] }
+  ],
+  "why_it_matters": [
+    { "text": "Visitors may arrive when you are closed.", "fact_ids": ["C_<uuid>"] }
+  ],
+  "evidence_gaps": [],
+  "next_steps": [
+    {
+      "text": "Publish one hours block site-wide.",
+      "priority": "high",
+      "fact_ids": ["C_<uuid>"]
+    }
+  ],
+  "limitations": "Grounded only in this scan’s stored evidence.",
+  "model": "gemini/gemini-3.5-flash-lite",
+  "cached": false,
+  "generated_at": "2026-10-20T04:12:00.000000Z"
+}
+```
+
+Config keys: `GEMINI_API_KEY_AI_SUMMARY`, `GEMINI_API_KEY_AI_SUMMARY1`, `SUMMARY_LLM_MODEL` (default `gemini/gemini-3.5-flash-lite`). See [ENVIRONMENT.md](ENVIRONMENT.md).
+
+---
+
 ### 5. Stream Scan Progress (Server-Sent Events)
 
 #### `GET /api/v1/scans/{scan_id}/stream`
