@@ -1,0 +1,47 @@
+# FindableAI — Full Technical Specification for AI Agents & Search Engines
+
+> Machine Discoverability Optimization (MDO) & Generative Engine Optimization (GEO) platform.
+
+FindableAI bridges the gap between traditional SEO and generative AI discoverability. When autonomous agents (like Perplexity, SearchGPT, Claude, Gemini, or enterprise AI retrieval bots) query technical domains, FindableAI ensures domain claims are verifiable, machine-readable, and free from contradictory claims.
+
+## 1. System Architecture
+
+The platform consists of:
+1. **Frontend**: Next.js 14 App Router, TypeScript, Tailwind CSS, Lucide icons, GSAP animations, Recharts analytics.
+2. **Backend**: FastAPI 0.111+, Python 3.11+, SQLAlchemy 2.0 (asyncpg), PostgreSQL 16 with pgvector.
+3. **Queue & Broker**: Upstash Redis / PostgreSQL durable scan jobs queue.
+4. **LLM Engine**: Multi-tiered rotation across Groq (Qwen / GPT-OSS), Google Gemini 2.5 Flash, and OpenAI fallback.
+
+## 2. The Canonical F-Score Equation
+
+Domain discoverability is scored between 0 and 100:
+`F = 0.40 * S_ans + 0.30 * S_con + 0.20 * S_str + 0.10 * S_acc`
+
+### Sub-Score Breakdown:
+- **Answerability (S_ans, 40% weight)**: Measures how effectively autonomous buyer personas can ground their technical questions using authoritative page evidence.
+  - Personas:
+    1. *Skeptical CTO*: Validates security certifications (SOC 2, ISO 27001), architectural boundaries, SLA uptime claims, and enterprise readiness.
+    2. *Developer Evaluator*: Inspects API documentation, SDKs, authentication patterns, code snippets, and rate limits.
+    3. *Procurement Officer*: Verifies pricing tiers, billing frequency, cancellation terms, data retention, and compliance.
+- **Consistency (S_con, 30% weight)**: Natural Language Inference (NLI) pipeline flags semantic contradictions (e.g. "Free forever" on landing page vs "Credit card required after 14 days" on pricing page).
+- **Structured Data (S_str, 20% weight)**: Presence, validity, and depth of Schema.org JSON-LD microdata (`SoftwareApplication`, `Organization`, `FAQPage`, `Product`), semantic HTML headings (`h1` through `h3`), and Open Graph metadata.
+- **Accessibility & Speed (S_acc, 10% weight)**: Google Lighthouse integration measuring Time to First Byte (TTFB), First Contentful Paint (FCP), machine crawlability, and HTTP security headers.
+
+## 3. Machine-Readable API Endpoints
+
+All endpoints are hosted at `https://findableai.vercel.app` (proxied to backend):
+
+- `POST /api/v1/scans`: Trigger an audit scan.
+  - Body: `{"url": "https://example.com", "max_pages": 5, "personas": ["cto", "developer", "procurement"], "repo_url": "https://github.com/org/repo"}`
+- `GET /api/v1/scans/{id}`: Fetch complete scan results, F-Score breakdown, and proposed patches.
+- `GET /api/v1/scans/{id}/stream`: Real-time Server-Sent Events (SSE) streaming progress of crawl, intent generation, NLI evaluation, and remediation.
+- `POST /api/v1/scans/{id}/patches/apply`: Open automated GitHub pull request with verified Schema.org and `robots.txt` patches.
+- `GET /docs`: Interactive Swagger documentation.
+- `GET /openapi.json`: Machine-readable OpenAPI 3.1 specification.
+
+## 4. Remediation Engine
+
+FindableAI does not just audit; it writes code. It generates minimal, verified git diffs for:
+- Framework-native JSON-LD (`JsonLd.tsx` / `<script type="application/ld+json">`).
+- AI search crawler allowances in `robots.txt`.
+- AI discoverability manifests (`llms.txt`).
